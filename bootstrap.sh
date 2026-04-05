@@ -84,7 +84,7 @@ PROJECT_PATH="$(cd "$PROJECT_PATH" && pwd)"
 echo ""
 info "Installing orchestration extension..."
 
-ORCH_URL="https://github.com/SteeZyT33/spec-kit-orchestration/archive/refs/tags/v1.1.0.zip"
+ORCH_URL="https://github.com/SteeZyT33/spec-kit-orchestration/archive/refs/tags/v1.2.0.zip"
 
 # Check if already installed
 if [[ -d "${PROJECT_PATH}/.specify/extensions/orchestration" ]]; then
