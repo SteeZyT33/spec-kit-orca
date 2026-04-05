@@ -15,19 +15,19 @@ requires:
 
 provides:
   commands:
-    - name: "speckit.review"
+    - name: "speckit.orchestration.review"
       file: "commands/review.md"
       description: "Post-implementation review: spec compliance, code quality, security, tiered fixes, phase PRs, and GitHub comment management."
 
-    - name: "speckit.assign"
+    - name: "speckit.orchestration.assign"
       file: "commands/assign.md"
       description: "Assign best-fit agents to tasks based on capabilities, context detection, and confidence scoring."
 
-    - name: "speckit.crossreview"
+    - name: "speckit.orchestration.crossreview"
       file: "commands/crossreview.md"
       description: "Cross-harness adversarial review using a different AI model for independent validation."
 
-    - name: "speckit.self-review"
+    - name: "speckit.orchestration.self-review"
       file: "commands/self-review.md"
       description: "Process retrospective that evaluates workflow effectiveness and dispatches agents to improve extension commands."
 
@@ -39,13 +39,13 @@ provides:
 
 hooks:
   after_implement:
-    command: "speckit.review"
+    command: "speckit.orchestration.review"
     optional: true
     prompt: "Run post-implementation review?"
     description: "Optionally start review after implementation completes"
 
   after_review:
-    command: "speckit.crossreview"
+    command: "speckit.orchestration.crossreview"
     optional: true
     prompt: "Run cross-harness adversarial review?"
     description: "Optionally validate with a different AI harness after review"
