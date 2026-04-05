@@ -2,9 +2,9 @@ schema_version: "1.0"
 
 extension:
   id: "orchestration"
-  name: "Orchestration — Review, Assign & Cross-Review"
-  version: "1.0.0"
-  description: "Spec-compliant code review with tiered fixes, agent-to-task assignment, and cross-harness adversarial review."
+  name: "Orchestration — Review, Assign, Cross-Review & Self-Review"
+  version: "1.1.0"
+  description: "Spec-compliant code review with tiered fixes, agent assignment, cross-harness adversarial review, and process self-improvement."
   author: "SteeZyT33"
   repository: "https://github.com/SteeZyT33/spec-kit-orchestration"
   license: "MIT"
@@ -27,10 +27,14 @@ provides:
       file: "commands/crossreview.md"
       description: "Cross-harness adversarial review using a different AI model for independent validation."
 
+    - name: "speckit.self-review"
+      file: "commands/self-review.md"
+      description: "Process retrospective that evaluates workflow effectiveness and dispatches agents to improve extension commands."
+
   config:
-    - name: "review-config.yml"
+    - name: "orchestration-config.yml"
       template: "config-template.yml"
-      description: "Review and cross-review configuration (harness, model, effort, exclusions)"
+      description: "Review, cross-review, and self-review configuration"
       required: false
 
 hooks:
@@ -46,9 +50,23 @@ hooks:
     prompt: "Run cross-harness adversarial review?"
     description: "Optionally validate with a different AI harness after review"
 
+# Companion extensions installed by the bootstrap script.
+# These are NOT dependencies — the orchestration extension works without them.
+# They complement the workflow when present.
+companions:
+  - id: "superb"
+    why: "TDD enforcement, superpowers-based verification gates, and debug escalation protocol"
+  - id: "verify"
+    why: "Evidence-based completion validation — complements review by gating task completion"
+  - id: "reconcile"
+    why: "Drift detection between spec and implementation — feeds into crossreview findings"
+  - id: "status"
+    why: "Workflow progress dashboard — shows where you are in the SDD lifecycle"
+
 tags:
   - "review"
   - "orchestration"
   - "multi-agent"
   - "quality"
   - "cross-harness"
+  - "self-improvement"

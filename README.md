@@ -1,32 +1,35 @@
 # spec-kit-orchestration
 
-Spec-compliant code review, agent-to-task assignment, and cross-harness adversarial review for [Spec Kit](https://github.com/github/spec-kit).
+Spec-compliant code review, agent-to-task assignment, cross-harness adversarial review, and process self-improvement for [Spec Kit](https://github.com/github/spec-kit).
 
-## What this does
+## Quick Start
 
-Three commands that bridge the gap between writing specs and shipping reviewed code:
-
-**`/speckit.review`** validates implementation against spec artifacts (compliance, code quality, security), applies tiered fixes (auto-fix trivial, suggest medium, flag complex), creates phase PRs, and manages the full GitHub comment response cycle including thread resolution.
-
-**`/speckit.assign`** matches agents to tasks based on capability detection, expertise lenses, and confidence scoring. Reads tasks.md and available agent profiles to produce assignment recommendations.
-
-**`/speckit.crossreview`** invokes a different AI harness (Codex, Claude, Gemini) to adversarially review design artifacts or code changes. Uses structured JSON contracts so the reviewing harness operates independently.
-
-## Install
+One script sets up spec-kit + the full orchestration layer + companion extensions:
 
 ```bash
-specify extension add orchestration --from https://github.com/SteeZyT33/spec-kit-orchestration/archive/refs/tags/v1.0.0.zip
+curl -fsSL https://raw.githubusercontent.com/SteeZyT33/spec-kit-orchestration/main/bootstrap.sh | bash -s -- . --ai claude
 ```
 
-Or for local development:
+Or clone and run locally:
 
 ```bash
-specify extension add --dev /path/to/spec-kit-orchestration
+git clone https://github.com/SteeZyT33/spec-kit-orchestration.git
+bash spec-kit-orchestration/bootstrap.sh ./my-project --ai claude
 ```
 
-## Usage
+This installs:
+- **Spec Kit** (core) — specify, plan, tasks, implement, analyze, clarify, constitution, checklist
+- **Orchestration** (this extension) — review, assign, crossreview, self-review
+- **Superb** (companion) — TDD enforcement, verification gates, debug protocol, superpowers bridge
+- **Verify** (companion) — evidence-based completion validation
+- **Reconcile** (companion) — spec-implementation drift detection
+- **Status** (companion) — workflow progress dashboard
 
-After implementation:
+## Commands
+
+### `/speckit.review`
+
+Validates implementation against spec artifacts (compliance, code quality, security), applies tiered fixes (auto-fix trivial, suggest medium, flag complex), creates phase PRs, and manages the full GitHub comment response cycle including thread resolution.
 
 ```
 /speckit.review                    # Full review with tiered fixes + PR
@@ -35,54 +38,80 @@ After implementation:
 /speckit.review --post-merge       # Check for silent reversions
 ```
 
-Before implementation:
+### `/speckit.assign`
+
+Matches agents to tasks based on capability detection, expertise lenses, and confidence scoring.
 
 ```
 /speckit.assign                    # Assign agents to tasks
-/speckit.assign focus on security  # Bias assignment toward security expertise
+/speckit.assign focus on security  # Bias toward security expertise
 ```
 
-After review:
+### `/speckit.crossreview`
+
+Invokes a different AI harness (Codex, Claude, Gemini) to adversarially review design artifacts or code changes.
 
 ```
 /speckit.crossreview               # Adversarial review with alternate harness
-/speckit.crossreview --scope code  # Review code only (not design artifacts)
+/speckit.crossreview --scope code  # Review code only
 ```
 
-## How review works
+### `/speckit.self-review`
 
-1. Loads spec.md, plan.md, tasks.md, and any contracts/data-model from the feature directory
-2. Runs three passes: spec compliance, code quality, security (conditional)
-3. Applies tiered fixes: auto-fix trivial issues, suggest medium fixes (with approval), flag complex issues
-4. Checks for merge conflicts with a 4-tier resolution protocol
-5. Creates a phase PR with review summary
-6. Processes all PR comments with ADDRESSED/REJECTED/ISSUED/CLARIFY responses
-7. Resolves conversation threads via GraphQL for branch protection compliance
+Process retrospective — NOT a code review. Evaluates what worked and what didn't across the full spec-driven workflow, then dispatches agents to automatically improve extension commands based on findings.
 
-## How crossreview works
+```
+/speckit.self-review               # Full process retrospective
+```
 
-1. Reads review scope (design artifacts or code changes)
-2. Launches an alternate AI harness as a subprocess
-3. Passes structured context via a JSON contract
-4. Parses structured findings from the harness output
-5. Merges findings into the review report
+Evaluates five dimensions: spec fidelity, plan accuracy, task decomposition, review effectiveness, and workflow friction. Low/medium risk improvements are auto-applied to extension commands. High risk improvements are deferred for human review.
+
+## Recommended Workflow
+
+```
+specify → plan → tasks → assign → implement → review → crossreview → self-review
+                                      ↑                                    |
+                                      └────── improvements flow back ──────┘
+```
+
+The self-review loop is what makes this self-improving: each feature you ship makes the orchestration commands better for the next feature.
+
+## Companion Extensions
+
+These are installed automatically by `bootstrap.sh`. They work independently but complement the orchestration workflow:
+
+| Extension | What it adds | Why |
+|---|---|---|
+| **superb** | TDD gates, verification, debug protocol, superpowers bridge | Enforces test-first development and evidence-based completion |
+| **verify** | Post-implementation completion gate | Prevents false task completions — complements review |
+| **reconcile** | Drift detection and spec repair | Catches when code diverges from spec — feeds crossreview |
+| **status** | Workflow progress dashboard | Shows where you are in the SDD lifecycle |
+
+Install without companions: `SKIP_COMPANIONS=1 bash bootstrap.sh .`
 
 ## Configuration
 
-After install, optionally create `orchestration-config.yml` in your project root:
+After install, optionally edit `orchestration-config.yml`:
 
 ```yaml
 crossreview:
   harness: "codex"      # codex, claude, or gemini
-  model: null            # model override (null = harness default)
-  effort: "high"         # reasoning effort level
+  model: null            # model override
+  effort: "high"         # reasoning effort
+
+exclusions:
+  - ".specify/scripts/*"    # vendor code
+  - ".specify/templates/*"  # upstream templates
 ```
 
-## Works with
+## Architecture
 
-- **Spec Kit** (required) -- the base spec-driven workflow
-- **cc-spex** (recommended) -- workflow traits, hooks, and gates
-- **GitHub MCP Server** (optional) -- enables PR creation and comment management
+This extension is designed to work alongside — not replace — other tools:
+
+- **Spec Kit** (upstream, unmodified) — the base process layer
+- **This extension** — review, assignment, cross-review, self-improvement
+- **cc-spex** (optional) — workflow traits, hooks, and gates
+- **Mneme** (optional) — durable memory across sessions and projects
 
 ## License
 
