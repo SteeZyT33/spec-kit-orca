@@ -104,9 +104,18 @@ if [[ ${#AGENTS[@]} -gt 1 ]]; then
   warn "To switch later: specify integration switch <agent>"
 fi
 
-# ── 3. Install orchestration ─────────────────────────────────────────────────
+# ── 3. Install or update orchestration ────────────────────────────────────────
 if [[ -d ".specify/extensions/orchestration" ]]; then
-  ok "Orchestration already installed"
+  # Check installed version against this script's version
+  INSTALLED_VER=$(grep -oP 'version:\s*"\K[^"]+' .specify/extensions/orchestration/extension.yml 2>/dev/null || echo "0.0.0")
+  if [[ "$INSTALLED_VER" == "$VERSION" || "$INSTALLED_VER" == "v${VERSION}" ]]; then
+    ok "Orchestration v${INSTALLED_VER} (current)"
+  else
+    dim "Updating orchestration ${INSTALLED_VER} → v${VERSION}..."
+    specify extension remove orchestration 2>/dev/null 1>/dev/null
+    specify extension add orchestration --from "$ORCH_URL" 2>&1 | tail -1
+    ok "Orchestration updated to v${VERSION}"
+  fi
 else
   dim "Installing orchestration v${VERSION}..."
   specify extension add orchestration --from "$ORCH_URL" 2>&1 | tail -1
