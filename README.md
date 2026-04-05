@@ -4,17 +4,20 @@ Spec-compliant code review, agent-to-task assignment, cross-harness adversarial 
 
 ## Quick Start
 
-One script sets up spec-kit + the full orchestration layer + companion extensions:
+From inside any project directory:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SteeZyT33/spec-kit-orchestration/main/bootstrap.sh | bash -s -- . --ai claude
+curl -fsSL https://raw.githubusercontent.com/SteeZyT33/spec-kit-orchestration/main/speckit-orchestration-init.sh | bash
 ```
 
-Or clone and run locally:
+With options:
 
 ```bash
-git clone https://github.com/SteeZyT33/spec-kit-orchestration.git
-bash spec-kit-orchestration/bootstrap.sh ./my-project --ai claude
+# Different AI agent
+curl -fsSL https://raw.githubusercontent.com/SteeZyT33/spec-kit-orchestration/main/speckit-orchestration-init.sh | bash -s -- --ai codex
+
+# Orchestration only, no companions
+curl -fsSL https://raw.githubusercontent.com/SteeZyT33/spec-kit-orchestration/main/speckit-orchestration-init.sh | bash -s -- --minimal
 ```
 
 This installs:
@@ -78,7 +81,7 @@ The self-review loop is what makes this self-improving: each feature you ship ma
 
 ## Companion Extensions
 
-These are installed automatically by `bootstrap.sh`. They work independently but complement the orchestration workflow:
+These are installed automatically by `speckit-orchestration-init.sh`. They work independently but complement the orchestration workflow:
 
 | Extension | What it adds | Why |
 |---|---|---|
@@ -87,7 +90,7 @@ These are installed automatically by `bootstrap.sh`. They work independently but
 | **reconcile** | Drift detection and spec repair | Catches when code diverges from spec — feeds crossreview |
 | **status** | Workflow progress dashboard | Shows where you are in the SDD lifecycle |
 
-Install without companions: `SKIP_COMPANIONS=1 bash bootstrap.sh .`
+Install without companions: add `--minimal` flag to the init script.
 
 ## Configuration
 
