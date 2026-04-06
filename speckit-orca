@@ -16,7 +16,7 @@ set -euo pipefail
 # Or without sudo:
 #   curl -fsSL https://raw.githubusercontent.com/SteeZyT33/spec-kit-orchestration/main/speckit-orca -o ~/.local/bin/speckit-orca && chmod +x ~/.local/bin/speckit-orca
 
-VERSION="1.2.0"
+VERSION="1.3.0"
 ORCH_URL="https://github.com/SteeZyT33/spec-kit-orchestration/archive/refs/tags/v${VERSION}.zip"
 
 GREEN='\033[0;32m'
@@ -122,6 +122,13 @@ CATALOGS
 fi
 
 # ── 3. Install or update orchestration ────────────────────────────────────────
+# Migrate from old "orchestration" ID to "orca" if needed
+if [[ -d ".specify/extensions/orchestration" && ! -d ".specify/extensions/orca" ]]; then
+  dim "Migrating from orchestration → orca..."
+  specify extension remove orchestration --force 2>/dev/null 1>/dev/null
+  ok "Old orchestration extension removed"
+fi
+
 if [[ -d ".specify/extensions/orca" ]]; then
   # Check installed version against this script's version
   INSTALLED_VER=$(grep -m1 'version:' .specify/extensions/orca/extension.yml 2>/dev/null | sed 's/.*"\(.*\)".*/\1/' || echo "0.0.0")
