@@ -82,26 +82,32 @@ You **MUST** consider the user input before proceeding (if not empty).
      Then STOP and wait for user decision. Do not proceed to assignment.
    - If `--force` was passed: output a one-line warning and proceed.
 
-4. **Context detection — should this spec use assign?**
+4. **Execution-shape detection — should this feature run sequentially or with Orca lanes?**
 
-   Before running the scoring logic, evaluate whether assignment adds value for this spec:
+   Before running the scoring logic, evaluate the execution shape for this feature.
+   Orca lane metadata is the workflow source of truth. Agent-specific directories
+   are not.
 
    a. **Count tasks**: Read tasks.md and count lines matching `- [ ] T\d+`.
-   b. **Check for active worktrees**: Run `git worktree list` and check for entries in `.claude/worktrees/` that correspond to this feature. If worktrees exist, this is a parallel dispatch scenario.
+   b. **Check for active Orca lanes**:
+      - Read `.specify/orca/worktrees/registry.json` if it exists
+      - Filter lane records for the current feature
+      - Treat lanes with status `planned`, `active`, or `blocked` as live workflow context
+      - Use `git worktree list` only as secondary validation of lane paths, not as the source of truth
    c. **Evaluate**:
       - If `--force` was passed: skip context detection entirely, proceed to step 4.
-      - If task count >= 30 OR phases >= 4: proceed to step 4 (large specs benefit from assignment even sequentially).
-      - If active worktrees exist for this feature: proceed to step 4 in parallel dispatch mode.
-      - If task count < 15 AND no active worktrees AND no `--force`:
+      - If live Orca lanes exist for this feature: proceed to step 4 in `parallel-lane` mode. Do NOT recommend skipping assignment, even if task count is low.
+      - If task count >= 30 OR phases >= 4: proceed to step 4 in `sequential` mode unless lanes already exist.
+      - If task count < 15 AND no live Orca lanes AND no `--force`:
         ```
         ## Skip Recommendation
 
-        This spec has [N] tasks in [M] phases with no parallel worktrees active.
+        This spec has [N] tasks in [M] phases with no active Orca lanes.
         Agent assignment adds overhead without value for single-agent sequential execution.
 
-        **Recommendation**: Skip `/speckit.assign` and proceed directly to `/speckit.implement`.
+        **Recommendation**: Skip `/speckit.orca.assign` and proceed directly to `/speckit.implement`.
 
-        To override: `/speckit.assign --force`
+        To override: `/speckit.orca.assign --force`
         ```
         Then stop. Do not proceed to scoring.
 
@@ -208,7 +214,7 @@ You **MUST** consider the user input before proceeding (if not empty).
       - If the best match has **confidence < 0.3** (weak match), assign `[@Unassigned]` instead and flag for manual review
       - If no agent has any keyword overlap, assign `[@Unassigned]`
 
-9. **Dependency analysis** (post-assignment):
+9. **Lane and dependency analysis** (post-assignment):
 
    After all tasks are assigned, scan the dependency chain in tasks.md:
    - For each task that depends on another (sequential ordering, explicit "depends on" notes, or same-file constraints)
@@ -219,6 +225,16 @@ You **MUST** consider the user input before proceeding (if not empty).
      - T012 [@Human Lead] → T013 [@DevOps Automator]: human decision gates automation work
      ```
    - This is advisory — no reassignment is made, but it surfaces coupling for manual review
+
+   If Orca lane metadata exists for this feature, also check:
+   - whether a task appears to be already claimed by another live lane
+   - whether two live lanes imply overlapping work on the same files or task scope
+   - whether a lane exists without bounded `task_scope`
+
+   Report these as `### Lane Coordination Warnings`:
+   - task owned by multiple lanes
+   - lane scope missing or stale
+   - shared-file risk across active lanes
 
 10. **Write annotations back to tasks.md**:
    - For each assigned task, insert the `[@Agent Name]` annotation into the task line
@@ -237,6 +253,8 @@ You **MUST** consider the user input before proceeding (if not empty).
    ## Agent Assignment Report
 
    **Feature**: [feature name]
+   **Execution Mode**: sequential | parallel-lane
+   **Detected Lanes**: none | [lane IDs]
    **Agent Source**: Internal only | Internal + External ({path})
    **Mode**: Fresh assignment | Reassign all
    **Human-tasks pre-assigned**: T003-T009 (or "none")
@@ -300,7 +318,7 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 ## Review Integration (Spec 001)
 
-When `/speckit.review` runs after implementation, it can read the `[@Agent Name]` annotations in tasks.md to understand which agent was assigned to each task. This enables:
+When `/speckit.orca.code-review` runs after implementation, it can read the `[@Agent Name]` annotations in tasks.md to understand which agent was assigned to each task. This enables:
 
 - **"Don't review your own work"**: If `[@Backend Architect]` was assigned to implement a task, the review command can suggest a different agent (e.g., Security Engineer, Evidence Collector) for reviewing that task's output.
 - **Review pass matching**: The security review pass can reference whether a security specialist was assigned to security-related tasks.
@@ -315,33 +333,33 @@ The `[@Agent Name]` format is the standard convention for agent role annotations
 - **Closing**: `]` closes the annotation
 - **Content**: The agent's display name exactly as discovered (e.g., `Frontend Developer`, `Backend Architect`)
 - **Platform-neutral**: The annotation is a role name, not tied to any specific AI harness. Any harness can interpret it.
-- **Manual override**: Users can edit `[@...]` annotations directly in tasks.md. Re-running `/speckit.assign` without `--reassign-all` preserves manual edits.
+- **Manual override**: Users can edit `[@...]` annotations directly in tasks.md. Re-running `/speckit.orca.assign` without `--reassign-all` preserves manual edits.
 - **Special value**: `[@Unassigned]` indicates no matching agent was found. The user should manually assign these tasks.
 
 ## Quick Reference
 
 ```bash
 # Assign agents to tasks (will recommend skipping for small single-agent specs)
-/speckit.assign
+/speckit.orca.assign
 
 # Force assignment even when context detection recommends skipping
-/speckit.assign --force
+/speckit.orca.assign --force
 
 # Pre-mark human judgment tasks before auto-assignment
-/speckit.assign --human-tasks "T003-T009,T015"
+/speckit.orca.assign --human-tasks "T003-T009,T015"
 
 # Combine: force + human pre-marks
-/speckit.assign --force --human-tasks "T003-T009"
+/speckit.orca.assign --force --human-tasks "T003-T009"
 
 # Reassign all tasks from scratch (clears existing annotations)
-/speckit.assign --reassign-all
+/speckit.orca.assign --reassign-all
 
 # Pre-mark human judgment tasks before auto-assignment
-/speckit.assign --human-tasks "T003-T009,T015"
+/speckit.orca.assign --human-tasks "T003-T009,T015"
 
 # Combine: reassign all with human pre-marks
-/speckit.assign --reassign-all --human-tasks "T003-T009"
+/speckit.orca.assign --reassign-all --human-tasks "T003-T009"
 
 # Assign with specific context
-/speckit.assign focus on security-heavy assignments for this feature
+/speckit.orca.assign focus on security-heavy assignments for this feature
 ```

@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "id": "004-example-ui",
+  "feature": "004-example",
+  "branch": "004-example-ui",
+  "path": "/abs/path/to/worktree",
+  "agent": "codex",
+  "role": "frontend",
+  "task_scope": [
+    "T026",
+    "T028",
+    "QT-2026-04-08-01"
+  ],
+  "status": "active",
+  "base_ref": "main",
+  "parent_feature_branch": "004-example",
+  "shared_files": [],
+  "notes": "Example lane record for Orca worktree protocol",
+  "created_at": "2026-04-08T20:00:00Z",
+  "updated_at": "2026-04-08T20:30:00Z"
+}

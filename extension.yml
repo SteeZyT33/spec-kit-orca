@@ -2,9 +2,9 @@ schema_version: "1.0"
 
 extension:
   id: "orca"
-  name: "Orchestration — Review, Assign, Cross-Review & Self-Review"
-  version: "1.3.0"
-  description: "Spec-compliant code review with tiered fixes, agent assignment, cross-harness adversarial review, and process self-improvement."
+  name: "Orchestration — Brainstorm, Micro-Spec, Review, PR Review, Assign, Cross-Review & Self-Review"
+  version: "1.4.0"
+  description: "Spec-compliant workflow orchestration with ideation, micro-specs, code review, PR review, agent assignment, cross-harness validation, and process self-improvement."
   author: "SteeZyT33"
   repository: "https://github.com/SteeZyT33/spec-kit-orchestration"
   license: "MIT"
@@ -15,17 +15,33 @@ requires:
 
 provides:
   commands:
+    - name: "speckit.orca.brainstorm"
+      file: "commands/brainstorm.md"
+      description: "Structured pre-spec ideation that captures options, constraints, and recommendation without dropping into implementation."
+
+    - name: "speckit.orca.code-review"
+      file: "commands/code-review.md"
+      description: "Post-implementation code review: spec compliance, code quality, security, merge readiness, and delivery readiness."
+
+    - name: "speckit.orca.pr-review"
+      file: "commands/pr-review.md"
+      description: "PR review lifecycle: create or update PRs, process external review comments, resolve threads, and run post-merge verification."
+
+    - name: "speckit.orca.micro-spec"
+      file: "commands/micro-spec.md"
+      description: "Canonical micro-spec workflow for bounded work with a mini-plan, declared verification mode, code review, and promotion rules."
+
     - name: "speckit.orca.review"
       file: "commands/review.md"
-      description: "Post-implementation review: spec compliance, code quality, security, tiered fixes, phase PRs, and GitHub comment management."
+      description: "Compatibility alias that routes to code-review or pr-review based on intent and flags."
 
     - name: "speckit.orca.assign"
       file: "commands/assign.md"
       description: "Assign best-fit agents to tasks based on capabilities, context detection, and confidence scoring."
 
-    - name: "speckit.orca.crossreview"
-      file: "commands/crossreview.md"
-      description: "Cross-harness adversarial review using a different AI model for independent validation."
+    - name: "speckit.orca.cross-review"
+      file: "commands/cross-review.md"
+      description: "Canonical cross-harness adversarial review using a different AI model for independent validation."
 
     - name: "speckit.orca.self-review"
       file: "commands/self-review.md"
@@ -39,16 +55,16 @@ provides:
 
 hooks:
   after_implement:
-    command: "speckit.orca.review"
+    command: "speckit.orca.code-review"
     optional: true
-    prompt: "Run post-implementation review?"
-    description: "Optionally start review after implementation completes"
+    prompt: "Run post-implementation code review?"
+    description: "Optionally start implementation review after implementation completes"
 
   after_review:
-    command: "speckit.orca.crossreview"
+    command: "speckit.orca.cross-review"
     optional: true
     prompt: "Run cross-harness adversarial review?"
-    description: "Optionally validate with a different AI harness after review"
+    description: "Optionally validate with a different AI harness after code review"
 
 # Companion extensions installed by the bootstrap script.
 # These are NOT dependencies — the orca extension works without them.
@@ -59,7 +75,7 @@ companions:
   - id: "verify"
     why: "Evidence-based completion validation — complements review by gating task completion"
   - id: "reconcile"
-    why: "Drift detection between spec and implementation — feeds into crossreview findings"
+    why: "Drift detection between spec and implementation — feeds into cross-review findings"
   - id: "status"
     why: "Workflow progress dashboard — shows where you are in the SDD lifecycle"
 

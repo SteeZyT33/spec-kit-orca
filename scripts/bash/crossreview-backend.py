@@ -25,6 +25,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--schema-file", required=True, type=Path)
     p.add_argument("--output", required=True, type=Path)
     p.add_argument("--claude-path", default=None, help="Explicit path to claude CLI binary")
+    p.add_argument("--timeout", type=int, default=600, help="Harness subprocess timeout in seconds")
     return p.parse_args()
 
 

@@ -2,10 +2,10 @@
 description: Process retrospective that evaluates workflow effectiveness, identifies improvement opportunities, and dispatches agents to improve extension commands.
 handoffs:
   - label: Run Code Review
-    agent: speckit.review
-    prompt: Run the standard review passes on the current phase
+    agent: speckit.orca.code-review
+    prompt: Run the standard code-review passes on the current phase
   - label: Cross-Harness Review
-    agent: speckit.crossreview
+    agent: speckit.orca.cross-review
     prompt: Run a cross-harness adversarial review
 ---
 
@@ -31,6 +31,11 @@ This is NOT a code review. This is a **process review** — an introspective pas
    - `tasks.md` — task breakdown, phase boundaries, completion status
    - `review.md` — review findings, fixes applied, PR lifecycle history
    - Git log for the feature branch — commit frequency, revert patterns, fix-after-fix sequences
+   - If `.specify/orca/worktrees/registry.json` exists, load lane metadata for this feature
+   - If available, load delivery evidence:
+     - branch naming shape
+     - lane branch to feature branch relationship
+     - PR structure notes from review artifacts or git history
 
 3. **Evaluate process dimensions** — for each dimension, produce a score (1-5) and specific evidence:
 
@@ -61,7 +66,13 @@ This is NOT a code review. This is a **process review** — an introspective pas
    - Where did the developer (or agent) spend time fighting the process instead of building?
    - Were there unnecessary round-trips between commands?
    - Did any extension hooks block progress without adding value?
-   - **Signal**: Time gaps in git log, repeated runs of the same command, abandoned branches
+   - **Signal**: Time gaps in git log, repeated runs of the same command, abandoned branches, blocked or stale Orca lanes
+
+   ### Lane And Delivery Evidence (required when available)
+   - Were lane boundaries clear or did they overlap?
+   - Did lane ownership reduce merge pain or create churn?
+   - Were branch names, commits, and PR shape aligned with the lane model?
+   - **Signal**: stale lane records, blocked lanes, cross-lane shared-file edits, noisy commit history, unclear branch/PR integration path
 
 4. **Produce the retrospective report** — write to `FEATURE_DIR/self-review.md`:
 
@@ -103,14 +114,19 @@ This is NOT a code review. This is a **process review** — an introspective pas
    - Why (link to retrospective evidence)
    - Risk level: LOW (wording/instructions), MEDIUM (new behavior), HIGH (changes existing behavior)
 
+   Also extract protocol-level improvement candidates when evidence points to:
+   - lane metadata ambiguity
+   - delivery hygiene problems (branch, commit, or PR structure)
+   - quicktask misuse as a spec bypass or test-discipline bypass
+
 6. **Dispatch improvement agents** — apply in dependency order (inspired by spec-kit-iterate):
 
    Improvements MUST be applied in this order to prevent broken cross-references:
    1. `extension.yml` (manifest changes)
    2. `config-template.yml` (configuration changes)
    3. `commands/assign.md` (upstream in workflow)
-   4. `commands/review.md` (mid-workflow)
-   5. `commands/crossreview.md` (late workflow)
+   4. `commands/code-review.md` (mid-workflow)
+   5. `commands/cross-review.md` (late workflow)
    6. `commands/self-review.md` (terminal — this file)
    7. `bootstrap.sh` and `README.md` (documentation)
 
