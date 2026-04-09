@@ -98,6 +98,8 @@ print_drift_warnings() {
       continue
     fi
     local member_pattern=" ${lane_id} "
+    # member_pattern contains no regex metacharacters (lane IDs are [A-Za-z0-9._-]+);
+    # unquoted RHS in [[ ]] is safe here and matches shellcheck expectations.
     if [[ ! " ${registry_lane_ids[*]} " =~ $member_pattern ]]; then
       echo "WARNING: Lane record '$lane_id' exists on disk but is missing from the registry."
       found_any=1
@@ -260,7 +262,7 @@ Base Ref: $default_branch
 EOF
 
   if [[ "$switched_branch" == "true" ]]; then
-    echo "Note: Current branch was switched to '$default_branch' to allow worktree checkout of '$target_branch'."
+    echo "Note: Automatically switched from '$current_branch' to '$default_branch' because you cannot check out your current branch into a new worktree."
     echo
   fi
 
