@@ -1,4 +1,4 @@
-# update-context.ps1 — Codex CLI integration: create/update AGENTS.md
+# update-context.ps1 - Codex CLI integration: create/update AGENTS.md
 #
 # Thin wrapper that delegates to the shared update-agent-context script.
 

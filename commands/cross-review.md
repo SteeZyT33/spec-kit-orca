@@ -37,7 +37,7 @@ You **MUST** consider the user input before proceeding (if not empty).
    - `review_model` (optional, default: `"o4-mini-high"` for codex, `null` for others): Model override for the review session
    - `review_effort` (optional, default: `"high"`): Reasoning effort level
    - If `review_harness` is not set, choose a different installed harness when possible and output a note:
-     ```
+     ```text
      No review_harness configured — auto-selecting a non-current harness when available.
      To customize, add to .specify/init-options.json:
        "review_harness": "claude",
@@ -103,7 +103,7 @@ You **MUST** consider the user input before proceeding (if not empty).
      git diff --no-ext-diff --unified=3 --no-color
      echo
      echo "## Untracked files"
-     for file in $(git ls-files --others --exclude-standard); do
+     git ls-files -z --others --exclude-standard | while IFS= read -r -d '' file; do
        case "$file" in
          "$FEATURE_DIR"/.crossreview-*|.shared/*) continue ;;
        esac
@@ -114,11 +114,18 @@ You **MUST** consider the user input before proceeding (if not empty).
        sed 's/^/+/' "$file"
      done
    } > "$FEATURE_DIR/.crossreview.patch"
+   tmp_crossreview_files="$(mktemp)"
    {
      git diff --merge-base --name-only main HEAD
      git diff --name-only
-     git ls-files --others --exclude-standard
-   } | sort -u > "$FEATURE_DIR/.crossreview-files.txt"
+     git ls-files -z --others --exclude-standard | while IFS= read -r -d '' file; do
+       case "$file" in
+         "$FEATURE_DIR"/.crossreview-*|.shared/*) continue ;;
+       esac
+       printf '%s\n' "$file"
+     done
+   } | sort -u > "$tmp_crossreview_files"
+   mv "$tmp_crossreview_files" "$FEATURE_DIR/.crossreview-files.txt"
    ```
 
    ### For `design` scope:

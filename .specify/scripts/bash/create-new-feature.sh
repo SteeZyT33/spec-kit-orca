@@ -269,6 +269,10 @@ else
     BRANCH_SUFFIX=$(generate_branch_name "$FEATURE_DESCRIPTION")
 fi
 
+if [[ -z "$BRANCH_SUFFIX" || ! "$BRANCH_SUFFIX" =~ [A-Za-z0-9] ]]; then
+    BRANCH_SUFFIX="untitled"
+fi
+
 # Warn if --number and --timestamp are both specified
 if [ "$USE_TIMESTAMP" = true ] && [ -n "$BRANCH_NUMBER" ]; then
     >&2 echo "[specify] Warning: --number is ignored when --timestamp is used"
