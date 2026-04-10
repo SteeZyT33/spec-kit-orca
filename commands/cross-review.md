@@ -86,6 +86,9 @@ You **MUST** consider the user input before proceeding (if not empty).
    - Read tasks.md to identify the target phase and its tasks
    - Read spec.md for acceptance criteria relevant to the phase
    - Read plan.md for architecture decisions
+   - Read `review.md` as the current summary/index when it exists
+   - Read `review-code.md` when it exists so alternate-agent findings can be
+     compared against the primary implementation review
    - Run `git diff --merge-base --name-only main HEAD`, `git diff --name-only`, and `git ls-files --others --exclude-standard` to get the full working review set
    - If no files changed in code scope, report "No code changes to review against main. Use `--scope design` to review design artifacts." and stop
 
@@ -208,8 +211,24 @@ You **MUST** consider the user input before proceeding (if not empty).
     - lane ID and branch when present
     - blocking and non-blocking issues
 
-15. **Append to `review.md`** in FEATURE_DIR under a `### Cross-Review` section.
+15. **Write cross-review evidence** to `FEATURE_DIR/review-cross.md`.
 
-16. **If blocking issues exist**, recommend addressing them before merge.
+    - `review-cross.md` is the primary durable artifact for alternate-agent or
+      adversarial review findings
+    - preserve prior cross-review sections; append new runs rather than
+      overwriting them
+    - include scope, phase, requested/resolved reviewer, support tier,
+      same-agent fallback warnings, blocking findings, and non-blocking findings
+    - follow `templates/review-cross-template.md` for the stage artifact shape
 
-17. **Check for extension hooks** under `hooks.after_crossreview` in `.specify/extensions.yml` and surface optional or mandatory hook execution instructions.
+16. **Refresh `review.md`** in FEATURE_DIR as the summary/index layer.
+
+    - identify `review-cross.md` as the cross-review artifact
+    - summarize whether blocking cross-review findings remain
+    - keep `review.md` human-readable and avoid duplicating all detailed
+      findings from `review-cross.md`
+    - use `templates/review-template.md` for the summary/index shape
+
+17. **If blocking issues exist**, recommend addressing them before merge.
+
+18. **Check for extension hooks** under `hooks.after_crossreview` in `.specify/extensions.yml` and surface optional or mandatory hook execution instructions.

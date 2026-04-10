@@ -27,6 +27,12 @@ Orca now separates the old overloaded review workflow into two commands:
 - `/speckit.orca.pr-review` for PR comments, reviewer feedback, thread handling,
   and post-merge verification
 
+Under the current review-artifact model:
+
+- `/speckit.orca.code-review` owns `review-code.md`
+- `/speckit.orca.pr-review` owns `review-pr.md`
+- `review.md` remains the human-facing summary/index
+
 ## Routing Rules
 
 1. Parse the user input.

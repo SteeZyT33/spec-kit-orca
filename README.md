@@ -92,7 +92,7 @@ Micro-spec workflow for bounded work. Requires a mini-plan, declared verificatio
 
 ### `/speckit.orca.code-review`
 
-Validates implementation against spec artifacts, checks merge and delivery readiness, and records findings before the PR feedback loop begins.
+Validates implementation against spec artifacts, checks merge and delivery readiness, writes detailed findings to `review-code.md`, and refreshes `review.md` as the summary/index before the PR feedback loop begins.
 
 ```
 /speckit.orca.code-review               # Full implementation review
@@ -102,7 +102,7 @@ Validates implementation against spec artifacts, checks merge and delivery readi
 
 ### `/speckit.orca.pr-review`
 
-Handles PR creation or update, external reviewer comments, review thread resolution, and post-merge verification.
+Handles PR creation or update, external reviewer comments, review thread resolution, and post-merge verification in `review-pr.md`, then refreshes `review.md` as the summary/index.
 
 ```
 /speckit.orca.pr-review                 # PR lifecycle + external feedback handling
@@ -130,7 +130,7 @@ Matches agents to tasks based on capability detection, expertise lenses, and con
 
 ### `/speckit.orca.cross-review`
 
-Invokes an alternate reviewer agent to adversarially review design artifacts or code changes.
+Invokes an alternate reviewer agent to adversarially review design artifacts or code changes, records detailed findings in `review-cross.md`, and refreshes `review.md` as the summary/index.
 
 ```text
 /speckit.orca.cross-review                  # Auto-select a reviewer agent
@@ -147,6 +147,19 @@ Process retrospective — NOT a code review. Evaluates what worked and what didn
 ```
 
 Evaluates five dimensions: spec fidelity, plan accuracy, task decomposition, review effectiveness, and workflow friction. Low/medium risk improvements are auto-applied to extension commands. High risk improvements are deferred for human review.
+
+## Review Artifacts
+
+Orca now uses a two-layer review artifact model for each feature:
+
+- `review.md` — human-facing summary/index of review stage status
+- `review-code.md` — detailed implementation review evidence
+- `review-cross.md` — alternate-agent or adversarial review evidence
+- `review-pr.md` — PR lifecycle review evidence
+- `self-review.md` — process retrospective
+
+The summary/index should point to the stage artifacts. It should not be treated
+as the only durable review record.
 
 ## Recommended Workflow
 
