@@ -36,7 +36,8 @@ Use `/speckit.orca.code-review` to:
 - detect merge-readiness and integration risks
 - run spec compliance, code quality, security, and optional product critique passes
 - apply tiered review actions
-- append the result to `FEATURE_DIR/review.md`
+- write detailed implementation-review evidence to `FEATURE_DIR/review-code.md`
+- refresh `FEATURE_DIR/review.md` as the summary/index layer
 
 This command does **not** own GitHub comment response workflows. External PR
 feedback is handled by `/speckit.orca.pr-review`.
@@ -94,7 +95,10 @@ feedback is handled by `/speckit.orca.pr-review`.
    - **IF EXISTS**: `contracts/`
    - **IF EXISTS**: `data-model.md`
    - **IF EXISTS**: `research.md`
-   - **IF EXISTS**: existing `review.md`
+   - **IF EXISTS**: existing `review.md` summary/index
+   - **IF EXISTS**: existing `review-code.md`
+   - **IF EXISTS**: existing `review-cross.md`
+   - **IF EXISTS**: existing `review-pr.md`
    - If required artifacts are missing, report reduced coverage and continue.
 
    Resolve implementation handoff context when available:
@@ -213,7 +217,8 @@ Run only with `--evidence`.
 
 - create `FEATURE_DIR/evidence/`
 - capture screenshots, API responses, CLI output, or test output as appropriate
-- record an evidence manifest and link it from `review.md`
+- record an evidence manifest and link it from `review-code.md`
+- refresh `review.md` so the summary/index points to the new evidence location
 
 ## Tiered Fix Behavior
 
@@ -221,7 +226,7 @@ After all passes:
 
 ### Tier 1: Auto-Fix
 
-Apply trivial, unambiguous, low-risk fixes and record them in `review.md`.
+Apply trivial, unambiguous, low-risk fixes and record them in `review-code.md`.
 
 ### Tier 2: Suggest-Fix
 
@@ -231,11 +236,12 @@ Present non-trivial but clear fixes and wait for explicit approval.
 
 Record judgment-heavy findings without changing code.
 
-## Review Report Output
+## Review Artifact Output
 
-Append a new section to `FEATURE_DIR/review.md`. Never overwrite previous reviews.
+Write or append the detailed implementation review to
+`FEATURE_DIR/review-code.md`. Never overwrite previous phase reviews.
 
-Each section should include:
+Each section in `review-code.md` should include:
 
 ```markdown
 ## Phase N Review — YYYY-MM-DD
@@ -270,11 +276,23 @@ Each section should include:
 
 If no issues are found in a section, write `- No issues found.`
 
+After updating `review-code.md`, refresh `FEATURE_DIR/review.md` as the
+human-facing summary/index. The summary should:
+
+- identify `review-code.md` as the primary implementation review artifact
+- note whether `review-cross.md`, `review-pr.md`, or `self-review.md` exist
+- summarize high-level blockers and delivery readiness
+- link readers to the stage artifacts instead of duplicating every detailed
+  finding
+
+Use `templates/review-code-template.md` for the stage artifact shape and
+`templates/review-template.md` for the summary/index shape.
+
 ## PR Boundary
 
 This command stops at implementation review and delivery readiness.
 
-After `review.md` is written:
+After `review-code.md` is written and `review.md` is refreshed:
 
 - if the code is not ready, continue implementation
 - if the code is ready for external feedback, move to `/speckit.orca.pr-review`
@@ -297,7 +315,8 @@ When `--parallel` is passed:
    - `codex`: use a background sandbox task
    - otherwise fall back to blocking mode
 3. On completion:
-   - write `review.md`
+   - write `review-code.md`
+   - refresh `review.md`
    - post inbox notification if available
    - summarize any critical findings
 
@@ -308,6 +327,7 @@ After all steps complete:
 1. Output:
    - pass/fail status for each review pass
    - count of auto-fixes, suggest-fixes, and flagged issues
+   - path to `review-code.md`
    - path to `review.md`
    - whether the implementation is ready for `/speckit.orca.pr-review`
 

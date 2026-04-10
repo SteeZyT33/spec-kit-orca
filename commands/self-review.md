@@ -30,7 +30,10 @@ This is NOT a code review. This is a **process review** — an introspective pas
    - `plan.md` — architecture decisions made at planning time
    - `tasks.md` — task breakdown, phase boundaries, completion status
    - shared flow-state output when available — artifact-first stage and milestone interpretation
-   - `review.md` — review findings, fixes applied, PR lifecycle history
+   - `review.md` — summary/index of review-stage status
+   - `review-code.md` — implementation review findings and fixes applied
+   - `review-cross.md` — alternate-agent review findings and reviewer resolution metadata
+   - `review-pr.md` — PR lifecycle history, comment dispositions, and post-merge checks
    - Git log for the feature branch — commit frequency, revert patterns, fix-after-fix sequences
    - If `.specify/orca/worktrees/registry.json` exists, load lane metadata for this feature
    - If available, load delivery evidence:
@@ -44,12 +47,12 @@ This is NOT a code review. This is a **process review** — an introspective pas
    - Did the spec accurately predict what was needed?
    - What requirements were added mid-implementation that should have been in the original spec?
    - What specified requirements turned out to be unnecessary?
-   - **Signal**: Scope creep findings in review.md, unplanned tasks added to tasks.md
+   - **Signal**: Scope creep findings in `review-code.md` or `review.md`, unplanned tasks added to tasks.md
 
    ### Dimension 2: Plan Accuracy
    - Did the architecture hold up or did it change significantly during implementation?
    - Were the file paths and module boundaries in plan.md correct?
-   - **Signal**: Code quality findings about plan deviations in review.md
+   - **Signal**: Code quality findings about plan deviations in `review-code.md`
 
    ### Dimension 3: Task Decomposition Quality
    - Were tasks right-sized? (Too large = multi-day, too small = trivial)
@@ -61,7 +64,7 @@ This is NOT a code review. This is a **process review** — an introspective pas
    - How many issues were caught by review vs discovered later?
    - What was the auto-fix vs suggest-fix vs flag-only ratio?
    - Did cross-review find things the primary review missed, and was it truly cross-agent or just a same-agent fallback?
-   - **Signal**: review.md actions taken section, post-merge verification results
+   - **Signal**: `review-code.md` actions taken section, `review-cross.md` findings, `review-pr.md` post-merge verification results, and `review.md` summary status
 
    ### Dimension 5: Workflow Friction
    - Where did the developer (or agent) spend time fighting the process instead of building?
@@ -75,37 +78,23 @@ This is NOT a code review. This is a **process review** — an introspective pas
    - Were branch names, commits, and PR shape aligned with the lane model?
    - **Signal**: stale lane records, blocked lanes, cross-lane shared-file edits, noisy commit history, unclear branch/PR integration path
 
-4. **Produce the retrospective report** — write to `FEATURE_DIR/self-review.md`:
+4. **Produce the retrospective report** — write to `FEATURE_DIR/self-review.md`.
 
-   ```markdown
-   # Process Self-Review — [feature name]
+   Use `templates/review-self-template.md` for the stage artifact shape. The
+   report must include: scores table, what worked, what didn't, process
+   improvements, extension improvements, deferred improvements (HIGH-risk items),
+   and community extension opportunities.
 
-   **Date**: YYYY-MM-DD
-   **Feature**: [branch name]
-   **Duration**: [first commit] → [last commit]
+   After writing `self-review.md`, refresh `FEATURE_DIR/review.md` as the
+   summary/index layer. The summary should:
 
-   ## Scores
+   - identify `self-review.md` as present
+   - note the score summary (table only, not full narrative)
+   - flag any HIGH-risk deferred improvements that need human review
+   - keep `review.md` human-readable and avoid duplicating all detailed
+     narrative from `self-review.md`
 
-   | Dimension | Score | Key Evidence |
-   |-----------|-------|-------------|
-   | Spec Fidelity | X/5 | ... |
-   | Plan Accuracy | X/5 | ... |
-   | Task Decomposition | X/5 | ... |
-   | Review Effectiveness | X/5 | ... |
-   | Workflow Friction | X/5 | ... |
-
-   ## What Worked
-   - [specific things that went well, with evidence]
-
-   ## What Didn't
-   - [specific problems, with evidence]
-
-   ## Process Improvements
-   - [actionable changes to how we work]
-
-   ## Extension Improvements
-   - [specific changes to orchestration commands based on this experience]
-   ```
+   Use `templates/review-template.md` for the summary/index shape.
 
 5. **Extract extension improvement candidates** — from the retrospective, identify concrete improvements to orchestration extension commands:
 
@@ -128,8 +117,9 @@ This is NOT a code review. This is a **process review** — an introspective pas
    3. `commands/assign.md` (upstream in workflow)
    4. `commands/code-review.md` (mid-workflow)
    5. `commands/cross-review.md` (late workflow)
-   6. `commands/self-review.md` (terminal — this file)
-   7. `bootstrap.sh` and `README.md` (documentation)
+   6. `commands/pr-review.md` (late workflow)
+   7. `commands/self-review.md` (terminal — this file)
+   8. `bootstrap.sh` and `README.md` (documentation)
 
    For each LOW or MEDIUM risk improvement, launch a background agent to:
    a. Read the current command file from the orchestration extension repo
@@ -157,4 +147,5 @@ This is NOT a code review. This is a **process review** — an introspective pas
    - Process scores table
    - Count of improvements dispatched (LOW/MEDIUM) and deferred (HIGH)
    - Any community extension recommendations
-   - Path to self-review.md
+   - Path to `self-review.md`
+   - Path to `review.md`

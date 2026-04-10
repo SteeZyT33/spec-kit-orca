@@ -51,7 +51,10 @@ first unless the task is explicitly `--comments-only` or `--post-merge`.
    - any remaining text: additional PR review focus
 
 3. Load the existing review context:
-   - read `review.md` if it exists
+   - read `review.md` if it exists as the summary/index
+   - read `review-code.md` if it exists as the primary implementation review artifact
+   - read `review-cross.md` if it exists for alternate-agent findings that may inform PR handling
+   - read existing `review-pr.md` if it exists
    - read `tasks.md` for phase boundaries and target phase
    - prefer shared flow-state output for artifact-first stage and review-milestone context when available
    - detect Orca lane context from `.specify/orca/worktrees/registry.json` if present
@@ -133,7 +136,7 @@ every comment an explicit disposition.
 For each `ISSUED` comment:
 
 - create a GitHub issue when tools are available
-- otherwise record the same information in `review.md`
+- otherwise record the same information in `review-pr.md`
 
 ### Step 7: Conversation Thread Resolution
 
@@ -151,12 +154,12 @@ When `--post-merge` is passed, or when explicitly running post-merge checks:
 
 1. Diff merged `main` against the last reviewed commit
 2. Detect silent reversions of reviewed fixes
-3. Record the result under `### Post-Merge Verification` in `review.md`
+3. Record the result under `### Post-Merge Verification` in `review-pr.md`
 4. Create an issue immediately for critical reversions
 
 ## Output Contract
 
-Update or append to `FEATURE_DIR/review.md` with PR-focused sections such as:
+Update or append to `FEATURE_DIR/review-pr.md` with PR-focused sections such as:
 
 ```markdown
 ### PR: #[number] — [status]
@@ -169,6 +172,17 @@ Update or append to `FEATURE_DIR/review.md` with PR-focused sections such as:
 ### Post-Merge Verification
 - REVERTED: [count] | OK: [count] | Issues created: [issue numbers]
 ```
+
+Use `templates/review-pr-template.md` for the stage artifact shape and
+`templates/review-template.md` for the refreshed summary/index.
+
+After updating `review-pr.md`, refresh `FEATURE_DIR/review.md` as the
+summary/index so readers can see:
+
+- that PR lifecycle evidence exists in `review-pr.md`
+- high-level PR status and unresolved blockers
+- requested/resolved cross-review agent context when relevant
+- where to find detailed PR comment disposition and post-merge verification
 
 When lane metadata exists, also note:
 
@@ -185,4 +199,5 @@ Output:
 - comment disposition counts
 - whether any review threads remain open
 - post-merge verification result when applicable
+- path to `review-pr.md`
 - path to `review.md`
