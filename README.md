@@ -17,6 +17,7 @@ Orca already supports:
 - durable brainstorming with project-local memory and overview regeneration
 - micro-spec work for bounded changes
 - assignment guidance for multi-agent or parallel execution
+- Matriarch supervision for multi-spec lane coordination, dependency tracking, and durable lane-local messaging
 - implementation review, PR review, cross-agent review, and self-review
 - split durable review artifacts instead of one overloaded generic review file
 - metadata-first worktree helpers for lane-based execution
@@ -130,6 +131,26 @@ uv run python -m speckit_orca.flow_state specs/002-brainstorm-memory --format js
 It derives current stage, review progress, ambiguity, and next-step hints from
 durable artifacts rather than chat history.
 
+### Matriarch supervision
+
+Matriarch gives Orca a conservative control plane for multiple active specs. It
+tracks one primary spec per lane, assignment history, dependencies, readiness
+signals, and state-first mailbox/report traffic for lane-local workers.
+
+Direct helper usage:
+
+```bash
+bash scripts/bash/orca-matriarch.sh status
+bash scripts/bash/orca-matriarch.sh lane register 010-orca-matriarch --owner-type human --owner-id taylor
+bash scripts/bash/orca-matriarch.sh lane list
+bash scripts/bash/orca-matriarch.sh lane show 010-orca-matriarch
+bash scripts/bash/orca-matriarch.sh lane startup-ack 010-orca-matriarch --sender claude-code --deployment-id 010-orca-matriarch-direct-session
+```
+
+Matriarch keeps tmux optional. For long-lived interactive workers such as
+Claude Code, `direct-session` is a first-class deployment type instead of an
+implicit “no deployment” fallback.
+
 ### Capability packs
 
 Capability packs let Orca expose optional workflow behaviors without turning
@@ -196,7 +217,7 @@ Planned work includes:
 
 - cleaner handoffs between stages, sessions, and worktrees
 - a full-run orchestration mode that can take work from idea to PR on stable foundations
-- multi-spec supervision for coordinating several active lanes at once
+- deeper multi-spec supervision layers above today’s single-spec lane model
 - a self-evolution layer for harvesting and adopting worthwhile patterns from external repos
 
 The roadmap should explain direction, not mirror internal planning.

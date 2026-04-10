@@ -64,3 +64,32 @@ Current judgment:
 - `010` is planning-complete enough to commit
 - the remaining open choices are implementation-policy details, not structural
   design gaps
+
+## Implementation Addendum
+
+The implementation stayed within the intended boundary:
+
+- deterministic Python runtime first
+- thin Bash wrapper second
+- durable state over chat memory or tmux state
+- `direct-session` treated as first-class rather than as an absent deployment
+
+What review improved:
+
+- the first external code pass caught real runtime issues before commit
+- the locking model now actually covers lane-file persistence, not just the
+  top-level registry
+- the event layer is clearer because ACK state is explicit in emitted events
+- delegated-work completion now records when work finished instead of leaving
+  only claim-time evidence
+
+Residual risk:
+
+- `opencode` timed out on the final follow-up pass, so the last external review
+  signal is “issues found and fixed,” not “fresh clean approval”
+
+Current judgment:
+
+- merge readiness: yes
+- scope discipline: strong
+- conservative supervisor posture: preserved

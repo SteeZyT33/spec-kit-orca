@@ -1,5 +1,21 @@
 # Cross Review: Orca Matriarch
 
+## Current Summary
+
+Implementation review is now split across:
+
+- [review-code.md](/home/taylor/spec-kit-orca-010-orca-matriarch-impl/specs/010-orca-matriarch/review-code.md)
+- [review-cross.md](/home/taylor/spec-kit-orca-010-orca-matriarch-impl/specs/010-orca-matriarch/review-cross.md)
+
+Current status:
+
+- the planning-level cross-review findings recorded below were addressed before
+  implementation started
+- the implementation-specific `opencode` pass found real runtime issues and
+  those fixes are now applied
+- the final re-run timed out, so the branch has no fresh substantive external
+  “clean” verdict beyond the first-pass fixes
+
 ## Requested Reviewer
 
 - agent: `opencode`
