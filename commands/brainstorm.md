@@ -57,13 +57,13 @@ This is **not** an implementation command.
 4. For durable brainstorm-memory operations, use the deterministic helper rather than hand-editing numbering or overview files:
 
    - create a new record:
-     `uv run python -m src.speckit_orca.brainstorm_memory create --root <repo> --title "<title>" ...`
+     `uv run python -m speckit_orca.brainstorm_memory create --root <repo> --title "<title>" ...`
    - inspect likely revisit candidates:
-     `uv run python -m src.speckit_orca.brainstorm_memory matches --root <repo> --title "<title>"`
+     `uv run python -m speckit_orca.brainstorm_memory matches --root <repo> --title "<title>"`
    - update an existing record additively:
-     `uv run python -m src.speckit_orca.brainstorm_memory update --path <record> --revision-summary "<summary>" ...`
+     `uv run python -m speckit_orca.brainstorm_memory update --path <record> --revision-summary "<summary>" ...`
    - recover or refresh the overview explicitly when needed:
-     `uv run python -m src.speckit_orca.brainstorm_memory regenerate-overview --root <repo>`
+     `uv run python -m speckit_orca.brainstorm_memory regenerate-overview --root <repo>`
 
 5. Produce a structured brainstorm artifact with these sections:
 

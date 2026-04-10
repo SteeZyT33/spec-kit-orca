@@ -22,22 +22,22 @@ Those issues were fixed in the worktree and re-verified.
 
 ### Findings Applied
 
-- `HIGH` [brainstorm_memory.py](/home/taylor/spec-kit-orca-002-brainstorm-memory-impl/src/speckit_orca/brainstorm_memory.py):
+- `HIGH` [brainstorm_memory.py](../../../src/speckit_orca/brainstorm_memory.py):
   relaxed validation so records require canonical headings and metadata, not
   fully populated content in every section. This restores support for
   meaningful-but-incomplete parked sessions.
-- `MEDIUM` [brainstorm_memory.py](/home/taylor/spec-kit-orca-002-brainstorm-memory-impl/src/speckit_orca/brainstorm_memory.py):
+- `MEDIUM` [brainstorm_memory.py](../../../src/speckit_orca/brainstorm_memory.py):
   added explicit state-transition validation so forbidden regressions such as
   `spec-created -> active` are rejected.
-- `MEDIUM` [brainstorm_memory.py](/home/taylor/spec-kit-orca-002-brainstorm-memory-impl/src/speckit_orca/brainstorm_memory.py):
+- `MEDIUM` [brainstorm_memory.py](../../../src/speckit_orca/brainstorm_memory.py):
   replaced fragile overview-root derivation with `root_from_record_path()`,
   which validates that records live under `brainstorm/`.
-- `HIGH` [brainstorm.md](/home/taylor/spec-kit-orca-002-brainstorm-memory-impl/commands/brainstorm.md):
+- `HIGH` [brainstorm.md](../../../commands/brainstorm.md):
   documented the concrete helper invocation path for `create`, `matches`,
   `update`, and `regenerate-overview`.
-- `LOW` [README.md](/home/taylor/spec-kit-orca-002-brainstorm-memory-impl/README.md):
+- `LOW` [README.md](../../../README.md):
   added direct helper CLI examples for contributors and local verification.
-- `MEDIUM` [test_brainstorm_memory.py](/home/taylor/spec-kit-orca-002-brainstorm-memory-impl/tests/test_brainstorm_memory.py):
+- `MEDIUM` [test_brainstorm_memory.py](../../../tests/test_brainstorm_memory.py):
   added automated regression coverage for partial saves, illegal transitions,
   root validation, and overview rendering.
 
