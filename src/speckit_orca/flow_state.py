@@ -332,14 +332,6 @@ def collect_feature_evidence(feature_dir: Path | str, repo_root: Path | str | No
         worktree_lanes=worktree_lanes,
     )
 
-    if artifacts["plan.md"].exists() and not artifacts["spec.md"].exists():
-        evidence.ambiguities.append("plan.md exists without spec.md")
-    if artifacts["tasks.md"].exists() and not artifacts["plan.md"].exists():
-        evidence.ambiguities.append("tasks.md exists without plan.md")
-    if task_summary.assigned and not artifacts["tasks.md"].exists():
-        evidence.ambiguities.append("assignment evidence exists without tasks.md")
-    if task_summary.has_implementation_progress and not artifacts["tasks.md"].exists():
-        evidence.ambiguities.append("implementation progress was inferred without tasks.md")
     if review_evidence.has_review_file and not artifacts["tasks.md"].exists():
         evidence.ambiguities.append("review.md exists without tasks.md")
     if review_evidence.has_self_review_file and not artifacts["review.md"].exists():
@@ -458,7 +450,10 @@ def _stage_milestones(evidence: FeatureEvidence, reviews: list[ReviewMilestone])
         implement_sources.append(str(tasks_path))
     elif any(review.status == "complete" for review in reviews if review.review_type in {"code", "cross", "pr", "self"}):
         implement_status = "complete"
-        implement_sources.append(str(evidence.artifacts["review.md"]))
+        for review in reviews:
+            if review.review_type in {"code", "cross", "pr", "self"} and review.status == "complete":
+                implement_sources.extend(review.evidence_sources)
+                break
     milestones.append(FlowMilestone("implement", implement_status, implement_sources))
 
     milestones.append(
