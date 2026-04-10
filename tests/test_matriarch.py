@@ -290,7 +290,10 @@ def test_stage_reached_dependency_with_invalid_target_value_stays_active(tmp_pat
     register_lane("010-orca-matriarch", repo_root=repo)
     register_lane("011-orca-evolve", repo_root=repo)
 
-    # Bypass the write-time validation to simulate a hand-edited registry.
+    # The public add_dependency() validates target_value at write time, so we
+    # must reach into private helpers to simulate what a hand-edited lane file
+    # would look like at read time.  This is intentional: the test exercises
+    # the read-path resilience of _evaluate_dependency_state, not the write-path.
     from speckit_orca.matriarch import (  # noqa: PLC0415
         LaneDependency,
         MatriarchPaths,
@@ -343,7 +346,7 @@ def test_concurrent_mailbox_appends_produce_valid_jsonl(tmp_path: Path) -> None:
                 event_type="instruction",
                 payload={"n": _n},
             )
-        except Exception as exc:  # noqa: BLE001
+        except (OSError, MatriarchError) as exc:
             errors.append(exc)
 
     threads = [threading.Thread(target=_send, args=(i,)) for i in range(20)]
