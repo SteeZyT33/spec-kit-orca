@@ -1,0 +1,24 @@
+{
+  "packs": {
+    "brainstorm-memory": {
+      "enabled": true,
+      "reason": "Use durable brainstorm records and overview regeneration in this repo."
+    },
+    "flow-state": {
+      "enabled": true,
+      "reason": "Share artifact-first workflow state across assignment and review commands."
+    },
+    "worktrees": {
+      "enabled": false,
+      "reason": "Turn on when this repo adopts Orca lane metadata."
+    },
+    "review": {
+      "enabled": true,
+      "reason": "Core review lifecycle remains active."
+    },
+    "yolo": {
+      "enabled": false,
+      "reason": "Keep downstream orchestration disabled until explicitly piloted."
+    }
+  }
+}
