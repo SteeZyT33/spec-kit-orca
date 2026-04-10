@@ -416,7 +416,7 @@ def _commit_lane_record(
 
 def _event_id(lane_id: str, event_type: str) -> str:
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-    return f"{lane_id}-{event_type}-{timestamp}"
+    return f"{lane_id}-{event_type}-{timestamp}-{secrets.token_hex(4)}"
 
 
 def _validate_event_type(event_type: str) -> None:
@@ -535,7 +535,7 @@ def _current_worktree_path(paths: MatriarchPaths) -> str | None:
         current.relative_to(paths.repo_root.resolve())
     except ValueError:
         return str(paths.repo_root.resolve())
-    return str(paths.repo_root.resolve())
+    return str(current.resolve())
 
 
 def _merged_base_ref(paths: MatriarchPaths) -> str | None:
@@ -870,6 +870,9 @@ def send_mailbox_event(
     # For ack events the default envelope state is "acknowledged"; callers that
     # need "resolved" (e.g. acknowledge_event) pass ack_status_override.
     default_ack_status = "acknowledged" if event_type == "ack" else "new"
+    ack_status = ack_status_override if ack_status_override is not None else default_ack_status
+    if ack_status not in EVENT_ACK_STATES:
+        raise MatriarchError(f"Unsupported ack status: {ack_status}")
     event = EventEnvelope(
         id=_event_id(lane_id, event_type),
         timestamp=_now_rfc3339(),
@@ -878,7 +881,7 @@ def send_mailbox_event(
         recipient=recipient,
         type=event_type,
         payload=payload,
-        ack_status=ack_status_override if ack_status_override is not None else default_ack_status,
+        ack_status=ack_status,
     )
     path = paths.mailbox_outbound(lane_id) if direction == "to_lane" else paths.mailbox_inbound(lane_id)
     _append_event(path, event)
@@ -992,6 +995,7 @@ def _write_delegated_payload(paths: MatriarchPaths, lane_id: str, payload: dict[
 def _mutate_delegated_work(paths: MatriarchPaths, lane_id: str, mutator: Any) -> DelegatedWorkItem:
     fd = _acquire_lock(paths.delegated_lock_path(lane_id))
     try:
+        _load_lane(paths, lane_id)
         payload = _load_delegated_payload(paths, lane_id)
         item = mutator(payload)
         _write_delegated_payload(paths, lane_id, payload)

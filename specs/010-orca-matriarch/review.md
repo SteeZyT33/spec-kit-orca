@@ -1,13 +1,11 @@
 # Cross Review: Orca Matriarch
 
-## Current Summary
+## Latest Status
 
 Implementation review is now split across:
 
 - [review-code.md](./review-code.md)
 - [review-cross.md](./review-cross.md)
-
-Current status:
 
 - original planning blockers were resolved before implementation started
 - the first implementation-focused `opencode` pass found real runtime issues and
@@ -23,7 +21,9 @@ Current status:
 - scope: design
 - date: 2026-04-10
 
-## Original Planning Verdict
+## Historical Snapshots
+
+### Original Planning Verdict
 
 `010` is now structurally strong, but it still has two real implementation
 blockers at the system seams: registry concurrency and the concrete report-back
@@ -101,7 +101,7 @@ non-blocking but should be resolved before implementation to avoid drift.
 5. Define the hook registration file format and location in
    [hook-model.md](./contracts/hook-model.md).
 
-## Resolution Addendum
+### Resolution Addendum
 
 The blocking findings from this review have now been addressed in the planning
 artifacts:
@@ -132,7 +132,7 @@ Remaining open design choices are now narrow rather than blocking:
 2. whether tmux launching should remain a direct Matriarch responsibility or
    sit behind a thinner deployment adapter
 
-## Second External Review Addendum
+### Second External Review Addendum
 
 Reviewer:
 
@@ -142,13 +142,12 @@ Reviewer:
 - scope: design, with Claude Code compatibility emphasis
 - date: 2026-04-10
 
-### Updated Verdict
+At the time of the second external review, the design remained sound and should
+work with Claude Code as a worker CLI, but two items were still blocking before
+implementation:
 
-The design remains sound and should work with Claude Code as a worker CLI, but
-two items are still blocking before implementation:
-
-1. the lane registry still needs a committed write-safety mechanism
-2. mailbox/report contracts still need a single concrete event envelope and
+1. the lane registry still needed a committed write-safety mechanism
+2. mailbox/report contracts still needed a single concrete event envelope and
    ordering rule
 
 ### New Blocking Findings

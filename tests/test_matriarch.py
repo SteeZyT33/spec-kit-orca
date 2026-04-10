@@ -315,15 +315,17 @@ def test_claim_token_is_unpredictable(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     _spec(repo, "010-orca-matriarch")
     register_lane("010-orca-matriarch", repo_root=repo)
+    create_delegated_work("010-orca-matriarch", "T000", "Task 0", repo_root=repo)
 
     tokens: list[str] = []
-    for n in range(3):
-        task_id = f"T{n:03d}"
-        create_delegated_work("010-orca-matriarch", task_id, f"Task {n}", repo_root=repo)
+    for _ in range(3):
         item = claim_delegated_work(
-            "010-orca-matriarch", task_id, repo_root=repo, claimer_id="same-worker"
+            "010-orca-matriarch", "T000", repo_root=repo, claimer_id="same-worker"
         )
         tokens.append(item.claim_token or "")
+        release_delegated_work(
+            "010-orca-matriarch", "T000", repo_root=repo, claim_token=item.claim_token or ""
+        )
 
     assert len(set(tokens)) == len(tokens), "Claim tokens must be unique across successive claims"
 
