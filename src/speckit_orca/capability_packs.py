@@ -24,6 +24,12 @@ class CapabilityPackDefinition:
     owned_behaviors: tuple[str, ...]
 
 
+@dataclass
+class CapabilityPackValidationIssue:
+    pack_id: str
+    message: str
+
+
 @dataclass(frozen=True)
 class CapabilityPackOverride:
     enabled: bool
@@ -174,7 +180,8 @@ def _heuristic_enabled(pack: CapabilityPackDefinition, root: Path) -> tuple[bool
         specs_dir = root / "specs"
         if specs_dir.is_dir():
             evidence.append("specs/ directory present")
-        return True, evidence
+            return True, evidence
+        return False, evidence
 
     if pack.status == "core":
         return True, evidence
@@ -250,13 +257,19 @@ def validate_registry(root: Path, manifest_path: Path | None = None) -> list[str
             issues.append(f"{definition.id}: invalid activation mode '{definition.activation_mode}'")
         if not definition.affected_commands:
             issues.append(f"{definition.id}: affected_commands must not be empty")
+        if not definition.owned_behaviors:
+            issues.append(f"{definition.id}: owned_behaviors must not be empty")
         if definition.status == "downstream" and definition.activation_mode == "always-on":
             issues.append(f"{definition.id}: downstream pack must not be always-on")
 
     try:
-        resolve_effective_packs(root, manifest_path)
+        packs = resolve_effective_packs(root, manifest_path)
     except (ValueError, json.JSONDecodeError) as exc:
         issues.append(str(exc))
+    else:
+        for pack in packs:
+            if pack.activation_mode == "always-on" and "always-on pack cannot be disabled; override ignored" in pack.warnings:
+                issues.append(f"{pack.id}: always-on packs may not be disabled by manifest")
     return issues
 
 
@@ -269,6 +282,8 @@ def scaffold_manifest(root: Path, manifest_path: Path | None = None, force: bool
     template_path = Path(__file__).resolve().parent / "templates" / "capability-packs.example.json"
     if not template_path.exists():
         template_path = Path(__file__).resolve().parents[2] / "templates" / "capability-packs.example.json"
+    if not template_path.exists():
+        raise FileNotFoundError("Capability pack template not found in package or repository templates/")
     manifest_path.write_text(template_path.read_text(encoding="utf-8"), encoding="utf-8")
     return manifest_path
 
@@ -361,7 +376,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(_render_text(packs))
         return 0
-    except (FileExistsError, ValueError, json.JSONDecodeError) as exc:
+    except (FileExistsError, FileNotFoundError, ValueError, json.JSONDecodeError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
 
