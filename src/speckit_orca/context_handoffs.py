@@ -107,9 +107,12 @@ def _now_rfc3339() -> str:
 
 def _parse_rfc3339(value: str) -> datetime:
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError as exc:
         raise ValueError(f"Created timestamp must be RFC3339, got: {value}") from exc
+    if parsed.tzinfo is None:
+        raise ValueError(f"Created timestamp must include timezone offset, got: {value}")
+    return parsed
 
 
 def _find_repo_root(path: Path) -> Path | None:
@@ -473,7 +476,7 @@ def _sort_candidates(candidates: list[HandoffRecord], branch: str | None, lane_i
         return (storage_rank, branch_match, lane_match, timestamp, record.locator)
 
     ranked = sorted(candidates, key=key, reverse=True)
-    ambiguity = len(ranked) > 1
+    ambiguity = len(ranked) > 1 and key(ranked[0]) == key(ranked[1])
     return ranked, ambiguity
 
 
@@ -511,6 +514,7 @@ def resolve_handoff(
 
     if explicit_candidates:
         ranked, ambiguity = _sort_candidates(explicit_candidates, resolved_branch, lane_id)
+        uniqueness_violation_detected = ambiguity
         winner = ranked[0]
         return ResolutionResult(
             target_stage=target,

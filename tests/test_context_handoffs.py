@@ -2,7 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from speckit_orca.context_handoffs import create_handoff, parse_handoff_file, resolve_handoff
+import pytest
+
+from speckit_orca.context_handoffs import (
+    HandoffRecord,
+    _sort_candidates,
+    create_handoff,
+    parse_handoff_file,
+    resolve_handoff,
+)
 
 
 def _feature_dir(tmp_path: Path) -> Path:
@@ -148,3 +156,50 @@ def test_resolve_embedded_locator_uses_exact_section_title(tmp_path: Path) -> No
     assert result.resolved_handoff == (
         "specs/007-orca-context-handoffs/spec.md::section-title=Handoff: specify -> plan"
     )
+
+
+def test_create_handoff_rejects_naive_created_at(tmp_path: Path) -> None:
+    feature_dir = _feature_dir(tmp_path)
+    (feature_dir / "brainstorm.md").write_text("# Brainstorm\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="timezone offset"):
+        create_handoff(
+            feature_dir,
+            source_stage="brainstorm",
+            target_stage="specify",
+            summary="Turn the brainstorm into a feature spec.",
+            upstream_artifacts=[feature_dir / "brainstorm.md"],
+            created_at="2026-04-10T00:00:00",
+        )
+
+
+def test_sort_candidates_reports_ambiguity_for_top_rank_tie() -> None:
+    record_a = HandoffRecord(
+        source_stage="specify",
+        target_stage="plan",
+        summary="one",
+        upstream_artifacts=["specs/007-orca-context-handoffs/spec.md"],
+        open_questions=[],
+        branch="main",
+        lane_id=None,
+        created_at="2026-04-09T00:00:00Z",
+        storage_shape="file",
+        locator="specs/007-orca-context-handoffs/handoffs/specify-to-plan-a.md",
+    )
+    record_b = HandoffRecord(
+        source_stage="specify",
+        target_stage="plan",
+        summary="two",
+        upstream_artifacts=["specs/007-orca-context-handoffs/spec.md"],
+        open_questions=[],
+        branch="main",
+        lane_id=None,
+        created_at="2026-04-09T00:00:00Z",
+        storage_shape="file",
+        locator="specs/007-orca-context-handoffs/handoffs/specify-to-plan-a.md",
+    )
+
+    ranked, ambiguity = _sort_candidates([record_a, record_b], branch="main", lane_id=None)
+
+    assert len(ranked) == 2
+    assert ambiguity is True

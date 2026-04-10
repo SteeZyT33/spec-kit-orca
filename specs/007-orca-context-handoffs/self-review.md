@@ -104,18 +104,15 @@
 
 ### What Didn't
 
-- A couple of runtime flags are ahead of their actual enforcement logic:
-  `uniqueness_violation_detected` is modeled but not materially detected yet.
-- Ambiguity reporting is intentionally coarse right now.
+- Ambiguity and uniqueness reporting now cover tied top-rank candidates, but
+  broader multi-candidate policy may still evolve with real usage.
 - The command-doc wiring is useful, but it is still documentation-driven rather
   than fully integrated into higher-level command runners.
 
 ### Follow-Up Improvements
 
 - Add tests for ambiguity and uniqueness semantics in
-  [test_context_handoffs.py](/home/taylor/spec-kit-orca-007-context-handoffs-impl/tests/test_context_handoffs.py).
-- Tighten `uniqueness_violation_detected` once a real multi-candidate violation
-  case exists in runtime behavior.
+  [test_context_handoffs.py](tests/test_context_handoffs.py).
 - Consider whether branch/lane affinity should outrank storage shape in any
   future workflow, but keep the current simpler behavior unless a real use case
   appears.
