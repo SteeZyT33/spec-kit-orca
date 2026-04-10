@@ -4,6 +4,7 @@ import argparse
 import fcntl
 import json
 import os
+import secrets
 import subprocess
 import tempfile
 import time
@@ -394,8 +395,14 @@ def _commit_lane_record(
         registry["revision"] = revision + 1
         registry["updated_at"] = _now_rfc3339()
         record.registry_revision = int(registry["revision"])
-        _write_lane(paths, record)
+        # Write the registry index BEFORE the lane file.  If we crash between
+        # the two atomic renames the registry will list the lane but the lane
+        # file will be missing; list_lanes() surfaces that as an error entry,
+        # giving the operator a visible signal.  The reverse order would leave
+        # a silent orphan lane file that blocks every subsequent registration
+        # attempt for the same spec_id.
         _write_json_atomic(paths.registry_path, registry)
+        _write_lane(paths, record)
         return record
     finally:
         _release_lock(fd)
@@ -414,8 +421,13 @@ def _validate_event_type(event_type: str) -> None:
 def _append_event(path: Path, event: EventEnvelope) -> None:
     _ensure_parent(path)
     with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(event.to_dict(), sort_keys=True))
-        handle.write("\n")
+        # Serialise concurrent appenders (multiple agents writing the same lane).
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            handle.write(json.dumps(event.to_dict(), sort_keys=True))
+            handle.write("\n")
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -576,6 +588,8 @@ def _evaluate_dependency_state(
         current_stage = upstream_flow.get("current_stage")
         if current_stage and current_stage not in STAGE_ORDER:
             return "active", f"Upstream reported unknown stage {current_stage!r}."
+        if target_value not in STAGE_ORDER:
+            return "active", f"Dependency target_value {target_value!r} is not a known stage; treating as unsatisfied."
         if current_stage and STAGE_ORDER.index(current_stage) >= STAGE_ORDER.index(str(target_value)):
             return "satisfied", f"Upstream reached stage {current_stage}."
         return "active", f"Waiting for upstream stage {target_value}."
@@ -837,12 +851,16 @@ def send_mailbox_event(
     recipient: str,
     event_type: str,
     payload: str | dict[str, Any],
+    ack_status_override: str | None = None,
 ) -> EventEnvelope:
     if direction not in {"to_lane", "to_matriarch"}:
         raise MatriarchError(f"Unsupported mailbox direction: {direction}")
     _validate_event_type(event_type)
     paths = MatriarchPaths(_repo_root(repo_root))
     _load_lane(paths, lane_id)
+    # For ack events the default envelope state is "acknowledged"; callers that
+    # need "resolved" (e.g. acknowledge_event) pass ack_status_override.
+    default_ack_status = "acknowledged" if event_type == "ack" else "new"
     event = EventEnvelope(
         id=_event_id(lane_id, event_type),
         timestamp=_now_rfc3339(),
@@ -851,7 +869,7 @@ def send_mailbox_event(
         recipient=recipient,
         type=event_type,
         payload=payload,
-        ack_status="acknowledged" if event_type == "ack" else "new",
+        ack_status=ack_status_override if ack_status_override is not None else default_ack_status,
     )
     path = paths.mailbox_outbound(lane_id) if direction == "to_lane" else paths.mailbox_inbound(lane_id)
     _append_event(path, event)
@@ -877,6 +895,7 @@ def acknowledge_event(
         recipient=recipient,
         event_type="ack",
         payload={"acked_event_id": acked_event_id, "ack_status": resolution},
+        ack_status_override=resolution,
     )
 
 
@@ -1019,7 +1038,7 @@ def claim_delegated_work(
             if item["status"] != "pending":
                 raise MatriarchError(f"Delegated work item is not pending: {task_id}")
             claimed_at = _now_rfc3339()
-            claim_token = f"{lane_id}:{task_id}:{claimer_id}:{int(time.time())}"
+            claim_token = f"{lane_id}:{task_id}:{claimer_id}:{secrets.token_hex(8)}"
             item["status"] = "in_progress"
             item["claimed_by"] = claimer_id
             item["claim_token"] = claim_token
@@ -1047,6 +1066,10 @@ def complete_delegated_work(
         for item in payload["tasks"]:
             if item["task_id"] != task_id:
                 continue
+            if item.get("status") != "in_progress":
+                raise MatriarchError(
+                    f"Delegated work item {task_id!r} is not in_progress (status={item.get('status')!r})"
+                )
             if item.get("claim_token") != claim_token:
                 raise MatriarchError(f"Stale delegated-work completion rejected for {task_id}")
             item["status"] = "failed" if failed else "completed"
