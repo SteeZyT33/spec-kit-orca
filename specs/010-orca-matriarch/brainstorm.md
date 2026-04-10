@@ -200,6 +200,14 @@ Minimal viable interface ideas:
 The key point is not exact command names.
 The key point is: one predictable supervisory interface.
 
+Refinement direction:
+
+- keep the v1 surface intentionally small
+- prefer `register`, `show`, `list`, `assign`, `depend`, `checkout`, and
+  `deploy`
+- avoid adding broad command families until lifecycle and registry semantics
+  are stable
+
 ## Dependency Management
 
 Dependencies are central because the user is actively coordinating multiple
@@ -221,6 +229,13 @@ Likely dependency states:
 - satisfied
 - waived/overridden with rationale
 
+Refinement direction:
+
+- dependency declarations should target concrete conditions, not vague prose
+- likely targets are lane existence, stage reached, review-ready, PR-ready, and
+  merged
+- dependency status should be inspectable without reading chat history
+
 ## Readiness And Gates
 
 Matriarch becomes useful when it can answer:
@@ -241,6 +256,25 @@ This depends on durable inputs from:
 
 The first version should avoid over-scoring or fake confidence.
 If evidence is missing, Matriarch should say "unknown" or "missing evidence."
+
+## Tmux Deployment
+
+The user is right that multi-lane coordination gets much more useful once there
+is a real deployment substrate for active agent work.
+
+For Matriarch, tmux should be treated as:
+
+- an optional lane deployment attachment
+- one session per lane in v1
+- explicit launch/attach/inspect behavior
+- visible state, never hidden magic
+
+Tmux should not be treated as:
+
+- proof that work is healthy
+- proof that work is complete
+- a replacement for lane lifecycle or readiness state
+- a general-purpose swarm scheduler
 
 ## What Not To Overengineer
 

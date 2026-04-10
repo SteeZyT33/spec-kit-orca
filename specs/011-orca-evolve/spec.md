@@ -16,6 +16,18 @@ This feature is not only a research notebook. It is the mechanism by which
 Orca tracks desired external capabilities, decides what to adopt, and records
 how those capabilities should map into the Orca workflow system.
 
+That should include thin Orca-facing wrappers over strong external specialist
+skills when that is the better product move than owning the underlying engine.
+Current examples are `deep-optimize`, `deep-research`, and `deep-review`,
+which should be treated as adopted entrypoints and workflow contracts, not
+Orca-owned research or optimization cores.
+
+It should also capture portable workflow patterns harvested from provider- or
+runtime-specific systems, as long as Orca adopts the principle rather than the
+host-specific machinery. Current examples include state-first coordination,
+durable mailbox/report queues, and claim-safe delegated work drawn from
+tmux-based team systems.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Track What Orca Still Wants To Adopt (Priority: P1)
@@ -100,6 +112,9 @@ actions for the adopted items.
 - What happens if a feature is copied directly from another repo? Evolve MUST
   still require explicit adoption rationale and target mapping rather than
   silent copy/paste.
+- What happens if Orca wants to expose an external skill behind an Orca-native
+  command or skill name? Evolve MUST be able to record that Orca owns the
+  wrapper contract while the external system remains the underlying engine.
 
 ## Requirements *(mandatory)*
 
@@ -122,6 +137,15 @@ actions for the adopted items.
 - **FR-008**: The first version MUST preserve enough source attribution and
   local reasoning for maintainers to revisit prior adoption decisions
   intentionally.
+- **FR-009**: `orca-evolve` MUST support adoption records for thin Orca-native
+  wrappers over external specialist systems, including the wrapper purpose, the
+  external dependency, and the boundary of what Orca does or does not own.
+- **FR-010**: The first version SHOULD be able to record external specialist
+  wrappers such as `deep-optimize`, `deep-research`, and `deep-review` as
+  first-class adoption candidates or approved follow-on work.
+- **FR-011**: `orca-evolve` SHOULD support harvest records for portable
+  workflow principles taken from provider-specific systems, while explicitly
+  excluding host-specific runtime contracts, CLI wiring, and filesystem layout.
 
 ### Key Entities *(include if feature involves data)*
 
@@ -131,6 +155,9 @@ actions for the adopted items.
   adapts, defers, or rejects a harvested idea.
 - **Target Mapping**: The Orca subsystem, spec, or future feature that the
   harvested idea maps into.
+- **Wrapper Capability**: An Orca-native entrypoint that delegates to an
+  external specialist skill or system while preserving Orca-specific workflow
+  expectations.
 
 ## Success Criteria *(mandatory)*
 
@@ -142,6 +169,12 @@ actions for the adopted items.
   remaining disconnected notes.
 - **SC-003**: Orca can continue harvesting worthwhile Spex ideas without
   re-running the same repo analysis from scratch each time.
+- **SC-004**: Maintainers can distinguish between capabilities Orca owns
+  directly and Orca-native wrapper capabilities that depend on external
+  specialist systems.
+- **SC-005**: Maintainers can distinguish between portable workflow principles
+  Orca intends to adopt and provider- or runtime-specific implementation
+  details Orca intentionally leaves behind.
 
 ## Documentation Impact *(mandatory)*
 

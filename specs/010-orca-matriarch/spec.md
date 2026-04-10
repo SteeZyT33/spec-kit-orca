@@ -18,6 +18,21 @@ automation theater and hide real blockers. The first version should emphasize
 visibility, dependency awareness, lane assignment, and gate tracking over
 aggressive autonomous control.
 
+The user also wants a real agent deployment substrate for multi-lane work.
+That means `orca-matriarch` needs an explicit answer for supervised lane
+deployment, not just passive metadata. In v1, that answer should be narrow:
+tmux-backed lane sessions may be launched, attached, resumed, or inspected
+explicitly, but Matriarch must not turn into an uncontrolled swarm manager.
+
+In the same spirit, v1 lane semantics should stay narrow: one lane should own
+one spec. Multi-spec supervision should come from Matriarch coordinating many
+lanes, not from letting one lane become a grab bag of unrelated or loosely
+related specs.
+
+For the same reason, v1 should not hide Claude Code or other non-tmux workers
+behind a fake absence of deployment. The deployment model should explicitly
+support direct interactive CLI sessions as a first-class non-tmux case.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Coordinate Multiple Spec Implementations Without Manual Juggling (Priority: P1)
@@ -102,6 +117,14 @@ artifacts instead of chat memory.
 - What happens if a user wants to keep full manual control? The first version
   MUST support visibility and structured coordination without requiring
   autonomous execution.
+- What happens if a tmux-backed lane session dies or detaches unexpectedly?
+  Matriarch MUST preserve lane ownership and deployment state without claiming
+  the lane is healthy or complete.
+- What happens if a lane has enough artifact state to be "review-ready" but no
+  active assignee or session? Matriarch MUST surface that mismatch explicitly.
+- What happens if an execution agent inside a lane hits ambiguity or needs
+  approval? The lane agent MUST report back to Matriarch instead of silently
+  bypassing supervision or treating itself as user-facing authority.
 
 ## Requirements *(mandatory)*
 
@@ -109,6 +132,9 @@ artifacts instead of chat memory.
 
 - **FR-001**: Orca MUST define a multi-spec orchestration model for coordinating
   multiple feature lanes.
+- **FR-001a**: In v1, one lane MUST correspond to exactly one primary spec.
+  Multi-spec coordination MUST happen across lanes rather than by assigning
+  multiple specs to one lane.
 - **FR-002**: `orca-matriarch` MUST track lane identity, stage, ownership, and
   blocker state from durable artifacts.
 - **FR-003**: `orca-matriarch` MUST support explicit dependency relationships
@@ -128,6 +154,50 @@ artifacts instead of chat memory.
   coordination over aggressive autonomy.
 - **FR-010**: The system MUST remain provider-agnostic and represent agent
   choices explicitly rather than encoding provider-specific behavior.
+- **FR-011**: `orca-matriarch` MUST define an explicit lane lifecycle separate
+  from but compatible with feature-level flow state.
+- **FR-012**: `orca-matriarch` MUST define dependency semantics that can target
+  at least lane existence, lane stage, review readiness, and merge readiness.
+- **FR-013**: `orca-matriarch` MUST define ownership and reassignment semantics
+  clearly enough that abandoned or reassigned lanes remain auditable.
+- **FR-014**: `checkout` behavior MUST default to resolution-only and require
+  explicit opt-in before mutating shell, git, or tmux state.
+- **FR-015**: The first version MAY support tmux-backed lane deployment, but
+  only as an explicit supervised session model with visible state and safe
+  failure handling.
+- **FR-016**: Tmux deployment MUST NOT be the only execution mode; manual and
+  non-tmux lanes must remain first-class.
+- **FR-017**: The first version MUST define a minimum supervisory command
+  surface and avoid expanding into a broad command family before lifecycle and
+  registry behavior are stable.
+- **FR-018**: If lane ownership changes while a tmux deployment still exists,
+  Matriarch MUST surface that ownership mismatch explicitly and MUST NOT treat
+  the old deployment as authoritative without operator confirmation.
+- **FR-019**: Lifecycle precedence rules MUST be explicit enough that a lane
+  cannot appear simultaneously blocked and unconditionally review-ready without
+  a visible explanation.
+- **FR-020**: If Matriarch launches a lane agent, that agent MUST report
+  blockers, questions, and approval needs back to Matriarch rather than
+  bypassing the supervisory layer by default.
+- **FR-021**: The first version SHOULD reserve a future grouping concept above
+  lanes for coordinating related specs, rather than overloading lane semantics
+  to support multi-spec ownership.
+- **FR-022**: If Matriarch delegates discrete sub-work inside a lane, that
+  delegated work MUST use a claim-safe lifecycle rather than ad hoc ownership
+  mutation.
+- **FR-023**: Matriarch SHOULD support a durable lane mailbox or report queue
+  so launched agents and delegated workers can acknowledge instructions and
+  report progress without relying on tmux keystrokes as the source of truth.
+- **FR-024**: The first version MUST keep deployment runtime concerns separate
+  from coordination state so tmux remains an optional adapter, not the
+  canonical data plane.
+- **FR-025**: In v1, `lane_id` MUST default to the primary `spec_id` so lane
+  metadata, mailbox paths, and deployment naming stay deterministic.
+- **FR-026**: The deployment model MUST support a non-tmux `direct-session`
+  case for interactive worker CLIs such as Claude Code.
+- **FR-027**: Lane metadata MUST expose enough discovery information, including
+  mailbox location, that launched worker CLIs do not need hardcoded Orca
+  runtime paths.
 
 ### Key Entities *(include if feature involves data)*
 
@@ -138,6 +208,19 @@ artifacts instead of chat memory.
   advance until another reaches a required state.
 - **Lane Readiness**: The summarized implementation/review/PR state derived
   from durable artifacts.
+- **Lane Lifecycle State**: The supervisory state of a lane such as registered,
+  active, blocked, review-ready, or archived.
+- **Lane Deployment**: The optional execution attachment for a lane, such as a
+  tmux session or direct interactive CLI session, including health and
+  attach/resume metadata.
+- **Lane Agent**: The execution worker attached to one lane, launched or
+  supervised by Matriarch and expected to report blockers upward.
+- **Lane Mailbox Event**: A durable message or acknowledgment exchanged between
+  Matriarch and a lane-local worker or agent.
+- **Lane Task Claim**: A record that one delegated worker has safely claimed a
+  unit of lane-local work.
+- **Program Group**: A future higher-level grouping for coordinating multiple
+  related lanes without changing the one-lane-one-spec rule.
 
 ## Success Criteria *(mandatory)*
 
@@ -149,6 +232,18 @@ artifacts instead of chat memory.
   instead of relying on human memory.
 - **SC-003**: Lane assignment and review-readiness are discoverable without
   reconstructing chat history.
+- **SC-004**: A maintainer can determine whether a lane is only registered,
+  actively owned, blocked, review-ready, or archived without inferring that
+  state from prose.
+- **SC-005**: If tmux deployment is enabled for a lane, Matriarch can show the
+  deployment state explicitly without confusing deployment health with workflow
+  completion.
+- **SC-006**: A maintainer can tell when a running tmux session belongs to a
+  stale or previous owner rather than the current lane assignee.
+- **SC-007**: A maintainer can determine which single spec a lane owns without
+  reading surrounding prose or guessing from branch names.
+- **SC-008**: A maintainer can inspect durable lane messages or acknowledgments
+  without depending on live tmux interaction.
 
 ## Documentation Impact *(mandatory)*
 
