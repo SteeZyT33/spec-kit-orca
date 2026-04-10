@@ -14,9 +14,9 @@
 
 ## Latest Review Status
 
-- Current blockers: none from cross-review; new stage templates must be included in the commit.
+- Current blockers: none.
 - Delivery readiness: ready to commit, then ready for later PR review
-- Latest review update: 2026-04-09 via `review-cross.md`
+- Latest review update: 2026-04-09 via `self-review.md`
 
 ## Artifact Notes
 

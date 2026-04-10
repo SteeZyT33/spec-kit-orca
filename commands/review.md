@@ -31,7 +31,10 @@ Under the current review-artifact model:
 
 - `/speckit.orca.code-review` owns `review-code.md`
 - `/speckit.orca.pr-review` owns `review-pr.md`
-- `review.md` remains the human-facing summary/index
+- `/speckit.orca.cross-review` owns `review-cross.md`
+- `/speckit.orca.self-review` owns `self-review.md`
+- `review.md` remains the human-facing summary/index used to link and summarize
+  those stage artifacts
 
 ## Routing Rules
 

@@ -14,6 +14,7 @@ description: "Template for PR lifecycle review evidence"
 - Status: [open | merged | closed | not created]
 
 ### Comment Disposition
+- Total: [count]
 - Addressed: [count]
 - Rejected: [count]
 - Issued: [count]

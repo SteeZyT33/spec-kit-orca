@@ -11,6 +11,7 @@ description: "Template for alternate-agent or adversarial cross-review evidence"
 
 ### Scope
 - design | code
+- Phase: [phase number or stage]
 
 ### Reviewer Resolution
 - Requested agent: [agent]
@@ -18,6 +19,7 @@ description: "Template for alternate-agent or adversarial cross-review evidence"
 - Support tier: [tier]
 - Selection reason: [reason]
 - Truly cross-agent: yes | no
+- Same-agent fallback: none | [warning text]
 
 ### Blocking Findings
 - [findings]

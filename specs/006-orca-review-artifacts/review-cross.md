@@ -19,8 +19,8 @@
 - No material blocking findings remain.
 
 ### Non-Blocking Findings
-- Resolved during review: [commands/cross-review.md](/home/taylor/spec-kit-orca-006-review-artifacts-impl/commands/cross-review.md) now explicitly references [review-template.md](/home/taylor/spec-kit-orca-006-review-artifacts-impl/templates/review-template.md) for the summary/index refresh step.
-- Operational note only: the new stage templates must be staged in the commit so the documented command behavior points to real files.
+- Resolved during review: `commands/cross-review.md` now explicitly references `templates/review-template.md` for the summary/index refresh step.
+- Operational note only: the stage templates are part of the committed implementation, so the documented command behavior points to real files.
 
 ### Recommendation
-- Ready to commit once the new template files are staged with the rest of the implementation.
+- Ready for PR review; no material blocking findings remain.
