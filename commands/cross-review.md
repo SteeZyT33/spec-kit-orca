@@ -1,5 +1,5 @@
 ---
-description: Invoke a cross-harness adversarial review at any pipeline stage — validates design artifacts (post-tasks) or code changes (post-review) using a different AI harness.
+description: Invoke an adversarial cross-review at any pipeline stage - validates design artifacts (post-tasks) or code changes (post-review) using an alternate reviewer agent.
 scripts:
   sh: scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks
   ps: scripts/powershell/check-prerequisites.ps1 -Json -RequireTasks -IncludeTasks
@@ -32,21 +32,27 @@ You **MUST** consider the user input before proceeding (if not empty).
    - `--phase N`: Review a specific phase (default: latest completed phase from tasks.md)
    - Any remaining text: Additional review focus or instructions for the reviewer
 
-3. **Read configuration** from `.specify/init-options.json`:
-   - `review_harness` (optional, preferred default: first installed harness that is different from the active `ai` in `.specify/init-options.json`; otherwise fall back to `"codex"`): The CLI harness to invoke (`codex`, `claude`, `gemini`)
-   - `review_model` (optional, default: `"o4-mini-high"` for codex, `null` for others): Model override for the review session
-   - `review_effort` (optional, default: `"high"`): Reasoning effort level
-   - If `review_harness` is not set, choose a different installed harness when possible and output a note:
-     ```text
-     No review_harness configured — auto-selecting a non-current harness when available.
-     To customize, add to .specify/init-options.json:
-       "review_harness": "claude",
-       "review_model": null,
-       "review_effort": "high"
-     ```
-     If the chosen harness matches the active provider, warn that the run is no longer truly cross-harness.
+3. **Resolve the reviewer agent**:
+   - Canonical CLI input: `--agent <name>`
+   - Legacy compatibility input: `--harness <name>`
+   - Canonical config: `crossreview.agent`
+   - Legacy config alias: `crossreview.harness`
+   - Model override: `crossreview.model`
+   - Effort override: `crossreview.effort`
+   - Resolution order:
+     1. explicit `--agent`
+     2. legacy `--harness`
+     3. `crossreview.agent`
+     4. legacy `crossreview.harness`
+     5. remembered last successful reviewer when still valid
+     6. highest-ranked installed Tier 1 non-current reviewer
+     7. same-agent fallback with warning if no non-current Tier 1 option exists
+   - Tier 1 supported and auto-selectable agents: `codex`, `claude`, `gemini`, `opencode`
+   - Tier 2 supported but not auto-selectable agents: `cursor-agent`
+   - Known but unsupported agents must fail structurally instead of pretending review occurred.
+   - If the resolved reviewer matches the active provider, warn that the run is no longer truly cross-agent.
 
-4. **Harness availability**: Do NOT check `command -v` here — the launcher and backend handle CLI resolution (including non-PATH installs like `~/.claude/local/`). If the harness is missing, the backend will return a structured error in the JSON output.
+4. **Agent availability**: Do NOT check `command -v` here - the launcher and backend handle CLI resolution, support tiers, and compatibility paths. If the agent is missing or unsupported, the backend returns a structured JSON result explaining that no substantive review occurred.
 
 5. **Determine the review scope**:
 
@@ -154,7 +160,7 @@ You **MUST** consider the user input before proceeding (if not empty).
    echo "spec.md plan.md tasks.md" > "$FEATURE_DIR/.crossreview-files.txt"
    ```
 
-8. **Build the review prompt** — write to `$FEATURE_DIR/.crossreview-prompt.md` using the code-scope or design-scope prompt shape, demanding structured JSON output with `summary`, `blocking`, and `non_blocking`.
+8. **Build the review prompt** - write to `$FEATURE_DIR/.crossreview-prompt.md` using the code-scope or design-scope prompt shape, demanding structured JSON output with `metadata`, `summary`, `blocking`, and `non_blocking`.
 
 9. **Write the output schema** to `$FEATURE_DIR/.crossreview.schema.json` by copying from `.specify/templates/crossreview.schema.json`.
 
@@ -162,9 +168,10 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 11. **Invoke the launcher script and capture the output path**:
     ```bash
-    CROSSREVIEW_OUTPUT=".shared/crossreview-${REVIEW_HARNESS}-${TIMESTAMP}.json"
+    CROSSREVIEW_OUTPUT=".shared/crossreview-${REVIEW_AGENT}-${TIMESTAMP}.json"
     bash scripts/bash/crossreview.sh \
-      --harness "$REVIEW_HARNESS" \
+      --agent "$REVIEW_AGENT" \
+      --active-agent "$ACTIVE_AGENT" \
       --model "$REVIEW_MODEL" \
       --effort "$REVIEW_EFFORT" \
       --output "$CROSSREVIEW_OUTPUT" \
@@ -175,16 +182,20 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 12. **Read the output JSON** from `$CROSSREVIEW_OUTPUT` and parse it.
 
-    - If the backend returns a structured harness failure instead of review findings, surface that explicitly as an operational blocker and stop pretending a substantive cross-harness review occurred.
+    - Read `metadata.requested_agent`, `metadata.resolved_agent`, `metadata.selection_reason`, `metadata.support_tier`, and `metadata.is_cross_agent`.
+    - If the backend returns a structured agent failure instead of review findings, surface that explicitly as an operational blocker and stop pretending a substantive cross-review occurred.
 
 13. **Present findings** to the user with:
     - scope
     - phase
-    - reviewer harness/model/effort
+    - requested and resolved reviewer agent
+    - model/effort
+    - selection reason and support tier
+    - whether the result was truly cross-agent or a same-agent fallback
     - lane ID and branch when present
     - blocking and non-blocking issues
 
-14. **Append to `review.md`** in FEATURE_DIR under a `### Cross-Harness Review` section.
+14. **Append to `review.md`** in FEATURE_DIR under a `### Cross-Review` section.
 
 15. **If blocking issues exist**, recommend addressing them before merge.
 
