@@ -142,8 +142,13 @@ def _normalize_override(raw: Any, pack_id: str) -> CapabilityPackOverride:
 def load_manifest_overrides(manifest_path: Path) -> dict[str, CapabilityPackOverride]:
     if not manifest_path.exists():
         return {}
+    if not manifest_path.is_file():
+        raise ValueError(f"Capability pack manifest is not a file: {manifest_path}")
 
-    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Unable to read capability pack manifest: {manifest_path}") from exc
     if not isinstance(payload, dict):
         raise ValueError("Capability pack manifest must be a JSON object")
 
@@ -262,14 +267,17 @@ def validate_registry(root: Path, manifest_path: Path | None = None) -> list[str
         if definition.status == "downstream" and definition.activation_mode == "always-on":
             issues.append(f"{definition.id}: downstream pack must not be always-on")
 
+    manifest_path = manifest_path or _default_manifest_path(root.resolve())
     try:
+        overrides = load_manifest_overrides(manifest_path)
         packs = resolve_effective_packs(root, manifest_path)
-    except (ValueError, json.JSONDecodeError) as exc:
+    except ValueError as exc:
         issues.append(str(exc))
     else:
-        for pack in packs:
-            if pack.activation_mode == "always-on" and "always-on pack cannot be disabled; override ignored" in pack.warnings:
-                issues.append(f"{pack.id}: always-on packs may not be disabled by manifest")
+        for pack_id, override in overrides.items():
+            definition = BUILTIN_PACKS[pack_id]
+            if definition.activation_mode == "always-on" and not override.enabled:
+                issues.append(f"{pack_id}: always-on packs may not be disabled by manifest")
     return issues
 
 

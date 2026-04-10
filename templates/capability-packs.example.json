@@ -12,10 +12,6 @@
       "enabled": false,
       "reason": "Turn on when this repo adopts Orca lane metadata."
     },
-    "review": {
-      "enabled": true,
-      "reason": "Core review lifecycle remains active."
-    },
     "yolo": {
       "enabled": false,
       "reason": "Keep downstream orchestration disabled until explicitly piloted."

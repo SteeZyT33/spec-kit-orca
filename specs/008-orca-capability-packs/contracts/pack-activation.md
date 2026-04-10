@@ -22,5 +22,5 @@ Define how Orca represents whether a capability pack is active.
 - Manifest entries may be either:
   - `true` / `false`
   - `{ "enabled": true|false, "reason": "..." }`
-- `always-on` packs ignore disable attempts and emit a warning
+- `always-on` packs ignore disable attempts during resolution and emit a warning; validation also reports those disable attempts as invalid
 - `experimental-only` packs stay disabled until explicitly opted in by manifest

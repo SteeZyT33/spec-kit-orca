@@ -24,7 +24,8 @@ pack boundaries without recreating trait complexity.
 
 ## Scenario 4: Override activation remains inspectable
 
-1. Run `uv run python -m speckit_orca.capability_packs scaffold --root .`.
-2. Review `.specify/orca/capability-packs.json`.
-3. Run `uv run python -m speckit_orca.capability_packs validate --root .`.
-4. Verify the helper accepts the manifest and still reports `yolo` as disabled unless explicitly enabled.
+1. Run `tmpdir=$(mktemp -d /tmp/orca-capability-packs-smoke-XXXXXX)`.
+2. Run `uv run python -m speckit_orca.capability_packs scaffold --root "$tmpdir"`.
+3. Review `"$tmpdir"/.specify/orca/capability-packs.json`.
+4. Run `uv run python -m speckit_orca.capability_packs validate --root "$tmpdir"`.
+5. Verify the helper accepts the manifest and still reports `yolo` as disabled unless explicitly enabled.
