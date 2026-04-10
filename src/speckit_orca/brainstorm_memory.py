@@ -76,10 +76,14 @@ def slugify(text: str) -> str:
 
 def _significant_length(sections: dict[str, str]) -> int:
     return len(
-        "".join(
+        re.sub(
+            r"\s+",
+            "",
+            "".join(
             sections.get(name, "").strip()
             for name in ("Problem", "Desired Outcome", "Options Considered", "Recommendation", "Open Questions")
-        ).replace(" ", "")
+            ),
+        )
     )
 
 
@@ -103,9 +107,12 @@ def _brainstorm_files(root: Path) -> list[Path]:
     if not directory.is_dir():
         return []
     return sorted(
-        path
-        for path in directory.glob("*.md")
-        if path.name != "00-overview.md" and re.match(r"^\d+-.*\.md$", path.name)
+        (
+            path
+            for path in directory.glob("*.md")
+            if path.name != "00-overview.md" and re.match(r"^\d+-.*\.md$", path.name)
+        ),
+        key=lambda path: int(path.name.split("-", 1)[0]),
     )
 
 
@@ -144,6 +151,14 @@ def _validate_section_keys(record: BrainstormRecord) -> None:
         raise ValueError(f"Missing required section headings {missing} in {record.path}")
 
 
+def _validate_filename_prefix(record: BrainstormRecord) -> None:
+    prefix = record.path.name.split("-", 1)[0]
+    if prefix != record.number:
+        raise ValueError(
+            f"Brainstorm header number '{record.number}' does not match filename prefix '{prefix}' in {record.path}"
+        )
+
+
 def _validate_state_transition(current: str, target: str) -> None:
     if current == target:
         return
@@ -177,6 +192,10 @@ def render_record(record: BrainstormRecord) -> str:
             lines.append(value)
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _escape_table_cell(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("|", "\\|").replace("\n", "<br>")
 
 
 def parse_record(path: Path) -> BrainstormRecord:
@@ -248,6 +267,7 @@ def validate_record(record: BrainstormRecord) -> None:
         raise ValueError(f"Updated date precedes created date in {record.path}")
     if record.status == "spec-created" and record.downstream == "none":
         raise ValueError(f"spec-created brainstorm must include downstream metadata in {record.path}")
+    _validate_filename_prefix(record)
     _validate_section_keys(record)
 
 
@@ -357,7 +377,14 @@ def regenerate_overview(root: Path) -> Path:
     ]
     if records:
         for record in records:
-            lines.append(f"| {record.number} | {record.updated} | {record.title} | {record.status} | {record.downstream} |")
+            lines.append(
+                "| "
+                f"{record.number} | "
+                f"{record.updated} | "
+                f"{_escape_table_cell(record.title)} | "
+                f"{record.status} | "
+                f"{_escape_table_cell(record.downstream)} |"
+            )
     else:
         lines.append("| (none) | - | - | - | - |")
 

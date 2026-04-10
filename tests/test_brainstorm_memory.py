@@ -5,6 +5,8 @@ from pathlib import Path
 import pytest
 
 from speckit_orca.brainstorm_memory import (
+    _brainstorm_files,
+    _significant_length,
     append_revision,
     create_record,
     parse_record,
@@ -74,3 +76,60 @@ def test_regenerate_overview_uses_existing_records(tmp_path: Path) -> None:
     assert "Agent Selection" in text
     assert "spec:003-cross-review-agent-selection" in text
     assert record.path.exists()
+
+
+def test_significant_length_ignores_all_whitespace() -> None:
+    sections = _sections(
+        **{
+            "Problem": "word\tone\nword two",
+            "Desired Outcome": "",
+            "Options Considered": "",
+            "Recommendation": "",
+            "Open Questions": "",
+        }
+    )
+
+    assert _significant_length(sections) == len("wordonewordtwo")
+
+
+def test_parse_record_rejects_header_filename_number_mismatch(tmp_path: Path) -> None:
+    record = create_record(tmp_path, "Workflow Upgrade", "active", _sections())
+    record.path.write_text(
+        record.path.read_text(encoding="utf-8").replace(
+            "# Brainstorm 01: Workflow Upgrade",
+            "# Brainstorm 99: Workflow Upgrade",
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="does not match filename prefix"):
+        parse_record(record.path)
+
+
+def test_brainstorm_files_sort_by_numeric_prefix(tmp_path: Path) -> None:
+    directory = tmp_path / "brainstorm"
+    directory.mkdir()
+    for name in ("100-last.md", "11-middle.md", "2-first.md"):
+        (directory / name).write_text("", encoding="utf-8")
+
+    assert [path.name for path in _brainstorm_files(tmp_path)] == [
+        "2-first.md",
+        "11-middle.md",
+        "100-last.md",
+    ]
+
+
+def test_regenerate_overview_escapes_table_cells(tmp_path: Path) -> None:
+    create_record(
+        tmp_path,
+        "Agent | Selection",
+        "spec-created",
+        _sections(**{"Ready For Spec": "Recommend /speckit.specify"}),
+        downstream="spec:003|cross-review-agent-selection",
+    )
+
+    overview = regenerate_overview(tmp_path)
+    text = overview.read_text(encoding="utf-8")
+
+    assert "Agent \\| Selection" in text
+    assert "spec:003\\|cross-review-agent-selection" in text
