@@ -40,15 +40,22 @@ you disagree with before the contract-writing task starts.
 | 3 | Review participation default | **Opt-out.** Spec-lite's whole point is reduced ceremony; implicit review gates would undo that. Flow-state reports spec-lite records as `unreviewed` by default. Cross-review is still available as an explicit operator command. |
 | 4 | Matriarch lane compatibility | **Spec-lite cannot anchor a matriarch lane in v1.** Promote to a full spec first if lane coordination is needed. Matriarch lane registration explicitly rejects spec-lite records. |
 | 5 | Existing record audit | **Zero records found.** Verified in `docs/research/micro-spec-audit-2026-04-11.md`. No migration tool needed. |
-| 6 | Promotion command | **Ship `speckit.orca.spec-lite promote <id>` as an explicit command.** Preserves the "spec-lite stays as a history pointer" rule and makes promotion auditable. |
-| 7 | Upstream spec-kit alignment | **Not tied to upstream.** `github/spec-kit` has no equivalent lightweight-spec concept as of 2026-04-11. If upstream adds one later, revisit the vocabulary then. |
+| 6 | Promotion command | **Keep spec-lite lite — NO promotion command.** A spec-lite can be used as a reference when hand-authoring a bigger spec; no formal promotion tooling. Operators copy content manually if they want to seed a full spec from a spec-lite. |
+| 7 | Upstream spec-kit alignment | **Plan for deprecation if upstream adds a lightweight-spec.** Not tied to upstream today, but if `github/spec-kit` ever adds an official "quick-spec" or similar concept, 013 deprecates in favor of the upstream vocabulary. Deprecation path captured in section 16 below. |
 
-**Question 3 is the most opinionated.** The opt-out default is the
-single biggest philosophical difference between `micro-spec` (which
-required code-review handoff) and `spec-lite` (which trusts the
-operator to decide when a review is worth running). If you want
-review to stay mandatory, say so now — it reshapes most of sections
-4 and 5.
+**Question 6 diverged from the brainstorm lean.** The lean was to
+ship a `speckit.orca.spec-lite promote <id>` command. The user's
+answer is explicit: *"keep lite lite, it can be used for bigger
+spec as reference."* Spec-lite is purely a reference doc. If an
+operator wants to seed a full spec from a spec-lite, they copy
+the content manually. No formal promotion tooling. This removes
+the `promote` command from the runtime, the CLI surface, the
+contracts, and the 013 implementation scope.
+
+**Question 7 refined the lean.** Not just "not tied to upstream,"
+but explicitly "if upstream ever adds a lightweight-spec, 013
+deprecates in favor of the upstream vocabulary." See the new
+Future Deprecation Path section below.
 
 ## 3. Scope
 
@@ -74,8 +81,9 @@ review to stay mandatory, say so now — it reshapes most of sections
 - Update `README.md` four-concept workflow "intake" column
 - Update `docs/orca-roadmap.md` mentions
 - Add `src/speckit_orca/spec_lite.py` runtime module for
-  list/create/promote operations (optional — may defer to a
-  follow-up if the command prompt can do the work)
+  list/create/get operations (no promote — see question 6). May
+  still defer this module to a follow-up if the command prompt
+  can do the work directly without a Python runtime.
 - Add flow-state integration so `flow_state.py` understands
   spec-lite records as a distinct feature-state kind
 - Add matriarch integration guard so lane registration rejects
@@ -181,8 +189,9 @@ until commit 2 creates it.
   `spec-lite`.
 - **`src/speckit_orca/spec_lite.py`** — NEW runtime module
   (optional, see Open questions below). Provides read/write helpers
-  for spec-lite records: `create`, `list`, `get`, `promote`,
-  `regenerate-overview`. CLI entrypoint via `python -m speckit_orca.spec_lite`.
+  for spec-lite records: `create`, `list`, `get`,
+  `regenerate-overview`. **No `promote`** (see question 6). CLI
+  entrypoint via `python -m speckit_orca.spec_lite`.
 - **`src/speckit_orca/flow_state.py`** — add spec-lite as a
   distinct feature-state kind (`spec-lite-open`,
   `spec-lite-implemented`, `spec-lite-abandoned`). Existing
@@ -190,18 +199,20 @@ until commit 2 creates it.
 - **`src/speckit_orca/matriarch.py`** — add explicit guard in lane
   registration: if the target is a spec-lite record (detected by
   path `.specify/orca/spec-lite/*`), reject with a clear error
-  pointing at `spec-lite promote <id>` as the next step.
+  pointing at "hand-author a full spec under `specs/` and register
+  that instead" (there is no promote command to point at).
 - **`.specify/orca/spec-lite/00-overview.md`** — bootstrap file
   created as part of this commit so the runtime has a target to
   regenerate against. Matches evolve's `00-overview.md` pattern.
 - **`tests/test_spec_lite.py`** — NEW test file covering the
-  create/list/get/promote flows and the matriarch lane rejection
-  guard.
+  create/list/get flows, overview regeneration, and the matriarch
+  lane rejection guard.
 
 ## 6. The spec-lite record shape
 
-Five fields, four required, one optional. All fields are sections
-in a markdown file under `.specify/orca/spec-lite/SL-NNN-<slug>.md`:
+A spec-lite record has **3 required metadata fields** and **5 body
+sections** (4 required + 1 optional). The record lives in a
+markdown file under `.specify/orca/spec-lite/SL-NNN-<slug>.md`:
 
 ```markdown
 # Spec-Lite SL-<NNN>: <title>
@@ -209,7 +220,6 @@ in a markdown file under `.specify/orca/spec-lite/SL-NNN-<slug>.md`:
 **Source Name**: <operator or agent that created this>
 **Created**: YYYY-MM-DD
 **Status**: open | implemented | abandoned
-**Promoted To**: (optional — spec id this was promoted to)
 
 ## Problem
 <1-2 sentences: what's broken, missing, or needed>
@@ -228,8 +238,24 @@ in a markdown file under `.specify/orca/spec-lite/SL-NNN-<slug>.md`:
 <command, output, or manual step — added after completion>
 ```
 
-**Required:** Problem, Solution, Acceptance Scenario, Files Affected.
-**Optional:** Verification Evidence (added after implementation).
+### Metadata fields (3, all required)
+
+- **Source Name** — operator or agent identifier
+- **Created** — RFC3339 date
+- **Status** — one of `open`, `implemented`, `abandoned`
+
+No `Promoted To` field. Promotion is not a first-class concept in
+spec-lite (see question 6 answer). If an operator hand-authors a
+full spec that uses a spec-lite as reference, they link from the
+full spec back to the spec-lite, not the other way around.
+
+### Body sections (5, with 4 required + 1 optional)
+
+- **Problem** (required)
+- **Solution** (required)
+- **Acceptance Scenario** (required)
+- **Files Affected** (required)
+- **Verification Evidence** (optional — added after implementation)
 
 **No mini-plan, no verification mode enum, no review gates.**
 This is the core difference from the current `micro-spec` shape.
@@ -270,15 +296,14 @@ def get_record(
     record_id: str,
 ) -> SpecLiteRecord: ...
 
-def promote_record(
-    *,
-    repo_root: Path,
-    record_id: str,
-    target_spec_id: str,
-) -> dict[str, Any]: ...
-
 def regenerate_overview(repo_root: Path) -> Path: ...
 ```
+
+**Intentionally not exposed**: no `promote_record` function. Per
+question 6, spec-lite is purely a reference doc; there is no
+formal promotion pathway. An operator who wants to turn a
+spec-lite into a full spec authors the full spec manually and
+references the spec-lite for its content.
 
 ### CLI surface
 
@@ -288,14 +313,12 @@ uv run python -m speckit_orca.spec_lite --root . create \
     --title "..." --problem "..." --solution "..." \
     --acceptance "..." --files-affected "path1,path2"
 uv run python -m speckit_orca.spec_lite --root . get SL-001
-uv run python -m speckit_orca.spec_lite --root . promote SL-001 \
-    --target 015-new-feature
 uv run python -m speckit_orca.spec_lite --root . regenerate-overview
 ```
 
-The CLI mirrors `evolve.py`'s shape for consistency. Command
-prompts call this CLI via bash, same pattern as existing Orca
-runtime integration.
+No `promote` subcommand. The CLI mirrors `evolve.py`'s shape for
+consistency. Command prompts call this CLI via bash, same pattern
+as existing Orca runtime integration.
 
 ## 8. Flow-state integration
 
@@ -312,10 +335,14 @@ result:
   "title": "...",
   "status": "open" | "implemented" | "abandoned",
   "files_affected": [...],
-  "promoted_to": None | "NNN-name",
   "review_state": "unreviewed" | "self-reviewed" | "cross-reviewed",
 }
 ```
+
+No `promoted_to` field because spec-lite has no formal promotion
+concept. If you need to link a spec-lite to a related full spec,
+the full spec's `spec.md` can cite the spec-lite by ID in its
+content; flow-state does not try to track that relationship.
 
 Flow-state's existing full-spec output shape is **untouched**.
 Spec-lite records do not try to fit into the stage model — they
@@ -339,8 +366,10 @@ def register_lane(*, spec_id: str, ...) -> LaneRecord:
         raise MatriarchError(
             f"Cannot register lane for spec-lite record {spec_id!r}. "
             f"Spec-lite does not participate in matriarch lanes in v1. "
-            f"Run `speckit.orca.spec-lite promote {spec_id}` to convert "
-            f"to a full spec before lane registration."
+            f"Spec-lite is a reference-only shape; if you need lane "
+            f"coordination, hand-author a full spec under specs/ and "
+            f"register that instead. The spec-lite record can be used "
+            f"as reference content when drafting the full spec."
         )
     ...
 ```
@@ -357,8 +386,6 @@ the `# Spec-Lite SL-` header marker.
 - Create with missing required field, verify rejection
 - List records by status
 - Get a record by id, verify all fields parsed
-- Promote a record, verify the new spec dir is created and the
-  spec-lite record gains a `Promoted To:` field
 - Regenerate overview, verify the index reflects current state
 - Malformed record, verify safe parse failure
 
@@ -373,16 +400,20 @@ the `# Spec-Lite SL-` header marker.
 ### Matriarch guard tests — in existing `tests/test_matriarch.py`
 
 - Registering a lane against a spec-lite record raises
-  `MatriarchError` with the expected message
-- Registering a lane against a promoted record (after the record's
-  `Promoted To:` field is set) works against the target spec
+  `MatriarchError` with the expected message pointing at the
+  "hand-author a full spec" guidance
+- Registering a lane against a real full spec continues to work
+  (regression check — the guard does not misfire on non-spec-lite
+  paths)
 
 ### Manual verification
 
 - Create a spec-lite, implement the change, mark `Status: implemented`,
   verify `spec-lite list` shows it
-- Create another, promote to a full spec mid-flight, verify the
-  record becomes a history pointer
+- Hand-author a follow-up full spec that cites the spec-lite as a
+  reference, verify the full spec registers a matriarch lane and
+  the spec-lite continues to live alongside it as an independent
+  record
 
 ## 11. Dependencies and sequencing
 
@@ -433,15 +464,15 @@ does not need to wait for them.
 - `flow_state.py` reports spec-lite records as a distinct kind
   without breaking the existing full-spec path
 - `matriarch.py` rejects lane registration against spec-lite
-  records with a clear pointer at the promote command
+  records with a clear pointer at hand-authoring a full spec
 - Zero references to `micro-spec` as a current command anywhere in
   runtime code, command prompts, extension manifest, or README
   (grep-verifiable)
 - Historical references in frozen docs (refinement review, v1.4
   design docs) are left untouched
 - All 45+ existing tests still pass
-- New tests cover create/list/get/promote, flow-state reporting,
-  and the matriarch guard
+- New tests cover create/list/get, flow-state reporting, and the
+  matriarch guard
 
 ## 13. Explicit non-goals
 
@@ -452,11 +483,15 @@ does not need to wait for them.
 - Not supporting spec-lite as a matriarch lane anchor in v1
 - Not making spec-lite review-mandatory (opt-out is the default)
 - Not adding any phase gates to spec-lite
+- **Not building a `promote` command.** Spec-lite is a reference
+  shape; if an operator wants to turn one into a full spec, they
+  hand-author the full spec manually and cite the spec-lite.
 - Not rewriting `commands/spec-lite.md` prompt content in this
   plan (deferred)
 - Not touching legacy v1.4 design docs or the refinement review
 - Not coordinating with an upstream `github/spec-kit` lightweight-
-  spec concept (none exists as of 2026-04-11)
+  spec concept **today**. See section 16 for the future
+  deprecation path if upstream ever adds one.
 
 ## 14. Open questions for the contract-writing task
 
@@ -470,31 +505,54 @@ during the contract-writing task, not now:
 2. **`_is_spec_lite_record` detection**: path prefix only, or also
    header scan? My lean: both — path prefix first, header fallback
    for any record that ends up outside the canonical dir.
-3. **Promotion command output**: does `promote SL-NNN --target 015-name`
-   create the target spec skeleton, or require it to exist first?
-   My lean: require the target to exist (operator runs
-   `specify init` or equivalent first), because spec-lite's rule
-   is "promote only when the full spec is justified" — the
-   operator should have already decided to create the target.
-4. **Overview regeneration frequency**: automatic on every write,
+3. **Overview regeneration frequency**: automatic on every write,
    or explicit via the `regenerate-overview` command? My lean:
    automatic, matching evolve's pattern.
 
+(Previous Q3 about promotion command output is removed — there is
+no promotion command per question 6.)
+
 ## 15. Suggested next steps
 
-1. You react to the seven strawman answers in section 2. Edit any
-   you disagree with.
-2. You react to the four contract-writing open questions in
-   section 14.
-3. Merge this plan PR.
-4. Start the contract-writing task:
-   - `specs/013-spec-lite/contracts/spec-lite-record.md` (the five-
-     field shape)
-   - `specs/013-spec-lite/contracts/promotion.md` (promote command
-     contract, including "stays as history pointer" rule)
+1. Merge this plan PR.
+2. Start the contract-writing task:
+   - `specs/013-spec-lite/contracts/spec-lite-record.md` (the
+     3-metadata + 5-body-section shape)
    - `specs/013-spec-lite/contracts/matriarch-guard.md` (the
      lane-registration rejection)
    - `specs/013-spec-lite/data-model.md`
    - `specs/013-spec-lite/quickstart.md`
-5. Implementation wave (4 commits, one PR).
+3. Implementation wave (4 commits, one PR).
+4. Command prompt rewrite for `commands/spec-lite.md` (separate PR).
+
+## 16. Future deprecation path (from question 7 answer)
+
+If `github/spec-kit` ever adds an official lightweight-spec
+concept (a "quick-spec", "small-spec", "draft-spec", or similar
+shape that serves the same purpose as `spec-lite` in this plan),
+Orca will **deprecate 013** in favor of the upstream vocabulary.
+
+The deprecation path would look like:
+
+1. **Watch for upstream signal.** Track releases of
+   `github/spec-kit` for any lightweight-spec addition. No polling
+   required; operators notice during upgrades.
+2. **Compare upstream shape to 013.** If the upstream concept
+   matches 013's minimum shape (Problem, Solution, Acceptance
+   Scenario, Files Affected, optional Verification Evidence),
+   deprecation is straightforward. If it diverges, decide
+   whether to adapt or keep 013.
+3. **Mark 013 as deprecated.** Update `specs/013-spec-lite/spec.md`
+   Status to `Deprecated`. Add a pointer to the upstream concept.
+4. **Retire `commands/spec-lite.md`.** Replace with a pointer
+   at the upstream command. Existing spec-lite records stay on
+   disk as historical content; no migration tool required unless
+   upstream's record shape differs materially.
+5. **Update extension.yml** to remove the 013 command registration
+   (and add the upstream one if Orca wraps it).
+
+The expectation is that deprecation never fires (upstream is not
+likely to add a lightweight-spec concept in the near term), but
+the path is documented so we don't have to rediscover it if it
+does.
 6. Command prompt rewrite for `commands/spec-lite.md` (separate PR).
