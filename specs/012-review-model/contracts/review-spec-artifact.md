@@ -13,7 +13,7 @@ already handles the author-facing sharpening loop.
 One `review-spec.md` per feature, living in the feature directory
 alongside `spec.md`:
 
-```
+```text
 specs/NNN-<slug>/
 ├── spec.md
 ├── review-spec.md   ← this artifact

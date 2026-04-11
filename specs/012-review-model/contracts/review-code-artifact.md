@@ -12,7 +12,7 @@ is **append-only across phases** (user stories from `tasks.md`).
 
 One `review-code.md` per feature, living in the feature directory:
 
-```
+```text
 specs/NNN-<slug>/
 ├── spec.md
 ├── review-spec.md

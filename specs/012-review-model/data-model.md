@@ -267,7 +267,7 @@ on demand from the three artifact files plus `spec.md`'s
 
 ## Cross-entity relationships diagram
 
-```
+```text
 spec.md
   ├── ## Clarifications (owned by speckit.clarify)
   │     └── ### Session YYYY-MM-DD
@@ -311,7 +311,7 @@ Old vocabulary (from 006 and current runtime) → new vocabulary
 | `code-review.md` | `review-code.md` Self Pass subsections | Self Pass replaces the old code-review file |
 | `review-cross.md` | `review-code.md` or `review-spec.md` Cross Pass subsections | Cross-mode folded into artifact subsections |
 | `review-pr.md` | `review-pr.md` (same filename, different scope) | Narrowed to comment disposition + retro |
-| `self-review.md` | Split: code-self-check → `review-code.md` Self Pass subsections; process retro → `review-pr.md` Retro Note |
+| `self-review.md` | Split between `review-code.md` Self Pass subsections and `review-pr.md` Retro Note | Code-self-check content moves to review-code Self Pass; process retrospective moves to review-pr Retro Note |
 | `review.md` | `review.md` (unchanged as umbrella summary) | Points at the three artifact files |
 
 Runtime code that used to grep for `review-code.md`, `review-cross.md`,

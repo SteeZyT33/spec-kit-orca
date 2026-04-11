@@ -81,7 +81,7 @@ is more valuable than silently completing a worthless pass.
 
 Error message shape (enforced by matriarch):
 
-```
+```text
 cross-pass failed: no different-agent alternative available for
 <artifact-path>. Author agent: <author>. Excluded: [<timed-out
 agents>]. Tried: [<tier-1-attempts>, <tier-2-attempts>, <tier-3-attempts>].

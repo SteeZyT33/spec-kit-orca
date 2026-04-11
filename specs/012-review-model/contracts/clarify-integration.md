@@ -65,13 +65,23 @@ if "## Clarifications" not in spec_text:
         f"Run `/speckit.clarify` and answer the questions, then retry."
     )
 
-# Must have at least one ### Session YYYY-MM-DD subheader inside Clarifications
+# Must have at least one ### Session YYYY-MM-DD subheader *inside* the
+# Clarifications section specifically — a rogue Session heading under some
+# other section (changelog, history, etc.) must NOT satisfy the check.
+clarifications_match = re.search(
+    r"^## Clarifications\b(.*?)(?=^## |\Z)",
+    spec_text,
+    re.MULTILINE | re.DOTALL,
+)
+clarifications_body = clarifications_match.group(1) if clarifications_match else ""
+
 session_pattern = re.compile(r"^### Session \d{4}-\d{2}-\d{2}\b", re.MULTILINE)
-if not session_pattern.search(spec_text):
+if not session_pattern.search(clarifications_body):
     raise ReviewSpecError(
         f"review-spec requires at least one completed /speckit.clarify session. "
         f"Found '## Clarifications' heading in {spec_path} but no '### Session' "
-        f"subheaders. Run `/speckit.clarify` and answer the questions, then retry."
+        f"subheaders inside that section. Run `/speckit.clarify` and answer the "
+        f"questions, then retry."
     )
 ```
 
@@ -87,7 +97,7 @@ categories.
 
 The prompt MUST include a section like:
 
-```
+```text
 ## Scope boundaries
 
 speckit.clarify has already run on this spec. You can see the
