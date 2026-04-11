@@ -38,6 +38,8 @@
 - [ ] T022 Add explicit wrapper-capability entries for `deep-optimize`, `deep-research`, and `deep-review` with external dependency and ownership-boundary notes.
 - [ ] T023 Add explicit harvest entries for portable team/worker patterns such as state-first mailbox coordination, durable ACK/report queues, and claim-safe delegated work, while marking OMX-specific runtime details as excluded.
 - [ ] T024 Verify that each seeded entry has clear source attribution, decision rationale, destination mapping or explicit defer state, and adoption-scope labeling.
+- [ ] T024a Migrate the remaining ad-hoc harvest docs ([docs/spex-harvest-list.md](../../docs/spex-harvest-list.md) and [docs/spex-adoption-notes.md](../../docs/spex-adoption-notes.md)) into Evolve entries so the durable store becomes the single source of truth rather than living alongside prose notes.
+- [ ] T024b Once migration is confirmed (T019, T024a), retire the ad-hoc harvest docs by replacing them with short stubs pointing at the Evolve overview, so the parallel system cannot rot silently.
 
 ## Phase 6: Operator Docs And Verification
 
