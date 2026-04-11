@@ -14,8 +14,9 @@
 
 ## 1. Summary
 
-Rename `micro-spec` to `spec-lite` and cut scope to a five-field
-record inspired by OpenSpec's intake philosophy. Drop phase gates,
+Rename `micro-spec` to `spec-lite` and cut scope to a lean record
+inspired by OpenSpec's intake philosophy — 3 required metadata
+fields plus 5 body sections (4 required + 1 optional). Drop phase gates,
 mandatory verification mode, mandatory code-review handoff, and the
 automatic promotion path. If scope grows mid-flight, extend the
 spec-lite inline; promote to a full spec only when the operator
@@ -221,6 +222,10 @@ markdown file under `.specify/orca/spec-lite/SL-NNN-<slug>.md`:
 **Created**: YYYY-MM-DD
 **Status**: open | implemented | abandoned
 
+<!-- Created uses YYYY-MM-DD (RFC3339 full-date) to match existing
+Orca record conventions (evolve, brainstorm-memory). -->
+
+
 ## Problem
 <1-2 sentences: what's broken, missing, or needed>
 
@@ -241,7 +246,8 @@ markdown file under `.specify/orca/spec-lite/SL-NNN-<slug>.md`:
 ### Metadata fields (3, all required)
 
 - **Source Name** — operator or agent identifier
-- **Created** — RFC3339 date
+- **Created** — `YYYY-MM-DD` (RFC3339 full-date), matching evolve
+  and brainstorm-memory conventions
 - **Status** — one of `open`, `implemented`, `abandoned`
 
 No `Promoted To` field. Promotion is not a first-class concept in
@@ -555,4 +561,3 @@ The expectation is that deprecation never fires (upstream is not
 likely to add a lightweight-spec concept in the near term), but
 the path is documented so we don't have to rediscover it if it
 does.
-6. Command prompt rewrite for `commands/spec-lite.md` (separate PR).
