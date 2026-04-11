@@ -5,6 +5,7 @@ import json
 import re
 import sys
 from dataclasses import asdict, dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -215,7 +216,21 @@ def _resolve_date(current_date: str | None = None) -> str:
     cleaned = current_date.strip()
     if not cleaned:
         raise ValueError("current_date must not be empty")
+    date.fromisoformat(cleaned)
     return cleaned
+
+
+def _validate_date_metadata(entry: HarvestEntry) -> None:
+    try:
+        created = date.fromisoformat(entry.created_at)
+    except ValueError as exc:
+        raise ValueError(f"{entry.path}: invalid Created date '{entry.created_at}'") from exc
+    try:
+        updated = date.fromisoformat(entry.updated_at)
+    except ValueError as exc:
+        raise ValueError(f"{entry.path}: invalid Updated date '{entry.updated_at}'") from exc
+    if updated < created:
+        raise ValueError(f"{entry.path}: Updated date '{entry.updated_at}' must not be earlier than Created date '{entry.created_at}'")
 
 
 def slugify(text: str) -> str:
@@ -293,6 +308,7 @@ def _validate_entry(entry: HarvestEntry) -> None:
         raise ValueError("summary must not be empty")
     if not entry.rationale.strip():
         raise ValueError("rationale must not be empty")
+    _validate_date_metadata(entry)
     if entry.entry_kind == "wrapper-capability":
         if not entry.external_dependency:
             raise ValueError("wrapper-capability entries require external_dependency")
@@ -632,6 +648,16 @@ def _render_list_text(entries: list[HarvestEntry]) -> str:
     )
 
 
+def _resolve_update_path(root: Path, candidate: Path) -> Path:
+    resolved = candidate.resolve()
+    allowed_root = entries_dir(root).resolve()
+    try:
+        resolved.relative_to(allowed_root)
+    except ValueError as exc:
+        raise ValueError(f"update path must live under {allowed_root}") from exc
+    return resolved
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m speckit_orca.evolve")
     parser.add_argument("--root", type=Path, default=Path("."))
@@ -708,7 +734,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "update":
             entry = update_entry(
-                (root / args.path).resolve() if not args.path.is_absolute() else args.path,
+                _resolve_update_path(root, (root / args.path) if not args.path.is_absolute() else args.path),
                 decision=args.decision,
                 rationale=args.rationale,
                 target_kind=args.target_kind,

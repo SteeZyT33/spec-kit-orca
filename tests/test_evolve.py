@@ -7,6 +7,7 @@ import pytest
 from speckit_orca.evolve import (
     create_entry,
     list_entries,
+    main,
     parse_entry,
     regenerate_overview,
     seed_initial_entries,
@@ -157,3 +158,94 @@ def test_update_entry_clears_stale_terminal_status(tmp_path: Path) -> None:
 
     assert updated.status == "open"
     assert updated.updated_at == "2026-04-11"
+
+
+def test_parse_entry_rejects_invalid_date_metadata(tmp_path: Path) -> None:
+    entry = create_entry(
+        tmp_path,
+        title="Bad Dates",
+        source_name="external",
+        source_ref="source",
+        summary="Summary",
+        decision="adapt-heavily",
+        rationale="Rationale",
+        current_date="2026-04-10",
+    )
+    entry.path.write_text(
+        entry.path.read_text(encoding="utf-8").replace("**Created**: 2026-04-10", "**Created**: not-a-date"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="invalid Created date"):
+        parse_entry(entry.path)
+
+
+def test_parse_entry_rejects_updated_before_created(tmp_path: Path) -> None:
+    entry = create_entry(
+        tmp_path,
+        title="Backwards Dates",
+        source_name="external",
+        source_ref="source",
+        summary="Summary",
+        decision="adapt-heavily",
+        rationale="Rationale",
+        current_date="2026-04-10",
+    )
+    entry.path.write_text(
+        entry.path.read_text(encoding="utf-8").replace("**Updated**: 2026-04-10", "**Updated**: 2026-04-09"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="must not be earlier than Created"):
+        parse_entry(entry.path)
+
+
+def test_update_cli_rejects_paths_outside_inventory(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    outside = tmp_path / "outside.md"
+    outside.write_text(
+        "\n".join(
+            [
+                "# Evolve Entry EV-001: Outside",
+                "",
+                "**Source Name**: external",
+                "**Source Ref**: source",
+                "**Decision**: direct-take",
+                "**Status**: open",
+                "**Entry Kind**: pattern",
+                "**Target Kind**: none",
+                "**Target Ref**: none",
+                "**Follow Up Ref**: none",
+                "**Adoption Scope**: portable-principle",
+                "**External Dependency**: none",
+                "**Ownership Boundary**: none",
+                "**Created**: 2026-04-10",
+                "**Updated**: 2026-04-10",
+                "",
+                "## Summary",
+                "Summary",
+                "",
+                "## Rationale",
+                "Rationale",
+                "",
+                "## Mapping Notes",
+                "(none)",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = main(
+        [
+            "--root",
+            str(tmp_path),
+            "update",
+            str(outside),
+            "--date",
+            "2026-04-11",
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "update path must live under" in captured.err
