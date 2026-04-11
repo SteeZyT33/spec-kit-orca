@@ -1,7 +1,7 @@
 # Evolve Entry EV-011: Drift Reconciliation
 
 **Source Name**: cc-spex
-**Source Ref**: docs/spex-adoption-notes.md#what-to-steal-later
+**Source Ref**: docs/spex-adoption-notes.md (retired; original section migrated to Evolve entries)
 **Decision**: defer
 **Status**: deferred
 **Entry Kind**: pattern
