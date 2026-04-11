@@ -192,9 +192,30 @@ PY
 
 resolve_symlink_target() {
   local link="$1"
-  if command -v readlink >/dev/null 2>&1; then
-    readlink -f "$link" 2>/dev/null || readlink "$link" 2>/dev/null || true
+
+  # Always return an absolute path (or empty on failure). Matches the
+  # realpath-then-python3 pattern in resolve_self_path() so relative
+  # symlink targets resolve consistently on macOS/BSD systems that lack
+  # a GNU-compatible `readlink -f`. A bare `readlink` fallback is
+  # intentionally NOT used here: on those systems it returns the literal
+  # (possibly relative) symlink content, which then breaks the
+  # install_self/uninstall_self ownership checks that compare against
+  # the absolute self_path.
+  if command -v realpath >/dev/null 2>&1; then
+    realpath "$link" 2>/dev/null || true
+    return
   fi
+
+  python3 - "$link" <<'PY' 2>/dev/null || true
+import os
+import pathlib
+import sys
+
+path = sys.argv[1]
+if not os.path.lexists(path):
+    raise SystemExit(0)
+print(pathlib.Path(os.path.realpath(path)).resolve())
+PY
 }
 
 install_self() {
