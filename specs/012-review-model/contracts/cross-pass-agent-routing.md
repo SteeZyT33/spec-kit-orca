@@ -31,27 +31,37 @@ authored the artifact being reviewed.
 
 ### Rule 2 — Prefer highest-tier agents
 
-Agent tiers are defined in `003-cross-review-agent-selection`:
+Agent tiers are defined in `003-cross-review-agent-selection` and
+implemented in `scripts/bash/crossreview-backend.py`'s
+`AGENT_SPECS` table:
 
-- **Tier 1** (preferred): `codex`, `claude`, `gemini`
-- **Tier 2**: `opencode`, `cursor-agent`
+- **Tier 1** (preferred, `auto_selectable=True`): `codex`,
+  `claude`, `gemini`, `opencode`
+- **Tier 2** (`auto_selectable=False`, manual only): `cursor-agent`
 - **Tier 3** (fallback only): any other agent registered in the
   cross-review backend
 
 Selection walks Tier 1 first, excludes the author agent, and
-picks the first available Tier-1 agent. If all Tier-1 agents are
-the author, Tier 2 is checked next. Tier 3 is a last resort.
+picks the first available Tier-1 agent. If no eligible Tier-1
+agent remains (all are the author or unavailable), Tier 2 is
+checked next. Tier 3 is a last resort.
 
 ### Rule 3 — Downgrade only on timeout
 
 The selected agent runs the cross-pass. If it **times out**, the
 policy triggers a downgrade:
 
-1. Record the timeout as a `## Cross Pass (agent: <timed-out-agent>, ...)` entry with body indicating `TIMEOUT: review did not complete within runtime budget`
+1. Record the timeout using the heading format required by the
+   artifact kind:
+   - For `review-spec`: `## Cross Pass (agent: <timed-out-agent>, date: YYYY-MM-DD)`
+   - For `review-code`: `## <phase> Cross Pass (agent: <timed-out-agent>, date: YYYY-MM-DD)` in the same phase subsection as the attempted cross-pass
+   The body MUST indicate `TIMEOUT: review did not complete within runtime budget`.
 2. Walk the tier list again, excluding both the author agent and
    the timed-out agent
 3. Run the cross-pass with the next-highest tier's first available agent
-4. Record the retry as a new `## Cross Pass` entry in the same artifact
+4. Record the retry as a new cross-pass entry in the same artifact,
+   again using the artifact's required heading format (`## Cross
+   Pass` for `review-spec`; `## <phase> Cross Pass` for `review-code`)
 
 **Downgrade only fires on timeout**, not on content disagreement,
 not on low-quality output, not on any other failure mode. A
@@ -166,7 +176,18 @@ lower.
 The cross-pass timeout budget is not defined in this contract; it
 is a runtime configuration managed by the cross-review backend
 (`crossreview-backend.py`'s `--timeout` flag or per-repo config).
-Default 600s per PR #15's deployment-readiness cleanup.
+
+**Defaults today** (observed, not authoritative):
+- `crossreview-backend.py` CLI default: `--timeout 600` (600s)
+- `crossreview.sh` wrapper default: `CROSSREVIEW_TIMEOUT=300`
+  (300s) which gets passed to the backend
+
+In typical usage, the wrapper is the entry point, so the
+effective budget is **300s unless overridden**. Operators invoking
+the backend directly (or via matriarch) get 600s. A future
+harmonization pass should pick one canonical default; for now,
+012 runtime code MUST pass an explicit timeout rather than rely
+on implicit defaults.
 
 A future per-repo config may override this per tier (e.g., Tier 1
 gets 900s, Tier 2 gets 600s, Tier 3 gets 300s) but that is NOT in
@@ -196,9 +217,13 @@ note).
   the author (except in a timeout-downgrade retry path, where the
   original timed-out attempt is recorded but a different agent
   completes the actual pass)
-- No review artifact has more than one successful cross-pass per
-  phase (additional cross-pass subsections are only allowed for
-  timeout retries, and only one of them can have a non-TIMEOUT body)
+- Within a single cross-pass attempt for a phase, there is at
+  most one successful (non-TIMEOUT) cross-pass. Additional
+  cross-pass subsections within that same attempt are only for
+  timeout-downgrade retries, and only one of them can have a
+  non-TIMEOUT body. Separate append-only re-review rounds for the
+  same phase (e.g., author fixed a cross-pass finding and requested
+  a fresh review) may each record their own successful cross-pass
 - `select_cross_pass_agent` is deterministic given
   (author_agent, timed_out_agents, availability) — same inputs
   always produce same output
@@ -211,12 +236,14 @@ Tests for this contract live in `tests/test_matriarch.py`
 (augmented during the 012 runtime rewrite) and exercise:
 
 - Happy path: author `claude`, returns `codex`
-- All Tier 1 is author: author `claude`, timed-out `codex`,
+- Tier 1 downgrade within tier: author `claude`, timed-out `codex`,
   returns `gemini`
-- Full downgrade: author `claude`, timed-out `codex` and `gemini`,
-  returns `opencode`
-- No available: author `claude`, timed-out `codex`/`gemini`,
-  opencode and cursor-agent unavailable, raises MatriarchError
+- Full Tier 1 downgrade: author `claude`, timed-out `codex` and
+  `gemini`, returns `opencode` (also Tier 1)
+- Tier 2 fallback: author `claude`, timed-out `codex`, `gemini`,
+  and `opencode` (all Tier 1 exhausted), returns `cursor-agent`
+- No available: author `claude`, all Tier 1 timed out or
+  unavailable, `cursor-agent` unavailable, raises MatriarchError
 - Determinism: same inputs, same output across 100 runs
 - No same-agent fallback: author `claude`, all other tiers
   unavailable, does NOT return `claude`, raises MatriarchError

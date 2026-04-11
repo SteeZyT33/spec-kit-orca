@@ -41,9 +41,13 @@ feature spec. Always cross-mode. One per feature.
 ### Invariants
 
 - Always cross-mode only; no self-pass subsection allowed
-- Multiple `## Cross Pass` subsections allowed only for
-  timeout-downgrade retries (not for re-review cycles; those
-  write new files or append via the contract's append rules)
+- Multiple `## Cross Pass` subsections within the same file are
+  allowed only for timeout-downgrade retries in a single review
+  cycle. After an author revises `spec.md` and re-runs clarify,
+  the resulting re-review **replaces** (overwrites) the
+  `review-spec.md` file rather than appending a new cross-pass.
+  See the "Append-only WITHIN, file-replace ACROSS" section in
+  `review-spec-artifact.md` for the exact mechanism
 - Verdict status is one of exactly three enum values
 
 ---

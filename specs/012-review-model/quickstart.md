@@ -68,15 +68,18 @@ about empty input behavior.
 ## Step 2 — Run `review-spec` (cross-only)
 
 Now you run `/speckit.review-spec specs/020-example-feature/`.
-The command starts by enforcing its precondition check:
+The command starts by enforcing its precondition check — both
+conditions per the clarify integration contract:
 
 ```python
 if "## Clarifications" not in spec_text:
-    raise ReviewSpecError(...)
+    raise ReviewSpecError("spec.md missing ## Clarifications section; run /speckit.clarify first")
+if not re.search(r"^### Session \d{4}-\d{2}-\d{2}", spec_text, re.MULTILINE):
+    raise ReviewSpecError("## Clarifications section has no ### Session YYYY-MM-DD subheader; run /speckit.clarify first")
 ```
 
 The spec has a `## Clarifications` section with one
-`### Session 2026-04-12` subheader, so the check passes.
+`### Session 2026-04-12` subheader, so both checks pass.
 
 The command then calls into matriarch's
 `select_cross_pass_agent(author_agent="claude")`. Matriarch walks

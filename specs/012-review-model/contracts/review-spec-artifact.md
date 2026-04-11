@@ -90,6 +90,16 @@ bullet indicating this (e.g., `- No cross-spec conflicts found.`).
 Omitting a subheading is interpreted as **pass not run** for that
 category and the artifact is flagged as incomplete.
 
+**Exception: TIMEOUT-only cross-pass entries.** When a cross-pass
+times out before completing (per Rule 3 of the cross-pass agent
+routing contract), the recorded timeout entry is allowed to omit
+the five category subheadings entirely. The body instead contains
+only the single line `TIMEOUT: review did not complete within
+runtime budget`. A TIMEOUT-only entry is valid on its own because
+it represents a run that never produced category findings in the
+first place; the completed retry cross-pass (a separate
+subsection) carries the five required subheadings.
+
 ### `## Verdict`
 
 Final judgment on the review. Required fields:
@@ -106,15 +116,37 @@ Final judgment on the review. Required fields:
 - **`blocked`**: spec cannot advance without external input or a
   non-review decision
 
-## Append-only across cross-pass retries
+## Append-only WITHIN a single review cycle; file-replace ACROSS cycles
 
-If the cross-pass routing policy triggers a downgrade retry
-(e.g., Tier-1 agent timed out, Tier-2 ran the retry), the second
-pass is appended as a new `## Cross Pass` subsection, not
+The file has two different append/replace behaviors depending on
+what triggered the new pass:
+
+**Within a single review cycle (timeout-downgrade retry):** if
+the cross-pass routing policy triggers a downgrade retry
+(e.g., Tier-1 agent timed out, the next agent ran the retry), the
+retry is **appended** as a new `## Cross Pass` subsection, not
 overwriting the first. The verdict is computed from the most
-recent pass, but the timeout and retry history stays visible.
+recent non-TIMEOUT pass, but the timeout and retry history stays
+visible in the same file.
 
-Example:
+**Across review cycles (author revised spec, fresh review
+requested):** if the author updates `spec.md` after a
+`needs-revision` verdict (typically by re-running
+`speckit.clarify` and getting a newer `### Session YYYY-MM-DD`),
+the previous `review-spec.md` becomes **stale** and is
+**overwritten** with a fresh review. The previous review's
+content is not preserved in-file; git history is the historical
+record. This matches the quickstart walkthrough's "written fresh
+(it's stale, the old one is superseded)" language.
+
+Staleness is detected by comparing `## Prerequisites` clarify
+session date against the latest `### Session` subheader in
+`spec.md`; a stale file MUST be overwritten, not appended to.
+
+Example of the timeout-retry case (append within a single cycle).
+The spec was authored by a non-`codex` agent in this scenario, so
+the downgrade target `gemini` still satisfies the
+different-agent-from-author rule:
 
 ```markdown
 # Review: Spec
@@ -123,10 +155,9 @@ Example:
 - Clarify session: 2026-04-11
 
 ## Cross Pass (agent: codex, date: 2026-04-11)
-### Cross-spec consistency
-- TIMEOUT: review did not complete within runtime budget
+TIMEOUT: review did not complete within runtime budget
 
-## Cross Pass (agent: claude, date: 2026-04-11)
+## Cross Pass (agent: gemini, date: 2026-04-11)
 ### Cross-spec consistency
 - No cross-spec conflicts found.
 ### Feasibility / tradeoff
