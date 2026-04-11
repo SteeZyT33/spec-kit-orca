@@ -1,5 +1,20 @@
 # Cross Review: Orca Evolve
 
+## Review Artifacts
+
+| Stage | Artifact | Status | Notes |
+|---|---|---|---|
+| Code Review | [review-code.md](./review-code.md) | PRESENT | Local implementation review found no blocking issues. |
+| Cross-Review | [review-cross.md](./review-cross.md) | PRESENT | External `opencode` pass timed out after inspection and verification; no substantive verdict returned. |
+| PR Review | [review-pr.md](./review-pr.md) | OPEN | PR #13 is open: https://github.com/SteeZyT33/spec-kit-orca/pull/13 |
+| Self-Review | [self-review.md](./self-review.md) | PRESENT | v1 shape is intentionally narrow and acceptable. |
+
+## Latest Review Status
+
+- Current blockers: none from local code review; external cross-review did not return substantive findings before timeout
+- Delivery readiness: ready for PR review
+- Latest review update: 2026-04-10 via [review-code.md](./review-code.md) and [review-cross.md](./review-cross.md)
+
 ## Requested Reviewer
 
 - agent: `opencode`
@@ -42,3 +57,15 @@ encoding one host runtime as Orca’s default. The important rule is to keep:
 2. Keep adoption-scope labeling explicit for portable-principle entries.
 3. Continue rejecting tmux/OMX/Codex-specific runtime contracts as direct Orca
    imports.
+
+## Implementation Resolution
+
+The implementation now validates the review's main concern:
+
+- seeded real harvest entries under `.specify/orca/evolve/entries/`
+- included a real `deep-optimize` wrapper-capability entry
+- labeled portable-principle versus mixed adoption scope explicitly
+- kept host-specific runtime details out of the seeded adoption set
+
+So the design is no longer only structural. `011` now ships with a real
+inventory, a generated overview, and deterministic helper behavior.
