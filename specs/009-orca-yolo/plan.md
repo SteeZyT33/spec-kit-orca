@@ -270,7 +270,7 @@ tightening pass:
   `run id`, anchor artifact, current stage, outcome, ask/retry/worktree
   policies, supervision mode, deployment kind, linked artifact paths, stop
   reason, and (in supervised mode) `lane_id`, `mailbox_path`, and last
-  emitted upward-report reference.
+  emitted upward report reference.
 
 ## Open Questions
 
