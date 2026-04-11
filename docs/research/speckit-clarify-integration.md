@@ -137,9 +137,9 @@ spec. The simplest check is:
 spec_text = Path(spec_path).read_text(encoding="utf-8")
 if "## Clarifications" not in spec_text:
     raise ReviewSpecError(
-        f"review-spec requires speckit.clarify to have run first. "
+        f"review-spec requires /speckit.clarify to have run first. "
         f"No '## Clarifications' section in {spec_path}. "
-        f"Run `specify clarify` and answer the questions, then retry."
+        f"Run `/speckit.clarify` and answer the questions, then retry."
     )
 ```
 
