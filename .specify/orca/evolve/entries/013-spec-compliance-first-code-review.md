@@ -1,7 +1,7 @@
 # Evolve Entry EV-013: Spec-Compliance-First Code Review
 
 **Source Name**: cc-spex
-**Source Ref**: docs/spex-harvest-list.md#2-code-review-workflow
+**Source Ref**: docs/spex-harvest-list.md (retired; original workflow section migrated to Evolve entry)
 **Decision**: adapt-heavily
 **Status**: open
 **Entry Kind**: pattern
