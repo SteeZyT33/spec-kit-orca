@@ -187,7 +187,7 @@ equally viable for adversarial review.
 
 ### Command contract
 
-Update [cross-review.md](/home/taylor/spec-kit-orca/commands/cross-review.md)
+Update [cross-review.md](../commands/cross-review.md)
 to:
 
 - add `--agent`
@@ -201,7 +201,7 @@ to:
 
 ### Config
 
-Update [config-template.yml](/home/taylor/spec-kit-orca/config-template.yml) to:
+Update [config-template.yml](../config-template.yml) to:
 
 - introduce `crossreview.agent`
 - keep `crossreview.harness` as legacy compatibility for one release window
@@ -211,7 +211,7 @@ Update [config-template.yml](/home/taylor/spec-kit-orca/config-template.yml) to:
 
 ### Launcher
 
-Update [crossreview.sh](/home/taylor/spec-kit-orca/scripts/bash/crossreview.sh)
+Update [crossreview.sh](../scripts/bash/crossreview.sh)
 to:
 
 - accept `--agent`
@@ -223,7 +223,7 @@ to:
 ### Backend
 
 Update
-[crossreview-backend.py](/home/taylor/spec-kit-orca/scripts/bash/crossreview-backend.py)
+[crossreview-backend.py](../scripts/bash/crossreview-backend.py)
 to:
 
 - replace the hard-coded `choices=["codex", "claude", "gemini"]`
@@ -253,11 +253,11 @@ records:
 
 Update the surrounding command docs so the terminology stays consistent:
 
-- [pr-review.md](/home/taylor/spec-kit-orca/commands/pr-review.md)
+- [pr-review.md](../commands/pr-review.md)
   should refer to cross-review as agent-based, not just harness-based
-- [self-review.md](/home/taylor/spec-kit-orca/commands/self-review.md)
+- [self-review.md](../commands/self-review.md)
   should treat failed/weak agent selection as review-pipeline friction evidence
-- [README.md](/home/taylor/spec-kit-orca/README.md)
+- [README.md](../README.md)
   should stop describing cross-review as only `Codex`, `Claude`, and `Gemini`
 
 ## Selection Policy
@@ -407,7 +407,7 @@ Immediate MVP:
 
 Practical note:
 
-- changing only [cross-review.md](/home/taylor/spec-kit-orca/commands/cross-review.md)
+- changing only [cross-review.md](../commands/cross-review.md)
   would scope the UX, but not make the runtime real
 - the actual delivery still touches the command contract, config, launcher, and
   backend
