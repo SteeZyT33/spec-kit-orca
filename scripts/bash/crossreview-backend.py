@@ -186,14 +186,49 @@ def load_runtime_config() -> dict[str, object]:
     return config
 
 
-def _run_subprocess(cmd: list[str], agent: str, timeout: int) -> str:
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+ARGV_SAFETY_LIMIT = 100_000
+
+
+def _run_subprocess(
+    cmd: list[str],
+    agent: str,
+    timeout: int,
+    stdin_input: str | None = None,
+) -> str:
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        input=stdin_input,
+    )
     if result.returncode != 0:
         stderr = result.stderr.strip()
         stdout = result.stdout.strip()
         detail = stderr or stdout or f"{agent} exited with code {result.returncode}."
         raise RuntimeError(detail[:4000])
     return result.stdout
+
+
+def _prompt_fits_argv(prompt: str) -> bool:
+    return len(prompt.encode("utf-8")) <= ARGV_SAFETY_LIMIT
+
+
+def _require_argv_safe(prompt: str, agent: str) -> None:
+    """Raise a clear error when a prompt is too large for an agent's argv path.
+
+    Only codex exec documents a stdin-prompt path (via the `-` positional).
+    The other cross-review agents consume the prompt as an argv element, and
+    Linux's MAX_ARG_STRLEN caps any single argv element at 128KiB. When the
+    prompt exceeds the argv safety limit, fail loudly rather than silently
+    piping to stdin and hoping the CLI happens to read it as a prompt.
+    """
+    if not _prompt_fits_argv(prompt):
+        raise RuntimeError(
+            f"Cross-review prompt exceeds {ARGV_SAFETY_LIMIT} bytes and agent "
+            f"'{agent}' does not document a stdin-prompt path. Use --agent "
+            f"codex for this review or reduce the patch size."
+        )
 
 
 def invoke_codex(args: argparse.Namespace, prompt: str) -> str:
@@ -209,11 +244,18 @@ def invoke_codex(args: argparse.Namespace, prompt: str) -> str:
         cmd += ["-c", f"model={args.model}"]
     if args.effort:
         cmd += ["-c", f"model_reasoning_effort={args.effort}"]
-    cmd += ["--output-schema", str(args.schema_file), prompt]
-    return _run_subprocess(cmd, "codex", args.timeout)
+    cmd += ["--output-schema", str(args.schema_file)]
+    if _prompt_fits_argv(prompt):
+        cmd.append(prompt)
+        stdin_prompt: str | None = None
+    else:
+        cmd.append("-")
+        stdin_prompt = prompt
+    return _run_subprocess(cmd, "codex", args.timeout, stdin_input=stdin_prompt)
 
 
 def invoke_claude(args: argparse.Namespace, prompt: str) -> str:
+    _require_argv_safe(prompt, "claude")
     cmd = [
         _resolve_claude(args.claude_path),
         "-p",
@@ -229,6 +271,7 @@ def invoke_claude(args: argparse.Namespace, prompt: str) -> str:
 
 
 def invoke_gemini(args: argparse.Namespace, prompt: str) -> str:
+    _require_argv_safe(prompt, "gemini")
     cmd = ["gemini", "--approval-mode", "plan", "--output-format", "json"]
     if args.model:
         cmd += ["-m", args.model]
@@ -245,6 +288,7 @@ def invoke_gemini(args: argparse.Namespace, prompt: str) -> str:
 
 
 def invoke_opencode(args: argparse.Namespace, prompt: str) -> str:
+    _require_argv_safe(prompt, "opencode")
     cmd = ["opencode", "run", "--format", "json"]
     if args.model:
         cmd += ["--model", args.model]
@@ -269,6 +313,7 @@ def invoke_opencode(args: argparse.Namespace, prompt: str) -> str:
 
 
 def invoke_cursor_agent(args: argparse.Namespace, prompt: str) -> str:
+    _require_argv_safe(prompt, "cursor-agent")
     cmd = ["cursor-agent", "-p", "--output-format", "json"]
     if args.model:
         cmd += ["--model", args.model]
@@ -545,6 +590,8 @@ def _type_matches(expected: object, value: object) -> bool:
         "null": lambda v: v is None,
     }
     for expected_type in expected_types:
+        if not isinstance(expected_type, str):
+            continue
         checker = mapping.get(expected_type)
         if checker and checker(value):
             return True
