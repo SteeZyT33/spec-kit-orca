@@ -564,8 +564,8 @@ if [[ -d ".specify/extensions/orca" ]]; then
     dim "Refreshing orchestration for current integration..."
     replace_orca_extension "Reinstalling..." "Orchestration refreshed" "Refresh failed — try: specify extension add orca --from $ORCH_URL."
   elif [[ "$INSTALLED_VER" == "$VERSION" || "$INSTALLED_VER" == "v${VERSION}" ]]; then
-    dim "Orca v${INSTALLED_VER} already installed — skipping reinstall (use --force to reinstall)"
-    ok "Orchestration v${INSTALLED_VER} already present"
+    dim "Orca v${INSTALLED_VER#v} already installed — skipping reinstall (use --force to reinstall)"
+    ok "Orchestration v${INSTALLED_VER#v} already present"
   else
     dim "Updating orchestration ${INSTALLED_VER} → v${VERSION}..."
     replace_orca_extension "Downloading..." "Orchestration updated to v${VERSION}" "Update failed — try: specify extension add orca --from $ORCH_URL."
