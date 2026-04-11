@@ -19,18 +19,10 @@ work without relying on one agent session to remember everything.
 
 ## Install
 
-Install Orca into a repo that already uses Spec Kit:
+Install Orca once:
 
 ```bash
-cd ~/spec-kit-orca
-make tool-install
-```
-
-Or install it directly with `uv`:
-
-```bash
-cd ~/spec-kit-orca
-uv tool install --force .
+uv tool install --force git+https://github.com/SteeZyT33/spec-kit-orca.git
 ```
 
 Then from any Spec Kit repo:
@@ -39,6 +31,12 @@ Then from any Spec Kit repo:
 speckit-orca
 speckit-orca codex
 speckit-orca --minimal
+```
+
+For local development in this repo:
+
+```bash
+make tool-install
 ```
 
 If the command is not found, make sure `~/.local/bin` is on your `PATH`:
