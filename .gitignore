@@ -11,3 +11,8 @@ dist/
 .specify/orca/inbox/
 .flow-state.json
 **/fixtures/**/.specify/orca/flow-state/
+
+# Local debris that should not be committed
+debug-search.log
+neo4j-apoc-schema.json
+repomix-output.xml
