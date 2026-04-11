@@ -4,10 +4,10 @@ This inventory tracks external patterns, wrapper capabilities, and adoption deci
 
 ## Status Counts
 
-- open: 1
+- open: 3
 - mapped: 2
 - implemented: 5
-- deferred: 2
+- deferred: 3
 - rejected: 0
 
 ## Entries
@@ -24,3 +24,6 @@ This inventory tracks external patterns, wrapper capabilities, and adoption deci
 | EV-008 | Deep Optimize | adapt-heavily | mapped | wrapper-capability | future-feature:deep-optimize | autoresearch |
 | EV-009 | Deep Research | defer | deferred | wrapper-capability | future-feature:deep-research | external-specialist-skill |
 | EV-010 | Deep Review | defer | deferred | wrapper-capability | future-feature:deep-review | external-specialist-skill |
+| EV-011 | Drift Reconciliation | defer | deferred | pattern | future-feature:drift-reconciliation | cc-spex |
+| EV-012 | Reviewer Brief Artifact | adapt-heavily | open | pattern | existing-spec:006-orca-review-artifacts | cc-spex |
+| EV-013 | Spec-Compliance-First Code Review | adapt-heavily | open | pattern | existing-spec:code-review | cc-spex |

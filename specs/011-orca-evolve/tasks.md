@@ -32,14 +32,14 @@
 
 ## Phase 5: Seed Real Spex-Derived Entries
 
-- [ ] T019 Seed initial Evolve entries from the current Spex harvest queue captured in [docs/orca-harvest-matrix.md](../../docs/orca-harvest-matrix.md).
-- [ ] T020 Map already-accounted-for ideas to their current Orca specs where appropriate.
-- [ ] T021 Record the remaining worthwhile piecemeal Spex ideas that are still not represented by an existing Orca spec.
-- [ ] T022 Add explicit wrapper-capability entries for `deep-optimize`, `deep-research`, and `deep-review` with external dependency and ownership-boundary notes.
-- [ ] T023 Add explicit harvest entries for portable team/worker patterns such as state-first mailbox coordination, durable ACK/report queues, and claim-safe delegated work, while marking OMX-specific runtime details as excluded.
-- [ ] T024 Verify that each seeded entry has clear source attribution, decision rationale, destination mapping or explicit defer state, and adoption-scope labeling.
-- [ ] T024a Migrate the remaining ad-hoc harvest docs ([docs/spex-harvest-list.md](../../docs/spex-harvest-list.md) and [docs/spex-adoption-notes.md](../../docs/spex-adoption-notes.md)) into Evolve entries so the durable store becomes the single source of truth rather than living alongside prose notes.
-- [ ] T024b Once migration is confirmed (T019, T024a), retire the ad-hoc harvest docs by replacing them with short stubs pointing at the Evolve overview, so the parallel system cannot rot silently.
+- [x] T019 Seed initial Evolve entries from the current Spex harvest queue captured in [docs/orca-harvest-matrix.md](../../docs/orca-harvest-matrix.md).
+- [x] T020 Map already-accounted-for ideas to their current Orca specs where appropriate.
+- [x] T021 Record the remaining worthwhile piecemeal Spex ideas that are still not represented by an existing Orca spec. (EV-011 Drift Reconciliation, EV-012 Reviewer Brief Artifact, EV-013 Spec-Compliance-First Code Review)
+- [x] T022 Add explicit wrapper-capability entries for `deep-optimize`, `deep-research`, and `deep-review` with external dependency and ownership-boundary notes. (EV-008, EV-009, EV-010)
+- [x] T023 Add explicit harvest entries for portable team/worker patterns such as state-first mailbox coordination, durable ACK/report queues, and claim-safe delegated work, while marking OMX-specific runtime details as excluded. (EV-007)
+- [x] T024 Verify that each seeded entry has clear source attribution, decision rationale, destination mapping or explicit defer state, and adoption-scope labeling.
+- [x] T024a Migrate the remaining ad-hoc harvest docs ([docs/spex-harvest-list.md](../../docs/spex-harvest-list.md) and [docs/spex-adoption-notes.md](../../docs/spex-adoption-notes.md)) into Evolve entries so the durable store becomes the single source of truth rather than living alongside prose notes.
+- [x] T024b Once migration is confirmed (T019, T024a), retire the ad-hoc harvest docs by replacing them with short stubs pointing at the Evolve overview, so the parallel system cannot rot silently.
 
 ## Phase 6: Operator Docs And Verification
 
