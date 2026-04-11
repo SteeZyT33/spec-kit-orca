@@ -22,10 +22,10 @@ update the 009 run-stage-model, rewrite `flow_state.py` and
 until this plan and its contracts are locked.
 
 The three reviews are **`review-spec`**, **`review-code`**, and
-**`review-pr`**. Cross-mode is a required named subsection inside the
-review artifact (with agent name recorded inline), never a hidden
-flag. Process retrospective folds into `review-pr.md` as a required
-one-paragraph `## Retro Note` section.
+**`review-pr`**. Cross-mode is recorded as a required `## Cross Pass`
+subsection inside the review artifact (with agent name inline),
+never a hidden flag. Process retrospective folds into `review-pr.md`
+as a required one-paragraph `## Retro Note` section.
 
 This is a **breaking change**. Atomic rollout per the brainstorm's
 Option A — no dual-vocabulary coexistence window. Only in-flight
@@ -48,7 +48,7 @@ Binding answers, captured here so the plan remains self-contained:
 
 **Question 3 is sharper than the brainstorm's proposed lean.** The
 user's answer establishes a real policy, not just a default. See
-section 7 below for the full cross-pass routing policy.
+section 6 below for the full cross-pass routing policy.
 
 ## 3. Scope
 
@@ -135,12 +135,12 @@ its own, but the wave merges atomically.
   the `review-pr.md` shape, comment-disposition section, retro
   note requirements (required section, allowed empty)
 - **`specs/012-review-model/contracts/cross-pass-agent-routing.md`** —
-  the cross-pass agent routing policy (see section 7 below), codified
+  the cross-pass agent routing policy (see section 6 below), codified
   as a contract that binds both the runtime (`matriarch.py` agent
   selection) and the command prompts
 - **`specs/012-review-model/contracts/clarify-integration.md`** —
   the `speckit.clarify` precondition check, scope boundary table,
-  staleness detection rule (see section 8 below)
+  staleness detection rule (see section 7 below)
 
 ### Runtime to rewrite
 
@@ -160,7 +160,7 @@ its own, but the wave merges atomically.
     `review-code.md` without a `## Cross Pass` section must not be
     treated as review-ready for lanes that declared cross-pass
     requirement
-  - Implement the cross-pass agent routing policy (section 7) as
+  - Implement the cross-pass agent routing policy (section 6) as
     part of lane agent selection. Matriarch is the authority that
     decides which agent runs the cross-pass.
 
