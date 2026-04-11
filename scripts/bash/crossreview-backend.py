@@ -584,6 +584,8 @@ def _type_matches(expected: object, value: object) -> bool:
         "null": lambda v: v is None,
     }
     for expected_type in expected_types:
+        if not isinstance(expected_type, str):
+            continue
         checker = mapping.get(expected_type)
         if checker and checker(value):
             return True
