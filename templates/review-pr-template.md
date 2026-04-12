@@ -1,31 +1,29 @@
 ---
-description: "Template for PR lifecycle review evidence"
+description: "Template for review-pr.md — PR comment disposition + retro (012 review model)"
 ---
 
-# PR Review: [FEATURE NAME]
+# Review: PR Comments
 
-**Feature Branch**: `[###-feature-name]`
-**Spec**: [spec.md](spec.md)
+## PR Identifier
+- repository: <owner>/<repo>
+- number: <PR number>
+- opened: YYYY-MM-DD
 
-## PR Review Run — [DATE]
+## External Comments
 
-### PR
-- Number: [#]
-- Status: [open | merged | closed | not created]
+### Round 1 (YYYY-MM-DD)
+- **Comment #N** (reviewer: <name>, date: YYYY-MM-DD)
+  - thread: "<short quote or summary>"
+  - disposition: addressed | rejected | deferred
+  - commit: <sha> (if addressed)
+  - response: "<explanation>" (if rejected or deferred)
 
-### Comment Disposition
-- Total: [count]
-- Addressed: [count]
-- Rejected: [count]
-- Issued: [count]
-- Clarify: [count]
+## Retro Note
 
-### External Comment Responses
-| # | Reviewer | File | Status | Detail |
-|---|---|---|---|---|
-| [n] | [name] | [path] | [status] | [detail] |
+[One paragraph: what worked, what didn't, what to change for next
+cycle. Required even when empty — use "No workflow changes needed
+this cycle." as the minimum.]
 
-### Post-Merge Verification
-- REVERTED: [count]
-- OK: [count]
-- Issues created: [issue numbers]
+## Verdict
+- status: merged | pending-merge | reverted
+- merged-at: YYYY-MM-DD (required if status is merged)
