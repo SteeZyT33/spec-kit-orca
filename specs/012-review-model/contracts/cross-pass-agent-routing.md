@@ -224,9 +224,9 @@ note).
 ## Invariants
 
 - No review artifact ever has a cross-pass with the same agent as
-  the author (except in a timeout-downgrade retry path, where the
-  original timed-out attempt is recorded but a different agent
-  completes the actual pass)
+  the author. Timeout-downgrade retries may add multiple cross-pass
+  entries, but every attempted and successful cross-pass agent must
+  still differ from the author agent
 - Within a single cross-pass attempt for a phase, there is at
   most one successful (non-TIMEOUT) cross-pass. Additional
   cross-pass subsections within that same attempt are only for

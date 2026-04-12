@@ -156,7 +156,7 @@ processing plus a required one-paragraph process retrospective.
 - `verdict.merged_at` is present iff `verdict.status == "merged"`
 - Comments may be appended across multiple "rounds" (new comment
   rounds after a round of fixes) — the round structure is
-  optional but the comment list is append-only within a round
+  optional, and the comment list is append-only across rounds
 
 ---
 
