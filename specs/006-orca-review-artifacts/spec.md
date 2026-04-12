@@ -2,7 +2,7 @@
 
 **Feature Branch**: `006-orca-review-artifacts`  
 **Created**: 2026-04-09  
-**Status**: Implemented  
+**Status**: Superseded by 012-review-model  
 **Input**: User description: "Split Orca review evidence into clearer durable artifacts for spec, plan, code, cross-review, and PR review so workflow state and later orchestration have clean review boundaries."
 
 ## Context
