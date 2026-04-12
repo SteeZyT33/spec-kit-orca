@@ -512,6 +512,37 @@ def _review_status_map(flow_summary: dict[str, Any]) -> dict[str, str]:
     }
 
 
+CROSS_PASS_TIER_1 = ("codex", "claude", "gemini", "opencode")
+CROSS_PASS_TIER_2 = ("cursor-agent",)
+
+
+def select_cross_pass_agent(
+    *,
+    author_agent: str,
+    timed_out_agents: list[str] | None = None,
+    repo_root: Path | None = None,
+) -> str:
+    excluded = {author_agent}
+    if timed_out_agents:
+        excluded.update(timed_out_agents)
+
+    for agent in CROSS_PASS_TIER_1:
+        if agent not in excluded:
+            return agent
+    for agent in CROSS_PASS_TIER_2:
+        if agent not in excluded:
+            return agent
+
+    tried = sorted(excluded - {author_agent})
+    raise MatriarchError(
+        f"cross-pass failed: no different-agent alternative available. "
+        f"Author agent: {author_agent}. Excluded: {tried}. "
+        f"No fallback to same-agent pass because adversarial review requires "
+        f"a different agent. Reschedule or configure a different agent for "
+        f"this repo."
+    )
+
+
 def _load_worktree_context(paths: MatriarchPaths, spec_id: str) -> dict[str, Any]:
     worktree_root = paths.repo_root / ".specify" / "orca" / "worktrees"
     registry_path = worktree_root / "registry.json"
@@ -543,9 +574,9 @@ def _derive_effective_state(record: LaneRecord, flow_summary: dict[str, Any]) ->
 
     review_milestones = _review_status_map(flow_summary)
     stage = flow_summary.get("current_stage")
-    if review_milestones.get("pr") == "complete":
+    if review_milestones.get("review-pr") == "complete":
         return "pr_ready", "PR review evidence is complete."
-    if stage in {"code-review", "cross-review", "pr-review", "self-review"}:
+    if stage in {"review-spec", "review-code", "review-pr"}:
         return "review_ready", "Implementation evidence is complete enough for review."
     if record.owner_type != "unassigned" or stage:
         return "active", "Lane has active owner or progress."
