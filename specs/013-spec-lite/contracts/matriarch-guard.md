@@ -28,7 +28,7 @@ never find.
 
 ```python
 def _is_spec_lite_record(
-    paths: OrcaPaths,
+    paths: MatriarchPaths,
     spec_id: str,
 ) -> bool:
     """Return True if spec_id refers to a spec-lite record.
@@ -37,21 +37,24 @@ def _is_spec_lite_record(
     back to a header scan if the file exists but lives outside
     the canonical directory (defensive).
     """
+    spec_lite_dir = paths.repo_root / ".specify" / "orca" / "spec-lite"
+
     # 1. Canonical path check
-    canonical = paths.orca / "spec-lite" / f"{spec_id}.md"
+    canonical = spec_lite_dir / f"{spec_id}.md"
     if canonical.exists():
         return True
 
     # 2. Glob for any file matching the ID stem under spec-lite/
-    for candidate in (paths.orca / "spec-lite").glob(f"{spec_id}*.md"):
-        if candidate.name == "00-overview.md":
-            continue
-        return True
+    if spec_lite_dir.is_dir():
+        for candidate in spec_lite_dir.glob(f"{spec_id}*.md"):
+            if candidate.name == "00-overview.md":
+                continue
+            return True
 
     # 3. Header scan fallback — check if any file with this stem
     #    anywhere in the repo has the spec-lite header marker
     #    (defensive against misplaced files)
-    feature_dir = paths.specs / spec_id
+    feature_dir = paths.repo_root / "specs" / spec_id
     spec_file = feature_dir / "spec.md"
     if spec_file.exists():
         first_line = spec_file.read_text().split("\n", 1)[0]
@@ -63,9 +66,10 @@ def _is_spec_lite_record(
 
 ### Parameters
 
-- `paths`: the `OrcaPaths` instance for the current repository
-  (provides `paths.orca` → `.specify/orca/` and `paths.specs` →
-  `specs/`)
+- `paths`: the `MatriarchPaths` instance for the current
+  repository (provides `paths.repo_root` as the repo root; paths
+  are derived as `paths.repo_root / ".specify" / "orca" / ...`
+  and `paths.repo_root / "specs" / ...`)
 - `spec_id`: the raw identifier the operator passed to lane
   registration (e.g., `SL-001-my-feature` or just `SL-001`)
 

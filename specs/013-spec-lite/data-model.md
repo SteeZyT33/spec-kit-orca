@@ -120,8 +120,8 @@ record file and any sibling review files.
 
 - Derived from a `Spec-Lite Record` entity
 - `review_state` is derived from sibling review files sharing the
-  record's ID stem (e.g., `SL-001-slug.self-review.md`,
-  `SL-001-slug.cross-review.md`) — not from a per-record
+  record's ID stem (e.g., `SL-001-<slug>.self-review.md`,
+  `SL-001-<slug>.cross-review.md`) — not from a per-record
   directory
 - Consumed by matriarch's lane readiness checks (to confirm
   rejection)
