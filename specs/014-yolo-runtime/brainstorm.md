@@ -1,13 +1,27 @@
 # Brainstorm: Orca YOLO Runtime — Single-Lane Execution Driver
 
+> **⚠️ Superseded — Runtime work consolidated into 009.**
+>
+> Per the 2026-04-11 session, `014-yolo-runtime` does NOT exist
+> as a separate spec. The runtime implementation is consolidated
+> into `009-orca-yolo` directly because 009's contracts were
+> never implemented and there is no reason to keep contract and
+> runtime in separate specs. This brainstorm document stays in
+> place as historical context for the design discussion, but the
+> **authoritative runtime plan** lives at
+> [`specs/009-orca-yolo/runtime-plan.md`](../009-orca-yolo/runtime-plan.md).
+>
+> All references below to "014-yolo-runtime" as a separate spec
+> should be read as "009-orca-yolo runtime phase."
+
 **Feature Branch**: `014-yolo-runtime`
 **Created**: 2026-04-11
-**Status**: Brainstorm
+**Status**: Superseded — runtime moved to `009-orca-yolo/runtime-plan.md`
 **Relationship to 009**: `009-orca-yolo` is the **contract layer**
 (spec, run-stage-model, run-state, orchestration-policies, Lane Agent
-Binding). `014-yolo-runtime` is the **implementation** on top of those
-contracts. 009 stays as the authoritative contract; 014 adds the
-runtime module, tests, and durable event log.
+Binding). The runtime is built directly on top of those contracts in
+the same spec directory. 009 is now both the contract authority AND
+the runtime home.
 **Informed by**:
 - `docs/research/spec-kitty-execution-loop.md` (deep-dive on spec-kitty's execution loop)
 - `specs/009-orca-yolo/` (contracts, data-model, tasks — 0/29 tasks completed, runtime unbuilt)
