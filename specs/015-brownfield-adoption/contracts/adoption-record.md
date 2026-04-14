@@ -92,7 +92,7 @@ typically paired with Status: retired.>
 |---|---|---|---|
 | `Status` | enum | yes | One of `adopted`, `superseded`, `retired`. Starts at `adopted` for a freshly created record; advances via explicit operator action (the `supersede` or `retire` command). |
 | `Adopted-on` | `YYYY-MM-DD` | yes | RFC3339 full-date. Matches evolve / brainstorm-memory / spec-lite conventions. Set at record creation, never mutated thereafter. |
-| `Baseline Commit` | git SHA | no | Optional commit SHA describing the code state the record covers. Pre-populated by the `new` command with the current `git rev-parse HEAD` value; operator MAY clear before saving. Defensive fallback: if the workspace is not a git repo or `git` is unavailable, the field is omitted (the runtime does not crash). |
+| `Baseline Commit` | git SHA | no | Optional commit SHA describing the code state the record covers. Pre-populated by the `create` command with the current `git rev-parse HEAD` value; operator MAY clear before saving. Defensive fallback: if the workspace is not a git repo or `git` is unavailable, the field is omitted (the runtime does not crash). |
 
 **No `Source Name` field** (unlike spec-lite). Adoption records
 describe the feature, not the person who wrote the record. Git
@@ -123,8 +123,13 @@ the file.
 ## Body sections (3 required + 3 optional)
 
 Every valid adoption record MUST contain the first three body
-sections, in this exact order, with the exact heading text shown.
-The remaining three are optional.
+sections (`Summary`, `Location`, `Key Behaviors`), with the exact
+heading text shown. **When present, recognized sections MUST appear
+in the relative order shown below** (required first in the listed
+order, optional sections after, in the listed order). The parser
+tolerates unknown sections in any position by capturing them in
+an `extra` bucket — they do not violate the ordering rule for
+recognized sections (see "Parser notes" below).
 
 | # | Heading | Required | Content shape |
 |---|---|---|---|
@@ -159,7 +164,7 @@ based on section presence, and does NOT remove the section.
 This is the explicit "tolerant parser" posture from plan section 6
 and plan open question 7. Rationale: ARs are operator-editable
 reference documents, not strict schemas. Hand edits should not
-break parsing. Commands (`new`, `supersede`, `retire`) write the
+break parsing. Commands (`create`, `supersede`, `retire`) write the
 expected sections for the target status; cross-section consistency
 is a recommendation, not an invariant.
 
@@ -172,8 +177,13 @@ A file is an adoption record if EITHER of these holds:
 
 1. **Path match**: the file lives under `.specify/orca/adopted/`
    AND has a `.md` extension AND the filename stem matches
-   `AR-\d{3}(-.+)?` (regex). The overview file `00-overview.md` is
-   excluded by name.
+   `AR-\d{3}-.+` (regex) — i.e., the canonical on-disk filename
+   form `AR-NNN-<slug>` with a non-empty slug. The overview file
+   `00-overview.md` is excluded by name. (`AR-NNN` without a slug
+   is accepted as an *input alias* by commands that look up records
+   — see the matriarch guard's glob fallback in
+   [matriarch-guard.md](./matriarch-guard.md) — but it is not a
+   valid on-disk filename for a record.)
 2. **Header match** (fallback for misplaced files): the file's
    first non-blank line matches `^# Adoption Record: AR-\d{3}(:.*)?$`
    (regex).
@@ -208,7 +218,13 @@ explicitly excluded from the record-listing walk by filename.
 - `Baseline Commit`, if present, is never mutated after the record
   is first written. Operators who want to update the recorded
   baseline write a new AR rather than mutating in place.
-- All headings use exact text as specified (case-sensitive).
+- All **recognized** headings (the 3 required + 3 optional listed
+  in "Body sections" above) MUST use the exact text shown
+  (case-sensitive). Headings whose text does not match any
+  recognized name are treated as unknown sections — they are
+  permitted but non-authoritative; the parser captures them in an
+  `extra` bucket on the parsed record without raising. See "Parser
+  notes" below for the full tolerance contract.
 
 ## Overview file
 
@@ -321,13 +337,18 @@ and avoids a new dependency. The parser:
 3. Walks metadata lines (`**Field**: value`) until the first
    `##` heading.
 4. Splits body into sections at each `##` heading until EOF.
-5. Validates required section names against the required set
-   (`Summary`, `Location`, `Key Behaviors`).
+5. Validates that the three required section names
+   (`Summary`, `Location`, `Key Behaviors`) are all present and,
+   when encountered, appear in the listed relative order. Missing
+   any required section is a structural failure.
 6. Recognizes optional section names (`Known Gaps`,
    `Superseded By`, `Retirement Reason`) and includes them in the
-   parsed record.
-7. Tolerates unknown sections by including them in a `extra`
-   bucket on the parsed record (does not raise).
+   parsed record when present. When present, optional sections
+   appear after the required block in the listed relative order.
+7. Tolerates unknown sections by including them in an `extra`
+   bucket on the parsed record (does not raise, and does not
+   invalidate the recognized-section ordering rule). Unknown
+   sections may appear in any position.
 8. Returns a typed `AdoptionRecord` struct.
 
 Structural parse failures (missing required section, missing title

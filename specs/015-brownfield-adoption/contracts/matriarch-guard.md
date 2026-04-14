@@ -63,12 +63,19 @@ def _is_adoption_record(
     if canonical.exists():
         return True
 
-    # 2. Glob for any file matching the ID stem under adopted/
+    # 2. Glob for candidate files under adopted/, then require an
+    #    exact stem match or a slug suffix separated by "-". This
+    #    avoids prefix collisions such as spec_id="AR-001" matching
+    #    a file named "AR-0010-foo.md".
     if adopted_dir.is_dir():
         for candidate in adopted_dir.glob(f"{spec_id}*.md"):
             if candidate.name == "00-overview.md":
                 continue
-            return True
+            stem = candidate.stem
+            if stem != spec_id and not stem.startswith(spec_id + "-"):
+                continue
+            if re.fullmatch(r"AR-\d{3}(?:-.+)?", stem):
+                return True
 
     # 3. Scoped header check on specs/<spec_id>/spec.md — catches
     #    an AR file mistakenly authored under specs/ instead of
@@ -77,8 +84,13 @@ def _is_adoption_record(
     feature_dir = paths.repo_root / "specs" / spec_id
     spec_file = feature_dir / "spec.md"
     if spec_file.exists():
-        first_line = spec_file.read_text().split("\n", 1)[0]
-        if re.match(r"^# Adoption Record: AR-\d{3}", first_line):
+        # First non-blank line, matching the contract's "Header
+        # match" rule in adoption-record.md.
+        first_nonblank = next(
+            (ln for ln in spec_file.read_text().splitlines() if ln.strip()),
+            "",
+        )
+        if re.match(r"^# Adoption Record: AR-\d{3}(:.*)?$", first_nonblank):
             return True
 
     return False

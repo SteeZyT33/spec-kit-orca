@@ -183,8 +183,8 @@ as background:
 # Feature Specification: CLI Rewrite
 
 ## Background
-The current CLI is documented as adoption record AR-001
-(see [.specify/orca/adopted/AR-001-cli-entrypoint.md]). It uses
+The current CLI is documented as adoption record
+[AR-001](/.specify/orca/adopted/AR-001-cli-entrypoint.md). It uses
 argparse with manual subcommand dispatch. This spec covers the
 migration to click with plugin discovery.
 

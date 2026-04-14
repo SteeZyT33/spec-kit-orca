@@ -25,9 +25,9 @@ yolo participation, no lane-anchor capability.
 
 | Field | Type | Required | Source |
 |---|---|---|---|
-| `id` | string (`AR-NNN-<slug>`) | yes | parsed from title heading |
-| `number` | int (1-999) | yes | parsed from `AR-NNN` segment of `id` |
-| `slug` | string | yes | parsed from filename (the `-<slug>` portion) |
+| `id` | string (`AR-NNN-<slug>`) | yes | derived from `number` (parsed from the `AR-NNN` prefix in the `# Adoption Record:` title heading) and `slug` (parsed from the filename stem `<id>.md`) |
+| `number` | int (1-999) | yes | parsed from the `AR-NNN` prefix in the `# Adoption Record:` title heading |
+| `slug` | string | yes | parsed from the filename stem (the `-<slug>` suffix of `<id>.md`) |
 | `title` | string | yes | text after `AR-NNN:` in `# Adoption Record:` heading |
 | `status` | enum (`adopted`, `superseded`, `retired`) | yes | `**Status**:` metadata line |
 | `adopted_on` | date (`YYYY-MM-DD`) | yes | `**Adopted-on**:` metadata line |
@@ -235,7 +235,7 @@ Flow-state reads:
                               ├── review_state: "not-applicable" (hard-coded)
                               │
                               └── kind: "adoption" (distinct from
-                                  "feature", "spec-lite", "invalid")
+                                  "feature" and "spec-lite")
 
 Matriarch precondition block (in register_lane):
   spec_id input
@@ -265,7 +265,7 @@ Supersession (operator action):
 |---|---|
 | 013 spec-lite | Mirrors registry layout, ID scheme, guard pattern, overview convention. No modifications to 013. Guards run sequentially in `register_lane` (013 first, then 015). |
 | 012 review-model | NOT modified. 015's `review_state: "not-applicable"` is an inline flow-state view field (parallel to 013's spec-lite `review_state`), not an extension to 012's per-artifact Review Milestone contract. 015 ships independently of 012's merge state. |
-| 010 matriarch | Guard added to `register_lane` precondition block (alongside 013's). No other matriarch surface modified. No new mailbox event types; the current accepted set (`instruction`, `ack`, `status`, `blocker`, `question`, `approval_needed`, `handoff`, `shutdown`) is unchanged. |
+| 010 matriarch | Guard added to `register_lane` precondition block (alongside 013's). No other matriarch surface modified. 015 does not change the canonical mailbox / event-envelope contract or its accepted event types — see [`specs/010-orca-matriarch/contracts/event-envelope.md`](../010-orca-matriarch/contracts/event-envelope.md) for the authoritative type list. |
 | 009 yolo | NOT modified. 015 does not add ARs as a valid yolo start artifact. 009's spec.md current language about valid yolo starts is a 009 concern, not 015's. |
 | 005 flow-state | Per-target interpretation extended (mirrors 013's per-file spec-lite extension). New `kind: "adoption"` view returned when given an AR file path. No repo-wide summary UX, no new CLI flags. |
 | 011 evolve | NOT modified. ARs do not interact with evolve's design-decision tracking. |
