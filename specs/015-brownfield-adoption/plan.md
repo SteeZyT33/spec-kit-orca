@@ -20,7 +20,7 @@ known behaviors. Separate registry from spec-lite. Never reviewed.
 Not drivable by yolo. Cannot anchor a matriarch lane. Cross-lane
 coordination across adopted territory stays the operator's
 responsibility in v1 (touch-point metadata cut per cross-review
-— see section 13 and open question 1).
+— see section 13 non-goals and Section 2 strawman Q1).
 
 This is **purely additive**. 013 (spec-lite) stays locked. The full
 spec flow stays authoritative for new work. Nothing is renamed or
@@ -39,14 +39,20 @@ supersession mechanic is exercised by `tests/test_adoption.py`
 against test fixtures, NOT by superseding a production record in
 the first wave.
 
-## 2. Strawman answers (7 open questions from brainstorm)
+## 2. Strawman answers (proposed defaults — non-final)
 
-The brainstorm captured 8 open questions; question 8 (repo audit)
+These are the plan's proposed answers to the seven remaining open
+questions from the brainstorm (question 8, the repo audit, was
 resolved during brainstorm drafting and is documented in the
-brainstorm's "Initial Records" section. This plan answers the
-remaining seven with the lean from the brainstorm, with reasoning.
-Edit the answers you disagree with before the contract-writing task
-starts.
+brainstorm's "Initial Records" section). They are non-final
+defaults — edit the answers you disagree with before the
+contract-writing task starts.
+
+**Note**: Section 14 below contains a separate, distinct set of
+open questions that surface only during plan drafting and are
+properly resolved by the contract-writing task. Section 2 covers
+brainstorm-era questions; Section 14 covers contract-era
+questions. The two sets do not overlap.
 
 | # | Question | Strawman answer |
 |---|---|---|
@@ -55,7 +61,7 @@ starts.
 | 3 | Baseline Commit required? | **Optional.** The `new` command pre-populates HEAD SHA in the template; operator can clear it before saving. Optional keeps v1 friction low; v2's adoption manifest elevates its importance for partial-flow-state suppression. |
 | 4 | Adoption manifest location | **Deferred to v2.** v1 does not ship a manifest. Brainstorm noted `.specify/orca/adoption.md` at registry root as the likely v2 location; plan captures this as a design intent, not a v1 deliverable. |
 | 5 | Supersede validation | **Validate.** `adopt supersede <ar-id> <spec-id>` rejects if `specs/<spec-id>/spec.md` does not exist. Prevents broken Superseded-By pointers. |
-| 6 | Retire reason storage | **Dedicated section.** When status is `retired`, a `## Retirement Reason` section appears after `Known Gaps`. Keeps status-specific content out of semantic sections like Known Gaps (which may still be relevant after retirement for historical context). |
+| 6 | Retire reason storage | **Dedicated section.** When status is `retired`, a `## Retirement Reason` section appears after `## Superseded By` (matches the template ordering in section 6). Keeps status-specific content out of semantic sections like Known Gaps (which may still be relevant after retirement for historical context). |
 | 7 | OpenSpec delta-spec semantics | **Reference-only in 015.** Delta-spec semantics (ADDED/MODIFIED/REMOVED) are a larger architectural shift and deserve their own spec (016+) if demand emerges. 015's `Location` field is forward-compatible with a future delta model but does not implement it. |
 
 ## 3. Scope
@@ -77,9 +83,12 @@ starts.
 - Add adoption integration in `src/speckit_orca/flow_state.py`:
   per-file AR interpretation (mirrors 013's per-file spec-lite
   extension), new `adoption` kind returned when given an AR file
-  path, missing-artifact warnings suppressed for AR file targets.
-  Flow-state does NOT get a new repo-wide summary UX — the existing
-  per-target interface is what 015 extends.
+  path, no directory-style milestone derivation for AR file targets
+  (full-spec interpretation expects `plan.md` / `tasks.md` siblings;
+  AR files are single-file registry records and don't have those
+  artifacts by design). Flow-state does NOT get a new repo-wide
+  summary UX — the existing per-target interface is what 015
+  extends.
 - Add adoption guard in `src/speckit_orca/matriarch.py`
   (`_is_adoption_record` + rejection at `register_lane`). Guard
   must fire at the TOP of `register_lane`, before any mailbox root
@@ -106,8 +115,7 @@ starts.
   status fields.
 - **Repo-wide flow-state summary UX.** No new `--show-superseded`
   / `--show-retired` CLI flags. The `00-overview.md` file is the
-  registry-wide index; flow-state's CLI interface stays
-  per-target.
+  registry-wide index; flow-state's CLI stays per-target.
 - **Cross-wave supersession exercise.** AR-002 is NOT superseded
   in-wave. Supersession is tested in `tests/test_adoption.py`
   against test fixtures.
@@ -189,9 +197,9 @@ registers a command with no runtime behind it.
     `review_state: "not-applicable"` field (mirrors how 013's
     spec-lite view defines `review_state` inline — not a 012
     contract field)
-  - Missing-artifact warnings suppressed for AR file targets (no
-    `plan.md` / `tasks.md` expected for a single-file registry
-    record)
+  - No directory-style milestone derivation for AR file targets
+    (the full-spec path expects `plan.md` / `tasks.md` siblings;
+    AR files are single-file registry records and don't have those)
   - No repo-wide summary rendering changes, no new CLI flags
 - **`src/speckit_orca/matriarch.py`** (modify) — add:
   - New `_is_adoption_record(paths, spec_id)` function mirroring
@@ -334,9 +342,12 @@ elements (missing required section, unparseable metadata) produce
 
 ## 7. Runtime design
 
-`src/speckit_orca/adoption.py` matches the shape of `spec_lite.py`,
-`evolve.py`, and `brainstorm_memory.py`. Thin Python module
-consumed by the command prompt via bash.
+`src/speckit_orca/adoption.py` matches the shape of existing
+runtime modules such as `evolve.py` and `brainstorm_memory.py`
+(and the planned `spec_lite.py` from 013, if 013 ships its
+runtime module — but 015 does not depend on `spec_lite.py`
+existing). Thin Python module consumed by the command prompt
+via bash.
 
 ### Core functions
 
@@ -396,8 +407,8 @@ uv run python -m speckit_orca.adoption --root . list
 uv run python -m speckit_orca.adoption --root . list --status superseded
 uv run python -m speckit_orca.adoption --root . create \
     --title "..." --summary "..." \
-    --location "path1,path2" \
-    --key-behaviors "behavior1|behavior2"
+    --location "path1" --location "path2" \
+    --key-behavior "behavior1" --key-behavior "behavior2"
 uv run python -m speckit_orca.adoption --root . get AR-001
 uv run python -m speckit_orca.adoption --root . supersede AR-002 012-review-model
 uv run python -m speckit_orca.adoption --root . retire AR-005 --reason "removed in commit abc1234"
@@ -470,13 +481,16 @@ When flow_state is invoked with a path under
   Review Milestone fields (`review_spec_status`,
   `review_code_status`, `review_pr_status`,
   `overall_ready_for_merge`). 012 stays untouched.
-- **Warning-suppression (scoped)**: flow-state's existing
-  missing-artifact warnings are tied to feature directories. When
-  the CLI target is an AR file (not a directory), those warnings
-  are structurally not applicable — flow-state is not looking for
-  `plan.md` in a single-file registry record. The integration is
-  "don't crash on a file target" rather than "suppress a warning
-  that would otherwise fire."
+- **AR-file handling is scoped to avoid directory-style milestone
+  derivation.** flow-state's full-spec interpretation builds
+  milestones from feature-directory siblings (`plan.md`,
+  `tasks.md`, etc.) and reports incomplete-milestone state when
+  expected artifacts are absent. When the CLI target is an AR file
+  (not a directory), that full-spec path is structurally not
+  applicable — flow-state is reading a single-file registry
+  record, not a feature folder. The integration is "don't crash
+  on a file target and don't derive directory-style milestones for
+  it" rather than "suppress a warning that would otherwise fire."
 - **No new CLI flags.** No `--show-superseded` / `--show-retired`.
   The existing per-target interface is what 015 extends.
 - **No repo-wide registry summary from flow-state.** The
@@ -643,10 +657,12 @@ section 8's design: no repo-wide summary UX, no CLI flags.
 - **Flow-state does not crash on AR file targets** — no
   FileNotFoundError / KeyError when interpreting a file instead of
   a feature directory.
-- **No missing-artifact warnings for AR file targets** — when the
-  CLI target is an AR file, no warnings about absent `plan.md` /
-  `tasks.md` / `brainstorm.md` are emitted (those artifacts are
-  structurally not expected for a single-file registry record).
+- **No directory-style milestone derivation for AR file targets**
+  — when the CLI target is an AR file, the result does not
+  include incomplete-milestone entries for absent `plan.md` /
+  `tasks.md` / `brainstorm.md` (those artifacts are structurally
+  not expected for a single-file registry record). The full-spec
+  milestone path is bypassed entirely for AR targets.
 - **Full-spec directory regression** — calling flow-state on a
   feature directory under `specs/NNN-*/` still returns the
   full-spec view shape unchanged.
@@ -698,7 +714,8 @@ Add to existing test file:
 - Run `speckit.orca.adopt list`; verify AR-001 appears.
 - Run `flow-state .specify/orca/adopted/AR-001-cli-entrypoint.md`;
   verify the adoption view returns with `review_state: not-applicable`
-  and no missing-artifact warnings.
+  and no incomplete-milestone entries derived from a directory-style
+  expectation.
 - Run `speckit.orca.adopt supersede AR-001 999-test-fixture` against
   a temporary test fixture (NOT against a real spec); verify the
   supersede command rejects if the target spec does not exist.
@@ -751,8 +768,8 @@ Add to existing test file:
    can be in progress)
 3. **015 plan** (this doc) — reviewed
 4. **015 contracts** (follow-up task) — reviewed
-5. **015 implementation wave** — 4 commits, one PR, atomic
-   additive change
+5. **015 implementation wave** — 3 commits, one PR, atomic
+   additive change (matches Section 5 grouping)
 6. **015 command prompt rewrite** — separate PR after contracts,
    same deferral rule as 012/013
 
@@ -768,7 +785,7 @@ Add to existing test file:
 - `flow_state.py` interprets AR file paths and returns the adoption
   view with `review_state: "not-applicable"` as a hard-coded field
 - `flow_state.py` does not crash on AR file targets and does not
-  emit missing-artifact warnings for them
+  derive directory-style incomplete-milestone entries for them
 - `flow_state.py` changes do not alter full-spec or spec-lite
   behavior (regression tests)
 - `matriarch.py` rejects lane registration against adoption
@@ -815,8 +832,7 @@ Add to existing test file:
 - Not enforcing status-dependent section invariants — markdown is
   operator-editable; parser is tolerant
 - Not shipping a repo-wide flow-state summary UX — per-target CLI
-  interface is preserved; the overview file is the registry-wide
-  index
+  is preserved; the overview file is the registry-wide index
 - Not exercising supersession against production records in the
   first wave — tested in `tests/test_adoption.py` only
 - Not coordinating with an upstream lightweight-spec concept

@@ -218,10 +218,17 @@ is a hard invariant for this kind, distinct from spec-lite's
 `unreviewed` default (which implies "could be reviewed, hasn't
 been").
 
-012's review aggregator contract must learn a third
+~~012's review aggregator contract must learn a third
 `review_state` value — `not-applicable` — alongside `unreviewed` and
 the reviewed states. 015 depends on 012 landing first for this
-contract extension.
+contract extension.~~
+
+**(Superseded by [plan.md](./plan.md) — see revision note at the top
+of this file.)** 015 does NOT modify 012's contract.
+`review_state: not-applicable` lives on flow-state's adoption view
+inline (mirroring how 013 defines `review_state` on the spec-lite
+view), not on 012's per-artifact status fields. 012 is not a hard
+prerequisite.
 
 ## Relationship to 010-matriarch
 
