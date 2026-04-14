@@ -1,34 +1,38 @@
 ---
-description: "Template for detailed implementation review evidence"
+description: "Template for review-code.md — self+cross review per phase (012 review model)"
 ---
 
-# Code Review: [FEATURE NAME]
+# Review: Code
 
-**Feature Branch**: `[###-feature-name]`
-**Spec**: [spec.md](spec.md)
+## <Phase> Self Pass (agent: <agent-name>, date: YYYY-MM-DD)
 
-## Phase N Review — [DATE]
-
-### Merge Conflicts: PASS | FAIL
-- [conflict report]
-
-### Spec Compliance: PASS | FAIL
+### Spec compliance
 - [findings]
 
-### Code Quality: PASS | FAIL
+### Implementation quality
 - [findings]
 
-### Security: PASS | FAIL | SKIPPED
+### Test coverage
 - [findings]
 
-### Product Critique: PASS | FINDINGS | SKIPPED
+### Regression risk
 - [findings]
 
-### Actions Taken
-- AUTO-FIXED: [count]
-- SUGGESTED: [count]
-- FLAGGED: [count]
+## <Phase> Cross Pass (agent: <different-agent>, date: YYYY-MM-DD)
 
-### Delivery Readiness
-- Merge target: [feature branch | main]
-- Ready for PR review: yes | no
+### Spec compliance
+- [findings or agreement/disagreement with self-pass]
+
+### Implementation quality
+- [findings]
+
+### Test coverage
+- [findings]
+
+### Regression risk
+- [findings]
+
+## Overall Verdict
+- status: ready-for-pr | needs-fixes | blocked
+- rationale: [summary across all phases]
+- follow-ups: [bulleted list or "none"]

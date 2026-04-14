@@ -15,10 +15,9 @@ STAGE_ORDER = [
     "tasks",
     "assign",
     "implement",
-    "code-review",
-    "cross-review",
-    "pr-review",
-    "self-review",
+    "review-spec",
+    "review-code",
+    "review-pr",
 ]
 
 STAGE_KIND = {
@@ -28,13 +27,16 @@ STAGE_KIND = {
     "tasks": "build",
     "assign": "meta",
     "implement": "build",
-    "code-review": "review",
-    "cross-review": "review",
-    "pr-review": "review",
-    "self-review": "review",
+    "review-spec": "review",
+    "review-code": "review",
+    "review-pr": "review",
 }
 
-REVIEW_TYPES = ("spec", "plan", "code", "cross", "pr", "self")
+REVIEW_ARTIFACT_NAMES = ("review-spec", "review-code", "review-pr")
+REVIEW_SPEC_VERDICT_VALUES = frozenset({"ready", "needs-revision", "blocked"})
+REVIEW_CODE_VERDICT_VALUES = frozenset({"ready-for-pr", "needs-fixes", "blocked"})
+REVIEW_PR_VERDICT_VALUES = frozenset({"merged", "pending-merge", "reverted"})
+CLARIFY_SESSION_RE = re.compile(r"^### Session (\d{4}-\d{2}-\d{2})\b", re.MULTILINE)
 TASK_LINE_RE = re.compile(r"^- \[(?P<mark>[ xX])\] (?P<task>T\d+)\b(?P<body>.*)$")
 ASSIGNMENT_RE = re.compile(r"\[@[^\]]+\]")
 HEADING_RE = re.compile(r"^#{1,6}\s+(?P<title>.+?)\s*$")
@@ -77,13 +79,36 @@ class TaskSummary:
 
 
 @dataclass
+class ReviewSpecEvidence:
+    exists: bool = False
+    verdict: str | None = None
+    clarify_session: str | None = None
+    stale_against_clarify: bool = False
+    has_cross_pass: bool = False
+
+
+@dataclass
+class ReviewCodeEvidence:
+    exists: bool = False
+    verdict: str | None = None
+    phases_found: list[str] = field(default_factory=list)
+    has_self_passes: bool = False
+    has_cross_passes: bool = False
+    overall_complete: bool = False
+
+
+@dataclass
+class ReviewPrEvidence:
+    exists: bool = False
+    verdict: str | None = None
+    has_retro_note: bool = False
+
+
+@dataclass
 class ReviewEvidence:
-    headings: list[str] = field(default_factory=list)
-    scope_design: bool = False
-    scope_code: bool = False
-    has_review_file: bool = False
-    has_self_review_file: bool = False
-    is_late_stage: bool = False
+    review_spec: ReviewSpecEvidence = field(default_factory=ReviewSpecEvidence)
+    review_code: ReviewCodeEvidence = field(default_factory=ReviewCodeEvidence)
+    review_pr: ReviewPrEvidence = field(default_factory=ReviewPrEvidence)
 
 
 @dataclass
@@ -193,15 +218,6 @@ def _slugify_heading(title: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
 
 
-def _collect_markdown_headings(path: Path) -> list[str]:
-    headings: list[str] = []
-    for line in _read_text_if_exists(path).splitlines():
-        match = HEADING_RE.match(line)
-        if match:
-            headings.append(_slugify_heading(match.group("title")))
-    return headings
-
-
 def _parse_tasks(path: Path) -> TaskSummary:
     summary = TaskSummary()
     text = _read_text_if_exists(path)
@@ -228,31 +244,83 @@ def _parse_tasks(path: Path) -> TaskSummary:
     return summary
 
 
-def _parse_review_evidence(review_path: Path, self_review_path: Path) -> ReviewEvidence:
-    review_text = _read_text_if_exists(review_path)
-    headings = _collect_markdown_headings(review_path)
-    if self_review_path.exists():
-        headings.extend(_collect_markdown_headings(self_review_path))
+def _extract_verdict(text: str) -> str | None:
+    match = re.search(r"^- status:\s*(.+)$", text, re.MULTILINE)
+    return match.group(1).strip() if match else None
 
-    lowered = review_text.lower()
-    is_late_stage = (
-        "requested scope**: code" in lowered
-        or (("effective review input" in lowered) and ("code" in lowered))
-        or "code review" in lowered
-        or "cross-harness review" in lowered
-        or "cross-review" in lowered
-        or "pr-review" in lowered
-        or "external comment responses" in lowered
+
+def _latest_clarify_session(spec_text: str) -> str | None:
+    clarifications_match = re.search(
+        r"^## Clarifications\b(.*?)(?=^## |\Z)",
+        spec_text,
+        re.MULTILINE | re.DOTALL,
     )
+    if not clarifications_match:
+        return None
+    sessions = CLARIFY_SESSION_RE.findall(clarifications_match.group(1))
+    return max(sessions) if sessions else None
+
+
+def _parse_review_spec_evidence(review_spec_path: Path, spec_path: Path) -> ReviewSpecEvidence:
+    ev = ReviewSpecEvidence()
+    text = _read_text_if_exists(review_spec_path)
+    if not text:
+        return ev
+    ev.exists = True
+    ev.verdict = _extract_verdict(text)
+    ev.has_cross_pass = bool(re.search(r"^## Cross Pass \(", text, re.MULTILINE))
+
+    prereq_match = re.search(r"^- Clarify session:\s*(\d{4}-\d{2}-\d{2})", text, re.MULTILINE)
+    if prereq_match:
+        ev.clarify_session = prereq_match.group(1)
+
+    spec_text = _read_text_if_exists(spec_path)
+    latest_session = _latest_clarify_session(spec_text)
+    if ev.clarify_session and latest_session and latest_session > ev.clarify_session:
+        ev.stale_against_clarify = True
+
+    return ev
+
+
+def _parse_review_code_evidence(review_code_path: Path) -> ReviewCodeEvidence:
+    ev = ReviewCodeEvidence()
+    text = _read_text_if_exists(review_code_path)
+    if not text:
+        return ev
+    ev.exists = True
+    ev.verdict = _extract_verdict(text)
+
+    self_pass_re = re.compile(r"^## (.+?) Self Pass \(", re.MULTILINE)
+    cross_pass_re = re.compile(r"^## (.+?) Cross Pass \(", re.MULTILINE)
+
+    self_phases = {m.group(1) for m in self_pass_re.finditer(text)}
+    cross_phases = {m.group(1) for m in cross_pass_re.finditer(text)}
+    ev.phases_found = sorted(self_phases | cross_phases)
+    ev.has_self_passes = bool(self_phases)
+    ev.has_cross_passes = bool(cross_phases)
+    ev.overall_complete = "## Overall Verdict" in text
+    return ev
+
+
+def _parse_review_pr_evidence(review_pr_path: Path) -> ReviewPrEvidence:
+    ev = ReviewPrEvidence()
+    text = _read_text_if_exists(review_pr_path)
+    if not text:
+        return ev
+    ev.exists = True
+    ev.verdict = _extract_verdict(text)
+    ev.has_retro_note = "## Retro Note" in text
+    return ev
+
+
+def _parse_review_evidence(feature_path: Path) -> ReviewEvidence:
     return ReviewEvidence(
-        headings=headings,
-        scope_design=("requested scope**: design" in lowered)
-        or (("effective review input" in lowered) and ("design" in lowered)),
-        scope_code=("requested scope**: code" in lowered)
-        or (("effective review input" in lowered) and ("code" in lowered)),
-        has_review_file=review_path.exists(),
-        has_self_review_file=self_review_path.exists(),
-        is_late_stage=is_late_stage,
+        review_spec=_parse_review_spec_evidence(
+            feature_path / "review-spec.md",
+            feature_path / "spec.md",
+        ),
+        review_code=_parse_review_code_evidence(feature_path / "review-code.md"),
+        review_pr=_parse_review_pr_evidence(feature_path / "review-pr.md"),
     )
 
 
@@ -324,11 +392,11 @@ def collect_feature_evidence(feature_dir: Path | str, repo_root: Path | str | No
 
     artifacts = {
         name: feature_path / name
-        for name in ("brainstorm.md", "spec.md", "plan.md", "tasks.md", "review.md", "self-review.md")
+        for name in ("brainstorm.md", "spec.md", "plan.md", "tasks.md", "review-spec.md", "review-code.md", "review-pr.md")
     }
 
     task_summary = _parse_tasks(artifacts["tasks.md"])
-    review_evidence = _parse_review_evidence(artifacts["review.md"], artifacts["self-review.md"])
+    review_evidence = _parse_review_evidence(feature_path)
     linked_brainstorms = _find_linked_brainstorms(repo_path, feature_id)
     worktree_lanes = _load_worktree_lanes(repo_path, feature_id)
 
@@ -343,10 +411,10 @@ def collect_feature_evidence(feature_dir: Path | str, repo_root: Path | str | No
         worktree_lanes=worktree_lanes,
     )
 
-    if review_evidence.has_review_file and review_evidence.is_late_stage and not artifacts["tasks.md"].exists():
-        evidence.ambiguities.append("review.md exists without tasks.md")
-    if review_evidence.has_self_review_file and not artifacts["review.md"].exists():
-        evidence.ambiguities.append("self-review.md exists without review.md")
+    if review_evidence.review_code.exists and not artifacts["tasks.md"].exists():
+        evidence.ambiguities.append("review-code.md exists without tasks.md")
+    if review_evidence.review_spec.stale_against_clarify:
+        evidence.ambiguities.append("review-spec.md is stale — clarify ran again after the review")
 
     if worktree_lanes:
         lane_descriptions = []
@@ -368,53 +436,59 @@ def collect_feature_evidence(feature_dir: Path | str, repo_root: Path | str | No
 
 
 def _review_milestones(evidence: FeatureEvidence) -> list[ReviewMilestone]:
-    headings = set(evidence.review_evidence.headings)
-    review_file = evidence.artifacts["review.md"]
-    self_review_file = evidence.artifacts["self-review.md"]
+    rev = evidence.review_evidence
+    milestones: list[ReviewMilestone] = []
 
-    def review_status(review_type: str) -> ReviewMilestone:
-        if review_type == "self":
-            if self_review_file.exists():
-                return ReviewMilestone("self", "complete", [str(self_review_file)])
-            return ReviewMilestone("self", "incomplete", [])
+    # review-spec
+    if not rev.review_spec.exists:
+        milestones.append(ReviewMilestone("review-spec", "missing"))
+    elif rev.review_spec.stale_against_clarify:
+        milestones.append(ReviewMilestone("review-spec", "stale",
+                          notes=["review-spec.md is stale against a newer clarify session"]))
+    elif rev.review_spec.verdict == "ready" and rev.review_spec.has_cross_pass:
+        milestones.append(ReviewMilestone("review-spec", "present",
+                          evidence_sources=[str(evidence.feature_dir / "review-spec.md")]))
+    elif rev.review_spec.verdict == "needs-revision":
+        milestones.append(ReviewMilestone("review-spec", "needs-revision"))
+    elif rev.review_spec.verdict == "blocked":
+        milestones.append(ReviewMilestone("review-spec", "blocked"))
+    else:
+        milestones.append(ReviewMilestone("review-spec", "invalid",
+                          notes=["review-spec.md exists but has no recognized verdict"]))
 
-        if not review_file.exists():
-            return ReviewMilestone(review_type, "incomplete", [])
+    # review-code
+    if not rev.review_code.exists:
+        milestones.append(ReviewMilestone("review-code", "not_started"))
+    elif (
+        rev.review_code.overall_complete
+        and rev.review_code.verdict in REVIEW_CODE_VERDICT_VALUES
+        and rev.review_code.has_self_passes
+        and rev.review_code.has_cross_passes
+    ):
+        milestones.append(ReviewMilestone("review-code", "overall_complete",
+                          evidence_sources=[str(evidence.feature_dir / "review-code.md")]))
+    elif rev.review_code.phases_found:
+        milestones.append(ReviewMilestone("review-code", "phases_partial",
+                          notes=[f"Phases found: {', '.join(rev.review_code.phases_found)}"]))
+    else:
+        milestones.append(ReviewMilestone("review-code", "invalid",
+                          notes=["review-code.md exists but has no recognized phase structure"]))
 
-        heading_map = {
-            "spec": {"spec-review", "review-spec", "spec-review-findings"},
-            "plan": {"plan-review", "review-plan", "design-review"},
-            "code": {"code-review", "review-code"},
-            "cross": {"cross-harness-review", "cross-review"},
-            "pr": {"pr-review", "external-comment-responses"},
-        }
+    # review-pr
+    if not rev.review_pr.exists:
+        milestones.append(ReviewMilestone("review-pr", "not_started"))
+    elif rev.review_pr.verdict == "merged" and rev.review_pr.has_retro_note:
+        milestones.append(ReviewMilestone("review-pr", "complete",
+                          evidence_sources=[str(evidence.feature_dir / "review-pr.md")]))
+    elif rev.review_pr.verdict == "pending-merge" and rev.review_pr.has_retro_note:
+        milestones.append(ReviewMilestone("review-pr", "in_progress"))
+    elif rev.review_pr.verdict == "reverted":
+        milestones.append(ReviewMilestone("review-pr", "reverted"))
+    else:
+        milestones.append(ReviewMilestone("review-pr", "invalid",
+                          notes=["review-pr.md exists but has no recognized verdict"]))
 
-        def has_heading_prefix(candidates: set[str]) -> bool:
-            return any(
-                heading == candidate or heading.startswith(f"{candidate}-")
-                for heading in headings
-                for candidate in candidates
-            )
-
-        status = "incomplete"
-        notes: list[str] = []
-        if review_type == "code" and evidence.review_evidence.scope_code:
-            status = "complete"
-        elif review_type == "spec" and evidence.review_evidence.scope_design and "spec-review" in headings:
-            status = "complete"
-        elif review_type == "plan" and evidence.review_evidence.scope_design and (
-            "plan-review" in headings or "design-review" in headings
-        ):
-            status = "complete"
-        elif has_heading_prefix(heading_map[review_type]):
-            status = "complete"
-        elif review_type in {"spec", "plan"} and evidence.review_evidence.scope_design:
-            status = "unknown"
-            notes.append("Design review exists but the review artifact does not split spec and plan explicitly.")
-
-        return ReviewMilestone(review_type, status, [str(review_file)] if status != "incomplete" else [], notes)
-
-    return [review_status(review_type) for review_type in REVIEW_TYPES]
+    return milestones
 
 
 def _stage_milestones(evidence: FeatureEvidence, reviews: list[ReviewMilestone]) -> list[FlowMilestone]:
@@ -466,46 +540,21 @@ def _stage_milestones(evidence: FeatureEvidence, reviews: list[ReviewMilestone])
     if evidence.task_summary.has_implementation_progress:
         implement_status = "complete"
         implement_sources.append(str(tasks_path))
-    elif any(review.status == "complete" for review in reviews if review.review_type in {"code", "cross", "pr", "self"}):
+    elif evidence.review_evidence.review_code.exists:
         implement_status = "complete"
-        for review in reviews:
-            if review.review_type in {"code", "cross", "pr", "self"} and review.status == "complete":
-                implement_sources.extend(review.evidence_sources)
-                break
+        implement_sources.append(str(evidence.feature_dir / "review-code.md"))
     milestones.append(FlowMilestone("implement", implement_status, implement_sources))
 
-    milestones.append(
-        FlowMilestone(
-            "code-review",
-            review_map["code"].status if review_map["code"].status != "unknown" else "incomplete",
-            list(review_map["code"].evidence_sources),
-            list(review_map["code"].notes),
+    for review_name in REVIEW_ARTIFACT_NAMES:
+        rm = review_map[review_name]
+        milestones.append(
+            FlowMilestone(
+                review_name,
+                rm.status,
+                list(rm.evidence_sources),
+                list(rm.notes),
+            )
         )
-    )
-    milestones.append(
-        FlowMilestone(
-            "cross-review",
-            review_map["cross"].status if review_map["cross"].status != "unknown" else "incomplete",
-            list(review_map["cross"].evidence_sources),
-            list(review_map["cross"].notes),
-        )
-    )
-    milestones.append(
-        FlowMilestone(
-            "pr-review",
-            review_map["pr"].status if review_map["pr"].status != "unknown" else "incomplete",
-            list(review_map["pr"].evidence_sources),
-            list(review_map["pr"].notes),
-        )
-    )
-    milestones.append(
-        FlowMilestone(
-            "self-review",
-            review_map["self"].status if review_map["self"].status != "unknown" else "incomplete",
-            list(review_map["self"].evidence_sources),
-            list(review_map["self"].notes),
-        )
-    )
     return milestones
 
 
@@ -519,22 +568,27 @@ def _derive_ambiguities(evidence: FeatureEvidence, milestones: list[FlowMileston
         ambiguities.append("Task breakdown exists without planning evidence.")
     if stage_status["implement"] == "complete" and stage_status["tasks"] != "complete":
         ambiguities.append("Implementation progress exists without task breakdown evidence.")
-    if stage_status["cross-review"] == "complete" and stage_status["implement"] != "complete":
-        ambiguities.append("Cross-review evidence exists before implementation evidence is complete.")
-    if stage_status["pr-review"] == "complete" and stage_status["cross-review"] != "complete":
-        ambiguities.append("PR-review evidence exists without cross-review evidence.")
-    if stage_status["self-review"] == "complete" and stage_status["code-review"] != "complete":
-        ambiguities.append("Self-review exists without a completed code-review milestone.")
 
     for review in reviews:
-        if review.status == "unknown":
+        if review.status == "invalid":
             ambiguities.extend(review.notes)
 
     return ambiguities
 
 
 def _completed_stage(milestones: list[FlowMilestone]) -> str | None:
-    completed = [item.stage for item in milestones if item.status == "complete"]
+    reached_review_statuses: dict[str, set[str]] = {
+        "review-spec": {"present"},
+        "review-code": {"phases_partial", "overall_complete"},
+        "review-pr": {"in_progress", "complete"},
+    }
+
+    def _is_reached(item: FlowMilestone) -> bool:
+        if item.status == "complete":
+            return True
+        return item.status in reached_review_statuses.get(item.stage, set())
+
+    completed = [item.stage for item in milestones if _is_reached(item)]
     if not completed:
         return None
     return max(completed, key=STAGE_ORDER.index)
@@ -545,10 +599,7 @@ def _has_material_conflict(ambiguities: list[str]) -> bool:
         "without specification evidence",
         "without planning evidence",
         "without task breakdown evidence",
-        "before implementation evidence is complete",
-        "without cross-review evidence",
-        "without a completed code-review milestone",
-        "review.md exists without tasks.md",
+        "review-code.md exists without tasks.md",
     )
     return any(any(marker in ambiguity for marker in conflict_markers) for ambiguity in ambiguities)
 
@@ -569,14 +620,15 @@ def _next_step(milestones: list[FlowMilestone], ambiguities: list[str], evidence
         return "Run /speckit.orca.assign if this feature needs multi-agent coordination, or proceed directly to implementation."
     if status_map["implement"] != "complete":
         return "Implement the next incomplete task and keep tasks.md current."
-    if status_map["code-review"] != "complete":
-        return "Run /speckit.orca.code-review on the implemented work."
-    if status_map["cross-review"] != "complete":
-        return "Run /speckit.orca.cross-review for an external adversarial pass."
-    if status_map["pr-review"] != "complete":
-        return "Run /speckit.orca.pr-review to handle PR creation and external comments."
-    if status_map["self-review"] != "complete":
-        return "Run /speckit.orca.self-review to capture process improvements."
+    review_spec_status = status_map.get("review-spec", "missing")
+    if review_spec_status in {"missing", "stale", "needs-revision"}:
+        return "Run /speckit.orca.review-spec for an adversarial cross-pass review of the spec."
+    review_code_status = status_map.get("review-code", "not_started")
+    if review_code_status in {"not_started", "phases_partial"}:
+        return "Run /speckit.orca.review-code on the implemented work (self-pass then cross-pass per phase)."
+    review_pr_status = status_map.get("review-pr", "not_started")
+    if review_pr_status in {"not_started", "in_progress"}:
+        return "Run /speckit.orca.review-pr to handle PR creation and external comments."
     if evidence.worktree_lanes:
         return "Retire or merge the active Orca lane once the reviewed work is integrated."
     return None
@@ -597,9 +649,10 @@ def _evidence_summary(evidence: FeatureEvidence, milestones: list[FlowMilestone]
             f"{evidence.task_summary.assigned} assigned."
         )
 
-    completed_review_types = [item.review_type for item in reviews if item.status == "complete"]
-    if completed_review_types:
-        summary.append("Completed reviews: " + ", ".join(completed_review_types))
+    terminal_statuses = {"present", "overall_complete", "complete"}
+    completed_reviews = [item.review_type for item in reviews if item.status in terminal_statuses]
+    if completed_reviews:
+        summary.append("Completed reviews: " + ", ".join(completed_reviews))
 
     if evidence.worktree_lanes:
         lanes = ", ".join(f"{lane.lane_id}:{lane.status or 'unknown'}" for lane in evidence.worktree_lanes)

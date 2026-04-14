@@ -1,5 +1,5 @@
 ---
-description: "Summary/index template for feature review status"
+description: "Summary/index template for feature review status (012 review model)"
 ---
 
 # Review Summary: [FEATURE NAME]
@@ -9,21 +9,19 @@ description: "Summary/index template for feature review status"
 
 <!--
   This file is the human-facing summary/index for review progress.
-  Stage-specific artifacts hold the detailed durable evidence:
-  - review-code.md
-  - review-cross.md
-  - review-pr.md
-  - self-review.md
+  The three review artifacts hold the detailed durable evidence:
+  - review-spec.md  (cross-only adversarial spec review)
+  - review-code.md  (self+cross per phase)
+  - review-pr.md    (PR comment disposition + retro)
 -->
 
 ## Review Artifacts
 
-| Stage | Artifact | Status | Notes |
-|---|---|---|---|
-| Code Review | [review-code.md](review-code.md) | PRESENT \| MISSING | [latest note] |
-| Cross-Review | [review-cross.md](review-cross.md) | PRESENT \| MISSING | [latest note] |
-| PR Review | [review-pr.md](review-pr.md) | PRESENT \| MISSING | [latest note] |
-| Self-Review | [self-review.md](self-review.md) | PRESENT \| MISSING | [latest note] |
+| Artifact | Status | Notes |
+|---|---|---|
+| [review-spec.md](review-spec.md) | PRESENT \| MISSING \| STALE | [latest note] |
+| [review-code.md](review-code.md) | PRESENT \| MISSING | [latest note] |
+| [review-pr.md](review-pr.md) | PRESENT \| MISSING | [latest note] |
 
 ## Latest Review Status
 
@@ -34,5 +32,5 @@ description: "Summary/index template for feature review status"
 ## Artifact Notes
 
 - `review.md` is the summary/index only.
-- Detailed findings belong in the stage artifacts, not duplicated here.
+- Detailed findings belong in the three stage artifacts, not duplicated here.
 - If a stage artifact is missing, that stage should be treated as incomplete.
