@@ -193,6 +193,58 @@ CANONICAL_STAGES = tuple(
 )
 
 
+@dataclass
+class SpecLiteFlowState:
+    """Flow-state view for a spec-lite record (per-file target).
+
+    Distinct from `FlowStateResult` (which interprets feature
+    directories under `specs/`). Produced by
+    `compute_spec_lite_state` when the target path is a spec-lite
+    record file under `.specify/orca/spec-lite/`.
+    """
+
+    kind: str  # always "spec-lite" or "spec-lite-invalid"
+    record_id: str
+    slug: str
+    title: str
+    source_name: str
+    created: str
+    status: str  # open | implemented | abandoned | invalid
+    files_affected: list[str]
+    has_verification_evidence: bool
+    review_state: str  # unreviewed | self-reviewed | cross-reviewed
+    path: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind,
+            "record_id": self.record_id,
+            "slug": self.slug,
+            "title": self.title,
+            "source_name": self.source_name,
+            "created": self.created,
+            "status": self.status,
+            "files_affected": list(self.files_affected),
+            "has_verification_evidence": self.has_verification_evidence,
+            "review_state": self.review_state,
+            "path": self.path,
+        }
+
+    def to_text(self) -> str:
+        lines = [
+            f"Spec-lite: {self.record_id}-{self.slug}" if self.slug else f"Spec-lite: {self.record_id}",
+            f"Title: {self.title}",
+            f"Status: {self.status}",
+            f"Source: {self.source_name}  (created {self.created})",
+            f"Review state: {self.review_state}",
+            f"Verification evidence: {'present' if self.has_verification_evidence else 'absent'}",
+        ]
+        if self.files_affected:
+            lines.append("Files affected:")
+            lines.extend(f"- {p}" for p in self.files_affected)
+        return "\n".join(lines)
+
+
 def _now_utc() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -705,6 +757,109 @@ def write_resume_metadata(result: FlowStateResult, feature_dir: Path, repo_root:
     return path
 
 
+_SPEC_LITE_FILENAME_RE = re.compile(r"^SL-\d{3}(?:-.+)?$")
+_SPEC_LITE_HEADER_RE = re.compile(r"^# Spec-Lite SL-\d{3}(?::.*)?$")
+
+
+def _is_spec_lite_target(target: Path) -> bool:
+    """Return True if the given path is a spec-lite record file.
+
+    Uses a path prefix check under `.specify/orca/spec-lite/` as the
+    primary signal, falling back to a header match for misplaced
+    files (mirrors the detection rule in 013's spec-lite-record
+    contract).
+    """
+    if not target.is_file() or target.suffix != ".md":
+        return False
+    if target.name == "00-overview.md":
+        return False
+
+    # 1. Path match — canonical location
+    parts = target.parts
+    if (
+        ".specify" in parts
+        and "orca" in parts
+        and "spec-lite" in parts
+        and _SPEC_LITE_FILENAME_RE.match(target.stem)
+    ):
+        return True
+
+    # 2. Header match fallback (defensive against misplaced files)
+    try:
+        first_line = next(
+            (line for line in target.read_text(encoding="utf-8").splitlines() if line.strip()),
+            "",
+        )
+    except (OSError, UnicodeDecodeError):
+        return False
+    return bool(_SPEC_LITE_HEADER_RE.match(first_line))
+
+
+def _derive_spec_lite_review_state(record_path: Path, record_id: str, slug: str) -> str:
+    """Compute `review_state` for a spec-lite record from sibling review files.
+
+    Per 013 contract, review sibling files share the record's ID stem:
+      SL-NNN-<slug>.self-review.md
+      SL-NNN-<slug>.cross-review.md
+    """
+    stem = f"{record_id}-{slug}" if slug else record_id
+    directory = record_path.parent
+    self_review = directory / f"{stem}.self-review.md"
+    cross_review = directory / f"{stem}.cross-review.md"
+    if cross_review.is_file():
+        return "cross-reviewed"
+    if self_review.is_file():
+        return "self-reviewed"
+    return "unreviewed"
+
+
+def compute_spec_lite_state(record_path: Path | str) -> SpecLiteFlowState:
+    """Interpret a spec-lite record file and return its flow-state view.
+
+    Parse failures produce `kind: "spec-lite-invalid"` rather than
+    raising, so flow-state callers can tolerate malformed records.
+    """
+    from . import spec_lite as _spec_lite  # local import to avoid cycle
+
+    path = Path(record_path).resolve()
+    path_str = str(path)
+    try:
+        record = _spec_lite.parse_record(path)
+    except _spec_lite.SpecLiteError as exc:
+        # Extract record_id from filename stem if possible
+        stem_match = _spec_lite.ID_STEM_RE.match(path.stem)
+        record_id = f"SL-{stem_match.group(1)}" if stem_match else ""
+        slug = stem_match.group(2) if stem_match and stem_match.group(2) else ""
+        return SpecLiteFlowState(
+            kind="spec-lite-invalid",
+            record_id=record_id,
+            slug=slug,
+            title=f"<invalid: {exc}>",
+            source_name="",
+            created="",
+            status="invalid",
+            files_affected=[],
+            has_verification_evidence=False,
+            review_state="unreviewed",
+            path=path_str,
+        )
+
+    review_state = _derive_spec_lite_review_state(path, record.record_id, record.slug)
+    return SpecLiteFlowState(
+        kind="spec-lite",
+        record_id=record.record_id,
+        slug=record.slug,
+        title=record.title,
+        source_name=record.source_name,
+        created=record.created,
+        status=record.status,
+        files_affected=list(record.files_affected),
+        has_verification_evidence=bool(record.verification_evidence),
+        review_state=review_state,
+        path=path_str,
+    )
+
+
 def compute_flow_state(
     feature_dir: Path | str,
     repo_root: Path | str | None = None,
@@ -738,7 +893,13 @@ def compute_flow_state(
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Compute Orca flow state from durable feature artifacts.")
-    parser.add_argument("feature_dir", help="Path to the feature directory, for example specs/005-orca-flow-state")
+    parser.add_argument(
+        "target",
+        help=(
+            "Path to the feature directory (e.g., specs/005-orca-flow-state) "
+            "OR a spec-lite record file (e.g., .specify/orca/spec-lite/SL-001-foo.md)."
+        ),
+    )
     parser.add_argument("--repo-root", help="Optional repo root override for fixture validation or detached feature paths")
     parser.add_argument("--format", choices=("json", "text"), default="json", help="Output format")
     parser.add_argument(
@@ -752,8 +913,21 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    target = Path(args.target)
+
+    # Dispatch on target type — file paths pointing at a spec-lite
+    # record get the spec-lite view; everything else goes through
+    # the full-spec feature-directory interpreter.
+    if _is_spec_lite_target(target):
+        sl_result = compute_spec_lite_state(target)
+        if args.format == "text":
+            print(sl_result.to_text())
+        else:
+            print(json.dumps(sl_result.to_dict(), indent=2))
+        return 0
+
     result = compute_flow_state(
-        args.feature_dir,
+        args.target,
         repo_root=args.repo_root,
         write_resume=args.write_resume_metadata,
     )
