@@ -115,15 +115,39 @@ def test_review_state_self_reviewed_when_sibling_present(tmp_path: Path) -> None
     sibling.write_text("# self review\n\nlooks fine\n")
     view = compute_spec_lite_state(record.path)
     assert view.review_state == "self-reviewed"
+    # The sibling file itself must NOT be detected as a spec-lite target.
+    assert _is_spec_lite_target(sibling) is False
 
 
 def test_review_state_cross_reviewed_takes_precedence(tmp_path: Path) -> None:
     record = _make_record(tmp_path, title="Cross-reviewed")
     stem = f"{record.record_id}-{record.slug}"
-    (record.path.parent / f"{stem}.self-review.md").write_text("self\n")
-    (record.path.parent / f"{stem}.cross-review.md").write_text("cross\n")
+    self_path = record.path.parent / f"{stem}.self-review.md"
+    cross_path = record.path.parent / f"{stem}.cross-review.md"
+    self_path.write_text("self\n")
+    cross_path.write_text("cross\n")
     view = compute_spec_lite_state(record.path)
     assert view.review_state == "cross-reviewed"
+    # Neither sibling review file should be detected as a spec-lite target.
+    assert _is_spec_lite_target(self_path) is False
+    assert _is_spec_lite_target(cross_path) is False
+
+
+def test_is_spec_lite_target_rejects_nested_subdirectory(tmp_path: Path) -> None:
+    """Path match requires the file IMMEDIATELY inside `spec-lite/`.
+
+    A file one level deeper (e.g., in an `archive/` subdir) must NOT
+    satisfy the path-match rule. A valid header WOULD still match via
+    the defensive header-fallback — so this test uses content without
+    a valid header to isolate the path-check behavior.
+    """
+    nested = tmp_path / ".specify" / "orca" / "spec-lite" / "archive"
+    nested.mkdir(parents=True)
+    archived = nested / "SL-001-old.md"
+    # Non-header content so the header-match fallback doesn't catch
+    # this file — we're testing path rejection specifically.
+    archived.write_text("Just a note about SL-001. Not a real record.\n")
+    assert _is_spec_lite_target(archived) is False
 
 
 def test_compute_spec_lite_state_on_malformed_returns_invalid(tmp_path: Path) -> None:

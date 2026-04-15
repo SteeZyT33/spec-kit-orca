@@ -728,15 +728,25 @@ def _is_spec_lite_record(paths: MatriarchPaths, spec_id: str) -> bool:
 
     # 2. Glob — require exact stem or stem.startswith(spec_id + "-")
     #    to avoid prefix collisions (e.g., spec_id="SL-001" should
-    #    not match "SL-0010-foo.md").
+    #    not match "SL-0010-foo.md"). Also skip companion review
+    #    artifacts (`*.self-review.md` / `*.cross-review.md`) which
+    #    are NOT primary records — they sit beside a record sharing
+    #    the same ID stem and would otherwise cause the guard to
+    #    fire against a spec_id that has only review artifacts on
+    #    disk. Stem regex is tightened to the same slug shape the
+    #    runtime writes (lowercase-alphanumeric with hyphens) so
+    #    `SL-001-foo.self-review` — whose `.stem` still contains
+    #    `.self-review` — does not slip through.
     if spec_lite_dir.is_dir():
         for candidate in spec_lite_dir.glob(f"{spec_id}*.md"):
             if candidate.name == "00-overview.md":
                 continue
+            if candidate.name.endswith(".self-review.md") or candidate.name.endswith(".cross-review.md"):
+                continue
             stem = candidate.stem
             if stem != spec_id and not stem.startswith(spec_id + "-"):
                 continue
-            if re.fullmatch(r"SL-\d{3}(?:-.+)?", stem):
+            if re.fullmatch(r"SL-\d{3}(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?", stem):
                 return True
 
     # 3. Scoped header check on specs/<spec_id>/spec.md — catches

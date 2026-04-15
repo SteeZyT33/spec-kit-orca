@@ -764,7 +764,12 @@ def write_resume_metadata(result: FlowStateResult, feature_dir: Path, repo_root:
     return path
 
 
-_SPEC_LITE_FILENAME_RE = re.compile(r"^SL-\d{3}(?:-.+)?$")
+# Stricter than `^SL-\d{3}(?:-.+)?$`: disallows `.` in the slug so
+# companion filenames like `SL-001-foo.self-review` and
+# `SL-001-foo.cross-review` don't match when we look at `Path.stem`
+# (which strips only the final `.md` extension). Slug shape mirrors
+# `_slugify()` output: lowercase alphanumerics separated by hyphens.
+_SPEC_LITE_FILENAME_RE = re.compile(r"^SL-\d{3}(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?$")
 _SPEC_LITE_HEADER_RE = re.compile(r"^# Spec-Lite SL-\d{3}(?::.*)?$")
 
 
@@ -781,17 +786,18 @@ def _is_spec_lite_target(target: Path) -> bool:
     if target.name == "00-overview.md":
         return False
 
-    # 1. Path match — canonical location. Require the CONTIGUOUS
-    #    subpath `.specify/orca/spec-lite` so an unrelated file at
-    #    e.g. `spec-lite/docs/.specify/orca/notes.md` does not
-    #    spuriously match.
-    parts = target.parts
-    canonical_subpath = (".specify", "orca", "spec-lite")
-    has_canonical_subpath = any(
-        parts[i : i + len(canonical_subpath)] == canonical_subpath
-        for i in range(len(parts) - len(canonical_subpath) + 1)
-    )
-    if has_canonical_subpath and _SPEC_LITE_FILENAME_RE.match(target.stem):
+    # 1. Path match — canonical location. Require the file to sit
+    #    IMMEDIATELY inside `.specify/orca/spec-lite/` with no
+    #    intermediate directories (no archive/, no nested
+    #    subfolders). Combined with the stricter
+    #    `_SPEC_LITE_FILENAME_RE`, this excludes companion review
+    #    files and any non-record content under the registry dir.
+    if (
+        target.parent.name == "spec-lite"
+        and target.parent.parent.name == "orca"
+        and target.parent.parent.parent.name == ".specify"
+        and _SPEC_LITE_FILENAME_RE.match(target.stem)
+    ):
         return True
 
     # 2. Header match fallback (defensive against misplaced files)

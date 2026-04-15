@@ -12,13 +12,15 @@ on-disk contract this module implements.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import re
 import sys
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 
 VALID_STATUSES: tuple[str, ...] = ("open", "implemented", "abandoned")
@@ -93,6 +95,37 @@ def _ensure_dir(path: Path) -> Path:
     return path
 
 
+@contextmanager
+def _spec_lite_lock(repo_root: Path) -> Iterator[None]:
+    """Repo-level advisory lock covering id allocation + record write
+    + overview regeneration.
+
+    Two concurrent `create_record` calls must not race to pick the
+    same `SL-NNN` id. The lock file sits at
+    `.specify/orca/spec-lite/.lock` and uses `fcntl.flock` for an
+    exclusive POSIX advisory lock. This serializes `create_record`
+    and `update_status` across processes. Within a single process,
+    it also serializes across threads because each `flock` call
+    blocks until the prior lock is released.
+    """
+    directory = _ensure_dir(_spec_lite_dir(repo_root))
+    lock_path = directory / ".lock"
+    fd = None
+    try:
+        # Open in append mode so the file is created if missing and
+        # existing contents (if any) are not truncated.
+        fd = open(lock_path, "a")
+        fcntl.flock(fd.fileno(), fcntl.LOCK_EX)
+        yield
+    finally:
+        if fd is not None:
+            try:
+                fcntl.flock(fd.fileno(), fcntl.LOCK_UN)
+            except OSError:
+                pass
+            fd.close()
+
+
 def _atomic_write(path: Path, content: str) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(content, encoding="utf-8")
@@ -122,6 +155,12 @@ def _next_record_id(repo_root: Path) -> str:
     if directory.is_dir():
         for entry in directory.glob("SL-*.md"):
             if entry.name == OVERVIEW_FILENAME:
+                continue
+            # Companion review artifacts share the record's NNN but
+            # are not records themselves — don't let their presence
+            # inflate the next allocated id if a record happens to
+            # be missing.
+            if entry.name.endswith(".self-review.md") or entry.name.endswith(".cross-review.md"):
                 continue
             match = ID_STEM_RE.match(entry.stem)
             if not match:
@@ -312,10 +351,20 @@ def _parse_record_text(path: Path, text: str) -> SpecLiteRecord:
 
 
 def parse_record(path: Path) -> SpecLiteRecord:
-    """Parse a spec-lite record file. Raises SpecLiteParseError on failure."""
+    """Parse a spec-lite record file. Raises SpecLiteError on failure.
+
+    IO and encoding errors from `read_text` are wrapped in
+    `SpecLiteError` so callers (e.g., `compute_spec_lite_state`)
+    that catch `SpecLiteError` degrade gracefully to the tolerant
+    `invalid` view instead of crashing.
+    """
     if not path.exists():
         raise SpecLiteError(f"Record file not found: {path}")
-    return _parse_record_text(path, path.read_text(encoding="utf-8"))
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise SpecLiteError(f"Could not read record file: {path}") from exc
+    return _parse_record_text(path, text)
 
 
 def _find_record_path(repo_root: Path, record_id: str) -> Path:
@@ -364,7 +413,12 @@ def create_record(
     source_name: str = "operator",
     created: str | None = None,
 ) -> SpecLiteRecord:
-    """Create a new spec-lite record with the next available ID."""
+    """Create a new spec-lite record with the next available ID.
+
+    Id allocation, the record write, and overview regeneration run
+    under a repo-level advisory lock so concurrent callers cannot
+    pick the same `SL-NNN` and clobber each other.
+    """
     stripped_files = [f.strip() for f in files_affected if f and f.strip()]
     if not stripped_files:
         raise SpecLiteError(
@@ -381,25 +435,26 @@ def create_record(
                 f"created must be a valid YYYY-MM-DD date, got {created!r}"
             ) from exc
 
-    directory = _ensure_dir(_spec_lite_dir(repo_root))
-    record_id = _next_record_id(repo_root)
-    slug = _slugify(title)
-    record = SpecLiteRecord(
-        record_id=record_id,
-        slug=slug,
-        title=title.strip(),
-        source_name=source_name,
-        created=created or _today(),
-        status="open",
-        problem=problem.strip(),
-        solution=solution.strip(),
-        acceptance_scenario=acceptance.strip(),
-        files_affected=stripped_files,
-        verification_evidence=None,
-        path=directory / f"{record_id}-{slug}.md",
-    )
-    _atomic_write(record.path, _render_record(record))
-    regenerate_overview(repo_root)
+    with _spec_lite_lock(repo_root):
+        directory = _ensure_dir(_spec_lite_dir(repo_root))
+        record_id = _next_record_id(repo_root)
+        slug = _slugify(title)
+        record = SpecLiteRecord(
+            record_id=record_id,
+            slug=slug,
+            title=title.strip(),
+            source_name=source_name,
+            created=created or _today(),
+            status="open",
+            problem=problem.strip(),
+            solution=solution.strip(),
+            acceptance_scenario=acceptance.strip(),
+            files_affected=stripped_files,
+            verification_evidence=None,
+            path=directory / f"{record_id}-{slug}.md",
+        )
+        _atomic_write(record.path, _render_record(record))
+        regenerate_overview(repo_root)
     return record
 
 
@@ -419,6 +474,11 @@ def list_records(
     records: list[SpecLiteRecord] = []
     for entry in sorted(directory.glob("SL-*.md")):
         if entry.name == OVERVIEW_FILENAME:
+            continue
+        # Skip companion review artifacts explicitly so we don't
+        # waste parse work on them (they would fail parsing anyway,
+        # but skipping by name is cheaper and clearer).
+        if entry.name.endswith(".self-review.md") or entry.name.endswith(".cross-review.md"):
             continue
         try:
             record = parse_record(entry)
@@ -447,35 +507,38 @@ def update_status(
         raise SpecLiteError(
             f"Invalid status {new_status!r}; expected one of {VALID_STATUSES}"
         )
-    record = get_record(repo_root=repo_root, record_id=record_id)
 
-    # Treat empty/whitespace-only verification_evidence the same
-    # as None (no-op, preserving prior evidence). The parser
-    # rejects optional sections with empty bodies, so writing an
-    # empty section would produce a record the parser later
-    # considers invalid — and callers who passed whitespace-only
-    # input almost certainly did not intend to wipe prior evidence.
-    if verification_evidence is not None and verification_evidence.strip():
-        new_evidence = verification_evidence.strip()
-    else:
-        new_evidence = record.verification_evidence
+    with _spec_lite_lock(repo_root):
+        record = get_record(repo_root=repo_root, record_id=record_id)
 
-    updated = SpecLiteRecord(
-        record_id=record.record_id,
-        slug=record.slug,
-        title=record.title,
-        source_name=record.source_name,
-        created=record.created,
-        status=new_status,
-        problem=record.problem,
-        solution=record.solution,
-        acceptance_scenario=record.acceptance_scenario,
-        files_affected=record.files_affected,
-        verification_evidence=new_evidence,
-        path=record.path,
-    )
-    _atomic_write(updated.path, _render_record(updated))
-    regenerate_overview(repo_root)
+        # Treat empty/whitespace-only verification_evidence the
+        # same as None (no-op, preserving prior evidence). The
+        # parser rejects optional sections with empty bodies, so
+        # writing an empty section would produce a record the
+        # parser later considers invalid — and callers who passed
+        # whitespace-only input almost certainly did not intend to
+        # wipe prior evidence.
+        if verification_evidence is not None and verification_evidence.strip():
+            new_evidence = verification_evidence.strip()
+        else:
+            new_evidence = record.verification_evidence
+
+        updated = SpecLiteRecord(
+            record_id=record.record_id,
+            slug=record.slug,
+            title=record.title,
+            source_name=record.source_name,
+            created=record.created,
+            status=new_status,
+            problem=record.problem,
+            solution=record.solution,
+            acceptance_scenario=record.acceptance_scenario,
+            files_affected=record.files_affected,
+            verification_evidence=new_evidence,
+            path=record.path,
+        )
+        _atomic_write(updated.path, _render_record(updated))
+        regenerate_overview(repo_root)
     return updated
 
 

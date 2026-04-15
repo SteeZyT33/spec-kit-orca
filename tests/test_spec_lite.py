@@ -389,6 +389,85 @@ def test_parse_rejects_duplicate_section(tmp_path: Path) -> None:
         parse_record(bad)
 
 
+def test_parse_record_wraps_unreadable_file_in_spec_lite_error(
+    tmp_path: Path,
+) -> None:
+    """Non-UTF-8 / IO errors must raise SpecLiteError, not bare OSError."""
+    directory = tmp_path / ".specify/orca/spec-lite"
+    directory.mkdir(parents=True)
+    bad = directory / "SL-001-binary.md"
+    # Write bytes that are invalid UTF-8.
+    bad.write_bytes(b"\xff\xfe\x00binary garbage\x80\x81")
+    with pytest.raises(SpecLiteError):
+        parse_record(bad)
+
+
+def test_list_records_skips_companion_review_files(tmp_path: Path) -> None:
+    """Sibling review files must not show up as records or break parsing."""
+    record = _make_record(tmp_path, title="Has reviews")
+    stem = f"{record.record_id}-{record.slug}"
+    # Write sibling review artifacts alongside the record.
+    (record.path.parent / f"{stem}.self-review.md").write_text(
+        "# Self review\n\nlooks fine\n"
+    )
+    (record.path.parent / f"{stem}.cross-review.md").write_text(
+        "# Cross review\n\nalso fine\n"
+    )
+    records = list_records(repo_root=tmp_path)
+    assert [r.record_id for r in records] == [record.record_id]
+
+
+def test_next_record_id_ignores_companion_review_files(tmp_path: Path) -> None:
+    """Companion files must not inflate the next allocated SL-NNN."""
+    record = _make_record(tmp_path, title="First")
+    stem = f"{record.record_id}-{record.slug}"
+    # Write a review companion with a higher-looking NNN in its name
+    # (impossible layout but defensive — the review sits beside the record,
+    # not as a standalone NNN). We just ensure no "SL-0XX" companion
+    # misleads the allocator.
+    (record.path.parent / f"{stem}.self-review.md").write_text("review\n")
+    second = _make_record(tmp_path, title="Second")
+    assert second.record_id == "SL-002"
+
+
+def test_create_record_is_atomic_under_concurrent_calls(tmp_path: Path) -> None:
+    """Concurrent create_record calls must not allocate the same SL-NNN.
+
+    With the advisory lock in place, every concurrent create gets a
+    unique id. Without the lock, two threads reading `_next_record_id`
+    before either writes would both pick the same NNN.
+    """
+    import threading
+
+    results: list[str] = []
+    errors: list[Exception] = []
+
+    def _create(n: int) -> None:
+        try:
+            record = create_record(
+                repo_root=tmp_path,
+                title=f"Concurrent {n}",
+                problem="p",
+                solution="s",
+                acceptance="a",
+                files_affected=[f"src/foo{n}.py"],
+            )
+            results.append(record.record_id)
+        except Exception as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=_create, args=(i,)) for i in range(10)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not errors, f"Concurrent create raised: {errors}"
+    # Every id must be unique — no collision.
+    assert len(results) == 10
+    assert len(set(results)) == 10, f"Duplicate ids allocated: {results}"
+
+
 def test_parse_rejects_out_of_order_sections(tmp_path: Path) -> None:
     directory = tmp_path / ".specify/orca/spec-lite"
     directory.mkdir(parents=True)

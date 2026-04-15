@@ -536,6 +536,26 @@ def test_register_lane_rejects_spec_lite_regardless_of_status(tmp_path: Path) ->
     _assert_no_lane_side_effects(repo, "SL-003-done-already")
 
 
+def test_register_lane_guard_ignores_companion_review_files(tmp_path: Path) -> None:
+    """Guard must not fire for SL-NNN whose only matching files are review companions."""
+    repo = _repo(tmp_path)
+    # Create ONLY companion review artifacts (no primary record).
+    spec_lite_dir = repo / ".specify" / "orca" / "spec-lite"
+    spec_lite_dir.mkdir(parents=True, exist_ok=True)
+    (spec_lite_dir / "SL-001-ghost.self-review.md").write_text(
+        "# Self review for SL-001\n\norphan review without a record\n"
+    )
+    (spec_lite_dir / "SL-001-ghost.cross-review.md").write_text(
+        "# Cross review for SL-001\n\nanother orphan\n"
+    )
+    # No SL-001-ghost.md — only the review companions exist.
+    _spec(repo, "SL-001")  # full spec dir so register_lane has a valid target
+
+    # Guard must NOT fire — companion files are not primary records.
+    record = register_lane("SL-001", repo_root=repo)
+    assert record.lane_id == "SL-001"
+
+
 def test_register_lane_validates_spec_id_before_guard_runs(tmp_path: Path) -> None:
     """Malformed spec_id must be rejected BEFORE the filesystem-touching guard."""
     repo = _repo(tmp_path)
