@@ -775,6 +775,12 @@ def register_lane(
     if owner_type not in OWNERSHIP_TYPES:
         raise MatriarchError(f"Unsupported owner type: {owner_type}")
 
+    # Validate spec_id shape BEFORE any filesystem access — the
+    # guard helpers below interpolate spec_id into path operations
+    # (canonical path, glob patterns), so a malformed spec_id could
+    # otherwise reach the filesystem before rejection.
+    _validate_spec_id(spec_id)
+
     paths = MatriarchPaths(_repo_root(repo_root))
 
     # GUARD: spec-lite records cannot anchor matriarch lanes in v1.

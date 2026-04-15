@@ -132,9 +132,17 @@ def test_compute_spec_lite_state_on_malformed_returns_invalid(tmp_path: Path) ->
     bad = directory / "SL-042-broken.md"
     bad.write_text("# Spec-Lite SL-042: Broken\n\nsome garbage\n")
     view = compute_spec_lite_state(bad)
-    assert view.kind == "spec-lite-invalid"
+    # Per 013 contract: malformed records carry kind "spec-lite"
+    # with status "invalid", NOT a separate "spec-lite-invalid" kind.
+    assert view.kind == "spec-lite"
     assert view.status == "invalid"
     assert view.record_id == "SL-042"
+    # JSON serialization must emit "id", not "record_id".
+    payload = view.to_dict()
+    assert payload["kind"] == "spec-lite"
+    assert payload["status"] == "invalid"
+    assert payload["id"] == "SL-042"
+    assert "record_id" not in payload
 
 
 def test_full_spec_flow_unchanged_for_feature_directory(tmp_path: Path) -> None:
@@ -188,3 +196,36 @@ def test_cli_still_works_for_feature_directory(
     # Full-spec output has feature_id + current_stage keys
     assert '"feature_id"' in captured.out
     assert '"current_stage"' in captured.out
+
+
+def test_is_spec_lite_target_requires_contiguous_subpath(tmp_path: Path) -> None:
+    """Defensive: paths containing all three dir names non-contiguously must NOT match.
+
+    e.g. a file at `.specify/unrelated/orca/elsewhere/spec-lite-notes/SL-001.md`
+    technically has `.specify`, `orca`, and `spec-lite` as path
+    segments (as substrings within segment names), but not as a
+    contiguous `.specify/orca/spec-lite` prefix. Only the canonical
+    layout should match.
+    """
+    misleading = tmp_path / ".specify" / "other" / "orca" / "spec-lite-notes"
+    misleading.mkdir(parents=True)
+    # Note: this path has `.specify`, `orca` parts AND a dir called
+    # `spec-lite-notes` (whose name contains "spec-lite" as a substring
+    # but not as an exact part). Write a SL-NNN-looking file.
+    f = misleading / "SL-001-note.md"
+    f.write_text("# Spec-Lite SL-001: Note\n\n")  # header match would still catch
+    # But with contiguous subpath fix, path match should miss.
+    # Header match will rescue it IF the header is valid — we
+    # wrote a minimal header so it matches. Test the path check
+    # itself by writing content that WOULDN'T match the header.
+    f.write_text("Not a spec-lite header\n")
+    assert _is_spec_lite_target(f) is False
+
+
+def test_spec_lite_view_emits_id_key_not_record_id(tmp_path: Path) -> None:
+    """The 013 contract uses `id` as the JSON key, not `record_id`."""
+    record = _make_record(tmp_path, title="Key shape check")
+    view = compute_spec_lite_state(record.path)
+    payload = view.to_dict()
+    assert payload["id"] == record.record_id
+    assert "record_id" not in payload

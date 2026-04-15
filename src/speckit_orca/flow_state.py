@@ -201,10 +201,17 @@ class SpecLiteFlowState:
     directories under `specs/`). Produced by
     `compute_spec_lite_state` when the target path is a spec-lite
     record file under `.specify/orca/spec-lite/`.
+
+    Per the 013 spec-lite-record.md contract, the emitted JSON
+    shape uses the key `id` (not `record_id`) and malformed records
+    carry `kind: "spec-lite"` with `status: "invalid"` (not a
+    separate kind). The dataclass uses `record_id` internally
+    because `id` would shadow the Python builtin; `to_dict` emits
+    the contracted key names.
     """
 
-    kind: str  # always "spec-lite" or "spec-lite-invalid"
-    record_id: str
+    kind: str  # always "spec-lite"
+    record_id: str  # serialized as "id" per contract
     slug: str
     title: str
     source_name: str
@@ -218,7 +225,7 @@ class SpecLiteFlowState:
     def to_dict(self) -> dict[str, Any]:
         return {
             "kind": self.kind,
-            "record_id": self.record_id,
+            "id": self.record_id,
             "slug": self.slug,
             "title": self.title,
             "source_name": self.source_name,
@@ -774,14 +781,17 @@ def _is_spec_lite_target(target: Path) -> bool:
     if target.name == "00-overview.md":
         return False
 
-    # 1. Path match — canonical location
+    # 1. Path match — canonical location. Require the CONTIGUOUS
+    #    subpath `.specify/orca/spec-lite` so an unrelated file at
+    #    e.g. `spec-lite/docs/.specify/orca/notes.md` does not
+    #    spuriously match.
     parts = target.parts
-    if (
-        ".specify" in parts
-        and "orca" in parts
-        and "spec-lite" in parts
-        and _SPEC_LITE_FILENAME_RE.match(target.stem)
-    ):
+    canonical_subpath = (".specify", "orca", "spec-lite")
+    has_canonical_subpath = any(
+        parts[i : i + len(canonical_subpath)] == canonical_subpath
+        for i in range(len(parts) - len(canonical_subpath) + 1)
+    )
+    if has_canonical_subpath and _SPEC_LITE_FILENAME_RE.match(target.stem):
         return True
 
     # 2. Header match fallback (defensive against misplaced files)
@@ -816,8 +826,9 @@ def _derive_spec_lite_review_state(record_path: Path, record_id: str, slug: str)
 def compute_spec_lite_state(record_path: Path | str) -> SpecLiteFlowState:
     """Interpret a spec-lite record file and return its flow-state view.
 
-    Parse failures produce `kind: "spec-lite-invalid"` rather than
-    raising, so flow-state callers can tolerate malformed records.
+    Parse failures produce `kind: "spec-lite"` with `status: "invalid"`
+    (per the 013 contract), so flow-state callers can tolerate
+    malformed records without crashing.
     """
     from . import spec_lite as _spec_lite  # local import to avoid cycle
 
@@ -831,7 +842,7 @@ def compute_spec_lite_state(record_path: Path | str) -> SpecLiteFlowState:
         record_id = f"SL-{stem_match.group(1)}" if stem_match else ""
         slug = stem_match.group(2) if stem_match and stem_match.group(2) else ""
         return SpecLiteFlowState(
-            kind="spec-lite-invalid",
+            kind="spec-lite",
             record_id=record_id,
             slug=slug,
             title=f"<invalid: {exc}>",

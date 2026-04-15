@@ -284,3 +284,125 @@ def test_create_rejects_invalid_date(tmp_path: Path) -> None:
     )
     with pytest.raises(SpecLiteParseError):
         parse_record(bad)
+
+
+def test_create_rejects_whitespace_only_files_affected(tmp_path: Path) -> None:
+    """Post-strip files_affected must have at least one non-empty entry."""
+    with pytest.raises(SpecLiteError):
+        create_record(
+            repo_root=tmp_path,
+            title="Whitespace files",
+            problem="p",
+            solution="s",
+            acceptance="a",
+            files_affected=["  ", "", "\t"],
+        )
+
+
+def test_create_rejects_invalid_created_date(tmp_path: Path) -> None:
+    """created=... must be a valid calendar date, not just YYYY-MM-DD shape."""
+    with pytest.raises(SpecLiteError):
+        _make_record(tmp_path, title="Bad date arg", created="2026-02-30")
+
+
+def test_parse_rejects_calendar_invalid_date(tmp_path: Path) -> None:
+    """2026-02-30 matches the regex but is not a real calendar date."""
+    directory = tmp_path / ".specify/orca/spec-lite"
+    directory.mkdir(parents=True)
+    bad = directory / "SL-001-feb-30.md"
+    bad.write_text(
+        "# Spec-Lite SL-001: Feb 30\n\n"
+        "**Source Name**: operator\n"
+        "**Created**: 2026-02-30\n"
+        "**Status**: open\n\n"
+        "## Problem\np\n\n"
+        "## Solution\ns\n\n"
+        "## Acceptance Scenario\na\n\n"
+        "## Files Affected\n- foo.py\n"
+    )
+    with pytest.raises(SpecLiteParseError):
+        parse_record(bad)
+
+
+def test_update_status_with_empty_evidence_treats_as_none(tmp_path: Path) -> None:
+    """Empty/whitespace-only verification_evidence must not write an empty section."""
+    record = _make_record(tmp_path, title="Empty evidence")
+    # First attach real evidence to ensure there's state to overwrite.
+    update_status(
+        repo_root=tmp_path,
+        record_id=record.record_id,
+        new_status="implemented",
+        verification_evidence="first",
+    )
+    # Now try to update with whitespace-only — must not write an empty section.
+    updated = update_status(
+        repo_root=tmp_path,
+        record_id=record.record_id,
+        new_status="abandoned",
+        verification_evidence="   \n  \t  ",
+    )
+    # Empty-after-strip gets treated as None, preserving prior evidence.
+    assert updated.verification_evidence == "first"
+    # Reparse to confirm on-disk validity.
+    reparsed = parse_record(record.path)
+    assert reparsed.verification_evidence == "first"
+
+
+def test_parse_tolerates_unknown_metadata_fields(tmp_path: Path) -> None:
+    """Unknown **Key**: value metadata lines are ignored per 013 contract."""
+    directory = tmp_path / ".specify/orca/spec-lite"
+    directory.mkdir(parents=True)
+    record_path = directory / "SL-001-extra-metadata.md"
+    record_path.write_text(
+        "# Spec-Lite SL-001: Extra metadata\n\n"
+        "**Source Name**: operator\n"
+        "**Created**: 2026-04-15\n"
+        "**Status**: open\n"
+        "**Note**: extra metadata that the contract says to ignore\n"
+        "**Other**: another ignored field\n\n"
+        "## Problem\np\n\n"
+        "## Solution\ns\n\n"
+        "## Acceptance Scenario\na\n\n"
+        "## Files Affected\n- foo.py\n"
+    )
+    record = parse_record(record_path)
+    assert record.record_id == "SL-001"
+    # Unknown fields don't show up on the record — they're dropped.
+
+
+def test_parse_rejects_duplicate_section(tmp_path: Path) -> None:
+    directory = tmp_path / ".specify/orca/spec-lite"
+    directory.mkdir(parents=True)
+    bad = directory / "SL-001-dup.md"
+    bad.write_text(
+        "# Spec-Lite SL-001: Dup\n\n"
+        "**Source Name**: operator\n"
+        "**Created**: 2026-04-15\n"
+        "**Status**: open\n\n"
+        "## Problem\nfirst\n\n"
+        "## Solution\ns\n\n"
+        "## Problem\nsecond\n\n"
+        "## Acceptance Scenario\na\n\n"
+        "## Files Affected\n- foo.py\n"
+    )
+    with pytest.raises(SpecLiteParseError):
+        parse_record(bad)
+
+
+def test_parse_rejects_out_of_order_sections(tmp_path: Path) -> None:
+    directory = tmp_path / ".specify/orca/spec-lite"
+    directory.mkdir(parents=True)
+    bad = directory / "SL-001-order.md"
+    # Solution before Problem violates the contracted order.
+    bad.write_text(
+        "# Spec-Lite SL-001: Order\n\n"
+        "**Source Name**: operator\n"
+        "**Created**: 2026-04-15\n"
+        "**Status**: open\n\n"
+        "## Solution\ns\n\n"
+        "## Problem\np\n\n"
+        "## Acceptance Scenario\na\n\n"
+        "## Files Affected\n- foo.py\n"
+    )
+    with pytest.raises(SpecLiteParseError):
+        parse_record(bad)

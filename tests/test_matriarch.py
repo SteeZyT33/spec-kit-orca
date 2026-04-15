@@ -534,3 +534,15 @@ def test_register_lane_rejects_spec_lite_regardless_of_status(tmp_path: Path) ->
     with pytest.raises(MatriarchError):
         register_lane("SL-003-done-already", repo_root=repo)
     _assert_no_lane_side_effects(repo, "SL-003-done-already")
+
+
+def test_register_lane_validates_spec_id_before_guard_runs(tmp_path: Path) -> None:
+    """Malformed spec_id must be rejected BEFORE the filesystem-touching guard."""
+    repo = _repo(tmp_path)
+    # spec_id with path traversal / unsafe characters must be rejected
+    # before _is_spec_lite_record gets a chance to interpolate it into
+    # canonical-path or glob operations.
+    for bad_id in ("../../etc/passwd", "SL-001 with spaces", "SL\x00injection", "has/slash"):
+        with pytest.raises(MatriarchError) as exc_info:
+            register_lane(bad_id, repo_root=repo)
+        assert "Invalid spec_id" in str(exc_info.value)

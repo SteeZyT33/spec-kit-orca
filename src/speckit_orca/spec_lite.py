@@ -186,19 +186,16 @@ def _parse_record_text(path: Path, text: str) -> SpecLiteRecord:
             break
         if raw.strip():
             meta_match = META_RE.match(raw)
-            if not meta_match:
-                raise SpecLiteParseError(
-                    path, index + 1,
-                    f"unexpected metadata line: {raw!r}",
-                )
-            key = meta_match.group("key")
-            value = meta_match.group("value")
-            if key is None or value is None:
-                raise SpecLiteParseError(
-                    path, index + 1,
-                    f"malformed metadata line: {raw!r}",
-                )
-            metadata[key] = value.strip()
+            if meta_match:
+                key = meta_match.group("key")
+                value = meta_match.group("value")
+                if key is not None and value is not None:
+                    metadata[key] = value.strip()
+            # Unknown `**Other**: value` lines are tolerated but ignored,
+            # per the 013 contract: "additional metadata lines are
+            # ignored by parsers but discouraged."
+            # Any non-empty line that isn't a recognized metadata field
+            # is silently skipped.
         index += 1
 
     for required in ("Source Name", "Created", "Status"):
@@ -213,6 +210,12 @@ def _parse_record_text(path: Path, text: str) -> SpecLiteRecord:
         raise SpecLiteParseError(
             path, 1, f"Created must be YYYY-MM-DD, got {created!r}",
         )
+    try:
+        date.fromisoformat(created)
+    except ValueError as exc:
+        raise SpecLiteParseError(
+            path, 1, f"Created must be a valid calendar date, got {created!r}",
+        ) from exc
     status = metadata["Status"]
     if status not in VALID_STATUSES:
         raise SpecLiteParseError(
@@ -220,8 +223,10 @@ def _parse_record_text(path: Path, text: str) -> SpecLiteRecord:
             f"Status must be one of {VALID_STATUSES}, got {status!r}",
         )
 
-    # Body sections
+    # Body sections — enforce order (per 013 contract), reject
+    # duplicates, reject unknown sections.
     sections: dict[str, list[str]] = {}
+    section_order: list[str] = []
     current: str | None = None
     section_start_line = index
     for line_no in range(index, len(lines)):
@@ -234,10 +239,27 @@ def _parse_record_text(path: Path, text: str) -> SpecLiteRecord:
                     path, line_no + 1,
                     f"unknown section heading: {section_name!r}",
                 )
+            if section_name in sections:
+                raise SpecLiteParseError(
+                    path, line_no + 1,
+                    f"duplicate section heading: {section_name!r}",
+                )
             current = section_name
             sections[section_name] = []
+            section_order.append(section_name)
         elif current is not None:
             sections[current].append(raw)
+
+    # Verify recognized-section ordering: required sections must
+    # appear in the listed relative order; the optional section
+    # (if present) comes after.
+    expected_order = [s for s in KNOWN_SECTIONS if s in sections]
+    if section_order != expected_order:
+        raise SpecLiteParseError(
+            path, section_start_line + 1,
+            f"section order violates contract: got {section_order}, "
+            f"expected {expected_order}",
+        )
 
     for required in REQUIRED_SECTIONS:
         if required not in sections:
@@ -343,8 +365,21 @@ def create_record(
     created: str | None = None,
 ) -> SpecLiteRecord:
     """Create a new spec-lite record with the next available ID."""
-    if not files_affected:
-        raise SpecLiteError("files_affected must have at least one entry")
+    stripped_files = [f.strip() for f in files_affected if f and f.strip()]
+    if not stripped_files:
+        raise SpecLiteError(
+            "files_affected must have at least one non-empty entry"
+        )
+
+    # Validate optional `created` argument is a real calendar date
+    # when provided (mirrors parser behavior).
+    if created is not None:
+        try:
+            date.fromisoformat(created)
+        except ValueError as exc:
+            raise SpecLiteError(
+                f"created must be a valid YYYY-MM-DD date, got {created!r}"
+            ) from exc
 
     directory = _ensure_dir(_spec_lite_dir(repo_root))
     record_id = _next_record_id(repo_root)
@@ -359,7 +394,7 @@ def create_record(
         problem=problem.strip(),
         solution=solution.strip(),
         acceptance_scenario=acceptance.strip(),
-        files_affected=[f.strip() for f in files_affected if f.strip()],
+        files_affected=stripped_files,
         verification_evidence=None,
         path=directory / f"{record_id}-{slug}.md",
     )
@@ -413,6 +448,18 @@ def update_status(
             f"Invalid status {new_status!r}; expected one of {VALID_STATUSES}"
         )
     record = get_record(repo_root=repo_root, record_id=record_id)
+
+    # Treat empty/whitespace-only verification_evidence the same
+    # as None (no-op, preserving prior evidence). The parser
+    # rejects optional sections with empty bodies, so writing an
+    # empty section would produce a record the parser later
+    # considers invalid — and callers who passed whitespace-only
+    # input almost certainly did not intend to wipe prior evidence.
+    if verification_evidence is not None and verification_evidence.strip():
+        new_evidence = verification_evidence.strip()
+    else:
+        new_evidence = record.verification_evidence
+
     updated = SpecLiteRecord(
         record_id=record.record_id,
         slug=record.slug,
@@ -424,11 +471,7 @@ def update_status(
         solution=record.solution,
         acceptance_scenario=record.acceptance_scenario,
         files_affected=record.files_affected,
-        verification_evidence=(
-            verification_evidence.strip()
-            if verification_evidence is not None
-            else record.verification_evidence
-        ),
+        verification_evidence=new_evidence,
         path=record.path,
     )
     _atomic_write(updated.path, _render_record(updated))
