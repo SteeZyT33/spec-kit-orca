@@ -770,10 +770,12 @@ def write_resume_metadata(result: FlowStateResult, feature_dir: Path, repo_root:
 # (which strips only the final `.md` extension). Slug shape mirrors
 # `_slugify()` output: lowercase alphanumerics separated by hyphens.
 _SPEC_LITE_FILENAME_RE = re.compile(r"^SL-\d{3}(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?$")
-# Header fallback must match the full contracted title shape:
-# `# Spec-Lite SL-NNN: <title>` with a non-empty title. Stubs like
-# `# Spec-Lite SL-007` (no colon) or `# Spec-Lite SL-007:` (colon,
-# no title) are rejected.
+# Header fallback — STRICTER than the 013 contract's documented
+# detection regex (`^# Spec-Lite SL-\d{3}(:.*)?$`) per the codex
+# cross-review finding in PR #40: requires a non-empty title after
+# the colon so titleless stubs don't trip detection. The runtime
+# is intentionally stricter than the contract; the contract may be
+# tightened in a future 013 revision to match.
 _SPEC_LITE_HEADER_RE = re.compile(r"^# Spec-Lite SL-\d{3}:\s+\S.*$")
 
 

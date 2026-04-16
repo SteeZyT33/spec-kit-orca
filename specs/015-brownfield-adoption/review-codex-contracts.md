@@ -1,5 +1,15 @@
+> **Historical audit trail** — codex gpt-5.4 (high effort) cross-review
+> of 015 contracts, run on 2026-04-15 against commit `52a03e4` (before
+> 013 runtime PR #40 merged). The "still broken" verdict and claims
+> about absent `spec_lite.py` / missing guards reflected accurate
+> runtime state AT THAT TIME. The issues identified were addressed
+> in the forward-looking framing revision and later resolved
+> definitively by PR #40 (013 runtime) shipping. Preserved here as
+> an audit trail; treat all runtime-state claims as historical, not
+> current.
+
 ### Verdict
-**still broken**.
+**still broken** *(historical — see note above)*.
 
 ### Critical issues (must fix before merge)
 

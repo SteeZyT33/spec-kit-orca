@@ -336,11 +336,12 @@ deleted by the runtime.
 
 ## Expected conformance against the contracts
 
-This walkthrough describes end-state behavior. As of 2026-04-15,
-the 015 runtime has not shipped — the commands shown would fail
-or not exist if run against `main` today. Once the runtime PR
-lands, each step should conform to the contracts under
-`./contracts/` as follows:
+As of 2026-04-16, the 013 spec-lite runtime has shipped (PR #40),
+establishing `review_state` as a flow-state view field and the
+`register_lane` guard-before-side-effects reorder. The 015
+adoption runtime (PR #41) adds the adoption-specific
+implementations. Once the 015 runtime PR lands, each step should
+conform to the contracts under `./contracts/` as follows:
 
 - Step 0's record will match `adoption-record.md`: 2 required + 1
   optional metadata fields, 3 required body sections, filename
@@ -348,10 +349,9 @@ lands, each step should conform to the contracts under
 - Step 1's flow-state view will match the
   `Adoption Flow-State View` entity in `data-model.md`:
   `kind: "adoption"`, `review_state: "not-applicable"`, all parsed
-  fields present. Note: `review_state` is a **new** flow-state
-  view field that does not exist in current `flow_state.py`;
-  whichever runtime PR (013's or 015's) ships first introduces
-  the field.
+  fields present. The `review_state` view field was introduced by
+  013's runtime (PR #40) for the spec-lite kind; 015's runtime
+  extends it with the `"not-applicable"` value for adoption.
 - Step 3's matriarch guard will match `matriarch-guard.md`: fires
   before any filesystem side effects, raises `MatriarchError`
   with the expected message shape, leaves no mailbox / reports /

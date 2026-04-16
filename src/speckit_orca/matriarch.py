@@ -703,10 +703,12 @@ def _record_warning(record: LaneRecord, warning: str) -> None:
         record.notes = f"{record.notes}\n{warning}".strip()
 
 
-# Header fallback matches the full contracted title shape per 013:
-# `# Spec-Lite SL-NNN: <title>` with a non-empty title. Stubs
-# without a colon or without a title are rejected so malformed
-# files under specs/<spec_id>/spec.md don't trip the guard.
+# Header fallback — STRICTER than the 013 contract's documented
+# detection regex (`^# Spec-Lite SL-\d{3}(:.*)?$`) per the codex
+# cross-review finding in PR #40: requires a non-empty title after
+# the colon so titleless stubs don't trip the guard. The runtime
+# is intentionally stricter; 013's contract may be tightened in a
+# future revision to match.
 _SPEC_LITE_HEADER_RE = re.compile(r"^# Spec-Lite SL-\d{3}:\s+\S.*$")
 
 

@@ -11,19 +11,17 @@ records.
 
 ---
 
-## Runtime status (forward-looking)
+## Runtime status
 
-As of 2026-04-15, this data model describes end-state behavior.
-Neither 013's spec-lite runtime (`src/speckit_orca/spec_lite.py`)
-nor 015's adoption runtime (`src/speckit_orca/adoption.py`) has
-shipped. Current `src/speckit_orca/flow_state.py` has no
-per-target file interpreter and no `review_state` view field;
-current `src/speckit_orca/matriarch.py` has no precondition
-guards in `register_lane`. See the "Runtime status" sections in
-[contracts/adoption-record.md](./contracts/adoption-record.md)
-and [contracts/matriarch-guard.md](./contracts/matriarch-guard.md)
-for implementation responsibilities. This data model remains
-authoritative for the runtime PR.
+As of 2026-04-16, the 013 spec-lite runtime has shipped (PR #40):
+`spec_lite.py`, per-file `SpecLiteFlowState` with `review_state`,
+and the `_is_spec_lite_record` matriarch guard with `register_lane`
+reorder are all on main. The 015 adoption runtime is pending
+(PR #41). See the "Runtime status" sections in
+[contracts/adoption-record.md](./contracts/adoption-record.md) and
+[contracts/matriarch-guard.md](./contracts/matriarch-guard.md) for
+details. This data model remains authoritative for the 015 runtime
+PR.
 
 ---
 

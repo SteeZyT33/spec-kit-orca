@@ -11,35 +11,20 @@ ordering rules.
 
 ---
 
-## Runtime status (forward-looking)
+## Runtime status
 
-As of 2026-04-15, neither 013's spec-lite guard nor 015's adoption
-guard exists in runtime code:
+As of 2026-04-16, the 013 spec-lite guard and the `register_lane`
+guard-before-side-effects reorder have shipped (PR #40). The 015
+adoption guard is pending (PR #41).
 
-- Current `register_lane` (`src/speckit_orca/matriarch.py:706-736`)
-  has **no precondition guards** of any kind.
-- Current `register_lane` creates `mailbox_root`, the reports
-  directory, and the delegated-task JSON file BEFORE any
-  flow-state computation — meaning as-is, a rejected spec-lite or
-  adoption registration would leave junk artifacts on disk.
+**What exists now** (from 013): `_is_spec_lite_record` runs at
+the TOP of `register_lane`, before `mailbox_root.mkdir()` /
+`reports_path().parent.mkdir()` / `_write_json_atomic()`. Rejected
+spec-lite registrations leave the workspace untouched.
 
-The 015 runtime PR MUST do two things in `matriarch.py`:
-
-1. Add BOTH guards (`_is_spec_lite_record` per 013's
-   [matriarch-guard.md](../../013-spec-lite/contracts/matriarch-guard.md)
-   contract AND `_is_adoption_record` per this contract) if 013's
-   runtime has not shipped first. If 013's runtime HAS shipped
-   first, 015 only adds the adoption guard.
-2. Reorder `register_lane` so the guard block fires at the TOP,
-   before `mailbox_root.mkdir()`, before
-   `paths.reports_path(lane_id).parent.mkdir()`, and before
-   `_write_json_atomic(paths.delegated_path(lane_id), ...)`. See
-   "Guard placement" below for the exact shape.
-
-The "no-side-effects on rejection" invariant described below is
-new behavior that the 015 runtime PR introduces (alongside or
-superseding 013's runtime PR if it hasn't shipped). It is not a
-preservation of current behavior.
+**What 015's runtime PR adds**: `_is_adoption_record` alongside
+the spec-lite guard in the same precondition block, following the
+same ordering and no-side-effect invariant.
 
 ---
 

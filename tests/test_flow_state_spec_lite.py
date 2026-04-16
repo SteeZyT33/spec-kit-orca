@@ -134,20 +134,21 @@ def test_review_state_cross_reviewed_takes_precedence(tmp_path: Path) -> None:
 
 
 def test_header_fallback_rejects_titleless_headers(tmp_path: Path) -> None:
-    """Header regex must require the full contracted title shape.
+    """Header regex is STRICTER than the 013 contract's documented
+    detection regex and requires a non-empty title after the colon.
 
-    `# Spec-Lite SL-007` (no colon) and `# Spec-Lite SL-007:` (colon
-    with no title) are both malformed stubs and must NOT trip the
-    header fallback — the 013 contract keys the fallback off the
-    full `# Spec-Lite SL-NNN: <title>` shape.
+    Stubs like `# Spec-Lite SL-007` (no colon) or `# Spec-Lite SL-007:`
+    (colon with no title) must NOT trip the header fallback. The runtime
+    is intentionally stricter than the 013 contract's current regex per
+    the codex cross-review finding in PR #40.
     """
-    for bad_header in (
+    for idx, bad_header in enumerate((
         "# Spec-Lite SL-007\n",                  # no colon, no title
         "# Spec-Lite SL-007:\n",                 # colon, no title
         "# Spec-Lite SL-007:\n\nbody\n",         # colon with trailing whitespace only
         "# Spec-Lite SL-007:    \n",             # colon with only spaces after
-    ):
-        misplaced = tmp_path / f"notes_{hash(bad_header) & 0xffff}.md"
+    )):
+        misplaced = tmp_path / f"notes_bad_{idx}.md"
         misplaced.write_text(bad_header)
         assert _is_spec_lite_target(misplaced) is False, (
             f"Header {bad_header!r} should not match"

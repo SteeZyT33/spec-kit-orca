@@ -10,46 +10,28 @@
 
 ---
 
-## Runtime status (forward-looking)
+## Runtime status
 
-As of 2026-04-15, this contract describes **end-state behavior**.
-Neither the 013 spec-lite runtime nor the 015 adoption runtime has
-shipped yet:
+As of 2026-04-16, the 013 spec-lite runtime has shipped (PR #40).
+The 015 adoption runtime is pending (PR #41).
 
-- `src/speckit_orca/spec_lite.py` does not exist. 013 merged
-  contracts (PR #36) but not the runtime module.
-- `src/speckit_orca/adoption.py` does not exist.
-- `src/speckit_orca/flow_state.py` has no per-target file
-  interpreter and no `review_state` view field. It currently emits
-  `review_milestones` (per 012's three-artifact model) for
-  feature directories only.
-- `src/speckit_orca/matriarch.py`'s `register_lane` has no
-  precondition guards and creates mailbox / reports / delegated-task
-  artifacts before any flow-state computation.
+**What exists now** (from 013):
+- `src/speckit_orca/spec_lite.py` — shipped in PR #40.
+- `src/speckit_orca/flow_state.py` — has `SpecLiteFlowState`
+  with `review_state` (per-file spec-lite interpretation).
+- `src/speckit_orca/matriarch.py` — `register_lane` runs the
+  `_is_spec_lite_record` guard at the TOP, before any filesystem
+  side effects. Guard reorder is shipped.
 
-Consequences for the 015 runtime PR:
+**What 015's runtime PR adds**:
+- `src/speckit_orca/adoption.py` — new runtime module.
+- `flow_state.py` — `AdoptionFlowState` with per-file AR
+  interpretation + `review_state: "not-applicable"`.
+- `matriarch.py` — `_is_adoption_record` guard alongside the
+  existing spec-lite guard in `register_lane`.
 
-- The 015 runtime PR may need to add the `spec_lite.py`
-  per-file extension to `flow_state.py` itself if 013's runtime
-  has not shipped first. Implementers should check both 013 and
-  015 runtime status before starting.
-- The 015 runtime PR MUST add BOTH guards (spec-lite per 013's
-  `matriarch-guard.md` contract + adoption per
-  [matriarch-guard.md](./matriarch-guard.md)) if 013's runtime has
-  not shipped first.
-- The 015 runtime PR MUST move existing side-effect calls in
-  `register_lane` to fire AFTER the guard block (the current code
-  creates side effects before anything else — see
-  [matriarch-guard.md](./matriarch-guard.md) "Guard placement").
-- The `review_state` flow-state view field is NEW — it does not
-  exist anywhere in current runtime. 015 introduces it inline on
-  the adoption view; 013's contract separately introduces it on
-  the spec-lite view. Runtime code that adds the field must pick
-  a consistent shape across both views.
-
-This contract is load-bearing for the runtime PR regardless of the
-current code state. Lock it at review time; don't rewrite during
-implementation.
+This contract is load-bearing for the runtime PR. Lock it at
+review time; don't rewrite during implementation.
 
 ---
 
