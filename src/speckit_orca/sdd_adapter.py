@@ -139,18 +139,26 @@ class SddAdapter(ABC):
 # ---------------------------------------------------------------------------
 # SpecKitAdapter — concrete Phase B implementation.
 # ---------------------------------------------------------------------------
-# Module-level spec-kit constants. During the Phase B transition these live
-# here AND in flow_state.py; Phase C deletes the flow_state copies and has
-# that module import from here. Duplication is intentional and bounded to
-# this one phase.
+# Module-level spec-kit constants. Phase C makes this module the sole home
+# of spec-kit artifact filename literals; `flow_state.py` imports the named
+# constants below and never encodes the raw "*.md" filenames itself. The
+# T030 anti-leak test enforces that invariant.
+SPEC_KIT_BRAINSTORM_FILENAME: str = "brainstorm.md"
+SPEC_KIT_SPEC_FILENAME: str = "spec.md"
+SPEC_KIT_PLAN_FILENAME: str = "plan.md"
+SPEC_KIT_TASKS_FILENAME: str = "tasks.md"
+SPEC_KIT_REVIEW_SPEC_FILENAME: str = "review-spec.md"
+SPEC_KIT_REVIEW_CODE_FILENAME: str = "review-code.md"
+SPEC_KIT_REVIEW_PR_FILENAME: str = "review-pr.md"
+
 _SPEC_KIT_ARTIFACT_NAMES: tuple[str, ...] = (
-    "brainstorm.md",
-    "spec.md",
-    "plan.md",
-    "tasks.md",
-    "review-spec.md",
-    "review-code.md",
-    "review-pr.md",
+    SPEC_KIT_BRAINSTORM_FILENAME,
+    SPEC_KIT_SPEC_FILENAME,
+    SPEC_KIT_PLAN_FILENAME,
+    SPEC_KIT_TASKS_FILENAME,
+    SPEC_KIT_REVIEW_SPEC_FILENAME,
+    SPEC_KIT_REVIEW_CODE_FILENAME,
+    SPEC_KIT_REVIEW_PR_FILENAME,
 )
 
 _SPEC_KIT_TASK_LINE_RE = re.compile(

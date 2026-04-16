@@ -8,6 +8,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .sdd_adapter import (
+    SPEC_KIT_BRAINSTORM_FILENAME as _BRAINSTORM_FILE,
+    SPEC_KIT_PLAN_FILENAME as _PLAN_FILE,
+    SPEC_KIT_REVIEW_CODE_FILENAME as _REVIEW_CODE_FILE,
+    SPEC_KIT_REVIEW_PR_FILENAME as _REVIEW_PR_FILE,
+    SPEC_KIT_REVIEW_SPEC_FILENAME as _REVIEW_SPEC_FILE,
+    SPEC_KIT_SPEC_FILENAME as _SPEC_FILE,
+    SPEC_KIT_TASKS_FILENAME as _TASKS_FILE,
+    SpecKitAdapter,
+)
+
 STAGE_ORDER = [
     "brainstorm",
     "specify",
@@ -36,10 +47,6 @@ REVIEW_ARTIFACT_NAMES = ("review-spec", "review-code", "review-pr")
 REVIEW_SPEC_VERDICT_VALUES = frozenset({"ready", "needs-revision", "blocked"})
 REVIEW_CODE_VERDICT_VALUES = frozenset({"ready-for-pr", "needs-fixes", "blocked"})
 REVIEW_PR_VERDICT_VALUES = frozenset({"merged", "pending-merge", "reverted"})
-CLARIFY_SESSION_RE = re.compile(r"^### Session (\d{4}-\d{2}-\d{2})\b", re.MULTILINE)
-TASK_LINE_RE = re.compile(r"^- \[(?P<mark>[ xX])\] (?P<task>T\d+)\b(?P<body>.*)$")
-ASSIGNMENT_RE = re.compile(r"\[@[^\]]+\]")
-HEADING_RE = re.compile(r"^#{1,6}\s+(?P<title>.+?)\s*$")
 
 
 @dataclass(frozen=True)
@@ -372,242 +379,39 @@ def _now_utc() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _read_text_if_exists(path: Path) -> str:
-    try:
-        return path.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return ""
+# Module-level spec-kit adapter singleton. Phase 1 is single-adapter; Phase 2
+# of the multi-SDD program (016 Phase 2+) replaces this with a registry
+# lookup. Tests that want to intercept adapter calls should monkeypatch this
+# attribute (see T020 in specs/016-multi-sdd-layer/tasks.md).
+_SPEC_KIT_ADAPTER = SpecKitAdapter()
 
 
-def _find_repo_root(feature_dir: Path, repo_root: Path | None = None) -> Path | None:
-    if repo_root is not None:
-        return repo_root.resolve()
+def collect_feature_evidence(
+    feature_dir: Path | str,
+    repo_root: Path | str | None = None,
+) -> FeatureEvidence:
+    """Load a feature's durable artifacts into a ``FeatureEvidence``.
 
-    for candidate in (feature_dir, *feature_dir.parents):
-        if (candidate / ".git").exists() or (candidate / ".specify").exists():
-            return candidate.resolve()
-    return None
+    Delegates all spec-kit-flavored parsing to the module-level
+    ``_SPEC_KIT_ADAPTER``; the adapter's ``load_feature`` returns a
+    ``NormalizedArtifacts`` and ``to_feature_evidence`` adapts it back
+    into the legacy dataclass so downstream flow-state code keeps its
+    existing interface.
+    """
+    from .sdd_adapter import FeatureHandle
 
-
-def _slugify_heading(title: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
-
-
-def _parse_tasks(path: Path) -> TaskSummary:
-    summary = TaskSummary()
-    text = _read_text_if_exists(path)
-    if not text:
-        return summary
-
-    for line in text.splitlines():
-        heading = HEADING_RE.match(line)
-        if heading:
-            summary.headings.append(_slugify_heading(heading.group("title")))
-            continue
-
-        match = TASK_LINE_RE.match(line)
-        if not match:
-            continue
-
-        summary.total += 1
-        if match.group("mark").strip():
-            summary.completed += 1
-        else:
-            summary.incomplete += 1
-        if ASSIGNMENT_RE.search(match.group("body")):
-            summary.assigned += 1
-    return summary
-
-
-def _extract_verdict(text: str) -> str | None:
-    match = re.search(r"^- status:\s*(.+)$", text, re.MULTILINE)
-    return match.group(1).strip() if match else None
-
-
-def _latest_clarify_session(spec_text: str) -> str | None:
-    clarifications_match = re.search(
-        r"^## Clarifications\b(.*?)(?=^## |\Z)",
-        spec_text,
-        re.MULTILINE | re.DOTALL,
-    )
-    if not clarifications_match:
-        return None
-    sessions = CLARIFY_SESSION_RE.findall(clarifications_match.group(1))
-    return max(sessions) if sessions else None
-
-
-def _parse_review_spec_evidence(review_spec_path: Path, spec_path: Path) -> ReviewSpecEvidence:
-    ev = ReviewSpecEvidence()
-    text = _read_text_if_exists(review_spec_path)
-    if not text:
-        return ev
-    ev.exists = True
-    ev.verdict = _extract_verdict(text)
-    ev.has_cross_pass = bool(re.search(r"^## Cross Pass \(", text, re.MULTILINE))
-
-    prereq_match = re.search(r"^- Clarify session:\s*(\d{4}-\d{2}-\d{2})", text, re.MULTILINE)
-    if prereq_match:
-        ev.clarify_session = prereq_match.group(1)
-
-    spec_text = _read_text_if_exists(spec_path)
-    latest_session = _latest_clarify_session(spec_text)
-    if ev.clarify_session and latest_session and latest_session > ev.clarify_session:
-        ev.stale_against_clarify = True
-
-    return ev
-
-
-def _parse_review_code_evidence(review_code_path: Path) -> ReviewCodeEvidence:
-    ev = ReviewCodeEvidence()
-    text = _read_text_if_exists(review_code_path)
-    if not text:
-        return ev
-    ev.exists = True
-    ev.verdict = _extract_verdict(text)
-
-    self_pass_re = re.compile(r"^## (.+?) Self Pass \(", re.MULTILINE)
-    cross_pass_re = re.compile(r"^## (.+?) Cross Pass \(", re.MULTILINE)
-
-    self_phases = {m.group(1) for m in self_pass_re.finditer(text)}
-    cross_phases = {m.group(1) for m in cross_pass_re.finditer(text)}
-    ev.phases_found = sorted(self_phases | cross_phases)
-    ev.has_self_passes = bool(self_phases)
-    ev.has_cross_passes = bool(cross_phases)
-    ev.overall_complete = "## Overall Verdict" in text
-    return ev
-
-
-def _parse_review_pr_evidence(review_pr_path: Path) -> ReviewPrEvidence:
-    ev = ReviewPrEvidence()
-    text = _read_text_if_exists(review_pr_path)
-    if not text:
-        return ev
-    ev.exists = True
-    ev.verdict = _extract_verdict(text)
-    ev.has_retro_note = "## Retro Note" in text
-    return ev
-
-
-def _parse_review_evidence(feature_path: Path) -> ReviewEvidence:
-    return ReviewEvidence(
-        review_spec=_parse_review_spec_evidence(
-            feature_path / "review-spec.md",
-            feature_path / "spec.md",
-        ),
-        review_code=_parse_review_code_evidence(feature_path / "review-code.md"),
-        review_pr=_parse_review_pr_evidence(feature_path / "review-pr.md"),
-    )
-
-
-def _find_linked_brainstorms(repo_root: Path | None, feature_id: str) -> list[Path]:
-    if repo_root is None:
-        return []
-
-    brainstorm_dir = repo_root / "brainstorm"
-    if not brainstorm_dir.is_dir():
-        return []
-
-    matches: list[Path] = []
-    feature_ref = f"specs/{feature_id}/"
-    for path in sorted(brainstorm_dir.glob("*.md")):
-        text = _read_text_if_exists(path)
-        if feature_id in text or feature_ref in text:
-            matches.append(path)
-    return matches
-
-
-def _load_worktree_lanes(repo_root: Path | None, feature_id: str) -> list[WorktreeLane]:
-    if repo_root is None:
-        return []
-
-    worktree_root = repo_root / ".specify" / "orca" / "worktrees"
-    registry_path = worktree_root / "registry.json"
-    if not registry_path.exists():
-        return []
-
-    try:
-        registry = json.loads(registry_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return []
-
-    lane_ids = registry.get("lanes", [])
-    if not isinstance(lane_ids, list):
-        return []
-
-    lanes: list[WorktreeLane] = []
-    for lane_id in lane_ids:
-        lane_path = worktree_root / f"{lane_id}.json"
-        if not lane_path.exists():
-            continue
-        try:
-            lane = json.loads(lane_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            continue
-
-        if lane.get("feature") != feature_id and lane.get("id") != feature_id:
-            continue
-
-        task_scope = lane.get("task_scope", [])
-        lanes.append(
-            WorktreeLane(
-                lane_id=lane.get("id", lane_id),
-                branch=lane.get("branch"),
-                status=lane.get("status"),
-                path=lane.get("path"),
-                task_scope=task_scope if isinstance(task_scope, list) else [],
-            )
-        )
-    return lanes
-
-
-def collect_feature_evidence(feature_dir: Path | str, repo_root: Path | str | None = None) -> FeatureEvidence:
     feature_path = Path(feature_dir).resolve()
-    repo_path = _find_repo_root(feature_path, Path(repo_root).resolve() if repo_root else None)
-    feature_id = feature_path.name
-
-    artifacts = {
-        name: feature_path / name
-        for name in ("brainstorm.md", "spec.md", "plan.md", "tasks.md", "review-spec.md", "review-code.md", "review-pr.md")
-    }
-
-    task_summary = _parse_tasks(artifacts["tasks.md"])
-    review_evidence = _parse_review_evidence(feature_path)
-    linked_brainstorms = _find_linked_brainstorms(repo_path, feature_id)
-    worktree_lanes = _load_worktree_lanes(repo_path, feature_id)
-
-    evidence = FeatureEvidence(
-        feature_id=feature_id,
-        feature_dir=feature_path,
-        repo_root=repo_path,
-        artifacts=artifacts,
-        task_summary=task_summary,
-        review_evidence=review_evidence,
-        linked_brainstorms=linked_brainstorms,
-        worktree_lanes=worktree_lanes,
+    repo_override = Path(repo_root).resolve() if repo_root is not None else None
+    handle = FeatureHandle(
+        feature_id=feature_path.name,
+        display_name=feature_path.name,
+        root_path=feature_path,
+        adapter_name=_SPEC_KIT_ADAPTER.name,
     )
-
-    if review_evidence.review_code.exists and not artifacts["tasks.md"].exists():
-        evidence.ambiguities.append("review-code.md exists without tasks.md")
-    if review_evidence.review_spec.stale_against_clarify:
-        evidence.ambiguities.append("review-spec.md is stale — clarify ran again after the review")
-
-    if worktree_lanes:
-        lane_descriptions = []
-        for lane in worktree_lanes:
-            status = lane.status or "unknown"
-            branch = lane.branch or lane.lane_id
-            lane_descriptions.append(f"{lane.lane_id} ({status}, {branch})")
-        evidence.notes.append(
-            "Worktree context available: " + ", ".join(lane_descriptions)
-        )
-
-    if linked_brainstorms:
-        evidence.notes.append(
-            "Linked brainstorm memory found: "
-            + ", ".join(str(path.relative_to(repo_path)) if repo_path else path.name for path in linked_brainstorms)
-        )
-
-    return evidence
+    normalized = _SPEC_KIT_ADAPTER.load_feature(handle, repo_root=repo_override)
+    return _SPEC_KIT_ADAPTER.to_feature_evidence(
+        normalized, repo_root=repo_override
+    )
 
 
 def _review_milestones(evidence: FeatureEvidence) -> list[ReviewMilestone]:
@@ -618,18 +422,24 @@ def _review_milestones(evidence: FeatureEvidence) -> list[ReviewMilestone]:
     if not rev.review_spec.exists:
         milestones.append(ReviewMilestone("review-spec", "missing"))
     elif rev.review_spec.stale_against_clarify:
-        milestones.append(ReviewMilestone("review-spec", "stale",
-                          notes=["review-spec.md is stale against a newer clarify session"]))
+        milestones.append(ReviewMilestone(
+            "review-spec", "stale",
+            notes=[f"{_REVIEW_SPEC_FILE} is stale against a newer clarify session"],
+        ))
     elif rev.review_spec.verdict == "ready" and rev.review_spec.has_cross_pass:
-        milestones.append(ReviewMilestone("review-spec", "present",
-                          evidence_sources=[str(evidence.feature_dir / "review-spec.md")]))
+        milestones.append(ReviewMilestone(
+            "review-spec", "present",
+            evidence_sources=[str(evidence.feature_dir / _REVIEW_SPEC_FILE)],
+        ))
     elif rev.review_spec.verdict == "needs-revision":
         milestones.append(ReviewMilestone("review-spec", "needs-revision"))
     elif rev.review_spec.verdict == "blocked":
         milestones.append(ReviewMilestone("review-spec", "blocked"))
     else:
-        milestones.append(ReviewMilestone("review-spec", "invalid",
-                          notes=["review-spec.md exists but has no recognized verdict"]))
+        milestones.append(ReviewMilestone(
+            "review-spec", "invalid",
+            notes=[f"{_REVIEW_SPEC_FILE} exists but has no recognized verdict"],
+        ))
 
     # review-code
     if not rev.review_code.exists:
@@ -640,38 +450,51 @@ def _review_milestones(evidence: FeatureEvidence) -> list[ReviewMilestone]:
         and rev.review_code.has_self_passes
         and rev.review_code.has_cross_passes
     ):
-        milestones.append(ReviewMilestone("review-code", "overall_complete",
-                          evidence_sources=[str(evidence.feature_dir / "review-code.md")]))
+        milestones.append(ReviewMilestone(
+            "review-code", "overall_complete",
+            evidence_sources=[str(evidence.feature_dir / _REVIEW_CODE_FILE)],
+        ))
     elif rev.review_code.phases_found:
-        milestones.append(ReviewMilestone("review-code", "phases_partial",
-                          notes=[f"Phases found: {', '.join(rev.review_code.phases_found)}"]))
+        milestones.append(ReviewMilestone(
+            "review-code", "phases_partial",
+            notes=[f"Phases found: {', '.join(rev.review_code.phases_found)}"],
+        ))
     else:
-        milestones.append(ReviewMilestone("review-code", "invalid",
-                          notes=["review-code.md exists but has no recognized phase structure"]))
+        milestones.append(ReviewMilestone(
+            "review-code", "invalid",
+            notes=[f"{_REVIEW_CODE_FILE} exists but has no recognized phase structure"],
+        ))
 
     # review-pr
     if not rev.review_pr.exists:
         milestones.append(ReviewMilestone("review-pr", "not_started"))
     elif rev.review_pr.verdict == "merged" and rev.review_pr.has_retro_note:
-        milestones.append(ReviewMilestone("review-pr", "complete",
-                          evidence_sources=[str(evidence.feature_dir / "review-pr.md")]))
+        milestones.append(ReviewMilestone(
+            "review-pr", "complete",
+            evidence_sources=[str(evidence.feature_dir / _REVIEW_PR_FILE)],
+        ))
     elif rev.review_pr.verdict == "pending-merge" and rev.review_pr.has_retro_note:
         milestones.append(ReviewMilestone("review-pr", "in_progress"))
     elif rev.review_pr.verdict == "reverted":
         milestones.append(ReviewMilestone("review-pr", "reverted"))
     else:
-        milestones.append(ReviewMilestone("review-pr", "invalid",
-                          notes=["review-pr.md exists but has no recognized verdict"]))
+        milestones.append(ReviewMilestone(
+            "review-pr", "invalid",
+            notes=[f"{_REVIEW_PR_FILE} exists but has no recognized verdict"],
+        ))
 
     return milestones
 
 
 def _stage_milestones(evidence: FeatureEvidence, reviews: list[ReviewMilestone]) -> list[FlowMilestone]:
     review_map = {item.review_type: item for item in reviews}
-    tasks_path = evidence.artifacts["tasks.md"]
+    tasks_path = evidence.artifacts[_TASKS_FILE]
+    spec_path = evidence.artifacts[_SPEC_FILE]
+    plan_path = evidence.artifacts[_PLAN_FILE]
+    brainstorm_path = evidence.artifacts[_BRAINSTORM_FILE]
     milestones: list[FlowMilestone] = []
 
-    brainstorm_sources = [str(evidence.artifacts["brainstorm.md"])] if evidence.artifacts["brainstorm.md"].exists() else []
+    brainstorm_sources = [str(brainstorm_path)] if brainstorm_path.exists() else []
     brainstorm_sources.extend(str(path) for path in evidence.linked_brainstorms)
     milestones.append(
         FlowMilestone(
@@ -684,15 +507,15 @@ def _stage_milestones(evidence: FeatureEvidence, reviews: list[ReviewMilestone])
     milestones.append(
         FlowMilestone(
             stage="specify",
-            status="complete" if evidence.artifacts["spec.md"].exists() else "incomplete",
-            evidence_sources=[str(evidence.artifacts["spec.md"])] if evidence.artifacts["spec.md"].exists() else [],
+            status="complete" if spec_path.exists() else "incomplete",
+            evidence_sources=[str(spec_path)] if spec_path.exists() else [],
         )
     )
     milestones.append(
         FlowMilestone(
             stage="plan",
-            status="complete" if evidence.artifacts["plan.md"].exists() else "incomplete",
-            evidence_sources=[str(evidence.artifacts["plan.md"])] if evidence.artifacts["plan.md"].exists() else [],
+            status="complete" if plan_path.exists() else "incomplete",
+            evidence_sources=[str(plan_path)] if plan_path.exists() else [],
         )
     )
     milestones.append(
@@ -717,7 +540,7 @@ def _stage_milestones(evidence: FeatureEvidence, reviews: list[ReviewMilestone])
         implement_sources.append(str(tasks_path))
     elif evidence.review_evidence.review_code.exists:
         implement_status = "complete"
-        implement_sources.append(str(evidence.feature_dir / "review-code.md"))
+        implement_sources.append(str(evidence.feature_dir / _REVIEW_CODE_FILE))
     milestones.append(FlowMilestone("implement", implement_status, implement_sources))
 
     for review_name in REVIEW_ARTIFACT_NAMES:
@@ -774,7 +597,7 @@ def _has_material_conflict(ambiguities: list[str]) -> bool:
         "without specification evidence",
         "without planning evidence",
         "without task breakdown evidence",
-        "review-code.md exists without tasks.md",
+        f"{_REVIEW_CODE_FILE} exists without {_TASKS_FILE}",
     )
     return any(any(marker in ambiguity for marker in conflict_markers) for ambiguity in ambiguities)
 
@@ -786,15 +609,15 @@ def _next_step(milestones: list[FlowMilestone], ambiguities: list[str], evidence
     status_map = {item.stage: item.status for item in milestones}
 
     if status_map["specify"] != "complete":
-        return "Create or refine spec.md before advancing the feature."
+        return f"Create or refine {_SPEC_FILE} before advancing the feature."
     if status_map["plan"] != "complete":
-        return "Generate plan.md to lock architecture and implementation shape."
+        return f"Generate {_PLAN_FILE} to lock architecture and implementation shape."
     if status_map["tasks"] != "complete":
-        return "Generate tasks.md so implementation can proceed from a durable task plan."
+        return f"Generate {_TASKS_FILE} so implementation can proceed from a durable task plan."
     if status_map["assign"] != "complete" and status_map["implement"] != "complete":
         return "Run /speckit.orca.assign if this feature needs multi-agent coordination, or proceed directly to implementation."
     if status_map["implement"] != "complete":
-        return "Implement the next incomplete task and keep tasks.md current."
+        return f"Implement the next incomplete task and keep {_TASKS_FILE} current."
     review_spec_status = status_map.get("review-spec", "missing")
     if review_spec_status in {"missing", "stale", "needs-revision"}:
         return "Run /speckit.orca.review-spec for an adversarial cross-pass review of the spec."

@@ -540,3 +540,69 @@ class TestSpecKitComputeStageOrder:
         assert status_map["brainstorm"] == "incomplete"
         assert status_map["assign"] == "incomplete"
         assert status_map["implement"] == "incomplete"
+
+
+# ---------------------------------------------------------------------------
+# Phase C: flow_state routes through SpecKitAdapter
+# ---------------------------------------------------------------------------
+
+
+class TestFlowStateUsesAdapter:
+    """T020: `compute_flow_state` must dispatch through the module-level
+    `_SPEC_KIT_ADAPTER`, not re-parse spec-kit artifacts inline.
+    """
+
+    def test_flow_state_uses_adapter(self, tmp_path: Path, monkeypatch):
+        from speckit_orca import flow_state as flow_state_mod
+        from speckit_orca.sdd_adapter import SpecKitAdapter
+
+        feature_dir = tmp_path / "specs" / "030-spy"
+        _write(feature_dir / "spec.md", "# Spec\n")
+        _write(feature_dir / "plan.md", "# Plan\n")
+        _write(feature_dir / "tasks.md", "# Tasks\n\n- [ ] T001 first\n")
+
+        calls: list[str] = []
+
+        class SpyAdapter(SpecKitAdapter):
+            def load_feature(self, handle, repo_root=None):
+                calls.append(handle.feature_id)
+                return super().load_feature(handle, repo_root=repo_root)
+
+        monkeypatch.setattr(flow_state_mod, "_SPEC_KIT_ADAPTER", SpyAdapter())
+
+        flow_state_mod.compute_flow_state(feature_dir, repo_root=tmp_path)
+
+        assert calls == ["030-spy"]
+
+
+class TestFlowStateNoSpeckitPathLiterals:
+    """T021 / T030: spec-kit artifact filename literals must not appear in
+    `src/speckit_orca/flow_state.py`. The adapter owns those filenames now.
+    """
+
+    def test_flow_state_no_speckit_path_literals(self):
+        import speckit_orca.flow_state as flow_state_mod
+
+        source = Path(flow_state_mod.__file__).read_text(encoding="utf-8")
+        forbidden = (
+            '"spec.md"',
+            "'spec.md'",
+            '"plan.md"',
+            "'plan.md'",
+            '"tasks.md"',
+            "'tasks.md'",
+            '"review-spec.md"',
+            "'review-spec.md'",
+            '"review-code.md"',
+            "'review-code.md'",
+            '"review-pr.md"',
+            "'review-pr.md'",
+            '"brainstorm.md"',
+            "'brainstorm.md'",
+        )
+        leaks = [literal for literal in forbidden if literal in source]
+        assert not leaks, (
+            "flow_state.py must not hardcode spec-kit filenames; use "
+            "constants imported from speckit_orca.sdd_adapter instead. "
+            f"Leaked literals: {leaks}"
+        )
