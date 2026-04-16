@@ -121,6 +121,28 @@ class WorktreeLane:
 
 
 @dataclass
+class YoloRunSummary:
+    """Summary of a yolo run surfaced in flow-state output.
+
+    Derived from reducing the run's event log; mirrors a subset of
+    `speckit_orca.yolo.RunState` sized for inline reporting.
+    """
+
+    run_id: str
+    mode: str  # "standalone" | "matriarch-supervised"
+    lane_id: str | None
+    current_stage: str
+    outcome: str  # "running" | "paused" | "blocked" | "completed" | "failed" | "canceled"
+    block_reason: str | None
+    last_event_timestamp: str
+    matriarch_sync_failed: bool = False
+
+    @property
+    def is_terminal(self) -> bool:
+        return self.outcome in {"completed", "canceled", "failed"}
+
+
+@dataclass
 class FeatureEvidence:
     feature_id: str
     feature_dir: Path
@@ -144,6 +166,7 @@ class FlowStateResult:
     ambiguities: list[str]
     next_step: str | None
     evidence_summary: list[str]
+    yolo_runs: list[YoloRunSummary] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -155,6 +178,7 @@ class FlowStateResult:
             "ambiguities": list(self.ambiguities),
             "next_step": self.next_step,
             "evidence_summary": list(self.evidence_summary),
+            "yolo_runs": [asdict(run) for run in self.yolo_runs],
         }
 
     def to_text(self) -> str:
@@ -178,6 +202,25 @@ class FlowStateResult:
                 f"- {item.review_type}: {item.status}"
                 for item in self.review_milestones
             )
+        if self.yolo_runs:
+            active = [r for r in self.yolo_runs if not r.is_terminal]
+            terminal = [r for r in self.yolo_runs if r.is_terminal]
+            if active:
+                lines.append("Active yolo runs:")
+                lines.extend(
+                    f"- {run.run_id} [{run.mode}] stage={run.current_stage} outcome={run.outcome}"
+                    + (f" — {run.block_reason}" if run.block_reason else "")
+                    + (" [matriarch_sync_failed]" if run.matriarch_sync_failed else "")
+                    for run in active
+                )
+            if terminal:
+                lines.append("Terminal yolo runs:")
+                lines.extend(
+                    f"- {run.run_id} [{run.mode}] {run.outcome} at {run.current_stage}"
+                    + (f" — {run.block_reason}" if run.block_reason else "")
+                    + (" [matriarch_sync_failed]" if run.matriarch_sync_failed else "")
+                    for run in terminal
+                )
         if self.ambiguities:
             lines.append("Ambiguities:")
             lines.extend(f"- {note}" for note in self.ambiguities)
@@ -1058,6 +1101,74 @@ def compute_adoption_state(record_path: Path | str) -> AdoptionFlowState:
     )
 
 
+def list_yolo_runs_for_feature(
+    repo_root: Path | None, feature_id: str
+) -> list[YoloRunSummary]:
+    """Find all yolo runs whose RUN_STARTED event carries `feature_id`.
+
+    Discovers runs by replaying `.specify/orca/yolo/runs/*/events.jsonl`.
+    Returns empty list if no runs directory exists or no matching runs
+    are found. status.json is not consulted — the event log is
+    authoritative, and status.json is only a derived snapshot.
+    """
+    if repo_root is None:
+        return []
+    runs_dir = repo_root / ".specify" / "orca" / "yolo" / "runs"
+    if not runs_dir.exists():
+        return []
+
+    # Import lazily to keep flow_state standalone-importable in contexts
+    # where yolo isn't configured.
+    try:
+        from speckit_orca.yolo import load_events, reduce
+    except ImportError:
+        return []
+
+    try:
+        from speckit_orca.yolo import EventType, sync_failed as _sync_failed
+    except ImportError:
+        return []
+
+    summaries: list[YoloRunSummary] = []
+    for run_dir in sorted(runs_dir.iterdir()):
+        if not run_dir.is_dir():
+            continue
+        events_path = run_dir / "events.jsonl"
+        if not events_path.exists():
+            continue
+        try:
+            events = load_events(repo_root, run_dir.name)
+            if not events:
+                continue
+            # Explicitly locate RUN_STARTED instead of assuming events[0]
+            # is it. Sort order usually guarantees it, but a corrupted log
+            # with bad lamport clocks could put another event first.
+            started = next(
+                (e for e in events if e.event_type == EventType.RUN_STARTED),
+                None,
+            )
+            if started is None or started.feature_id != feature_id:
+                continue
+            state = reduce(events)
+        except (ValueError, KeyError, OSError):
+            continue
+
+        summaries.append(
+            YoloRunSummary(
+                run_id=state.run_id,
+                mode=state.mode,
+                lane_id=state.lane_id,
+                current_stage=state.current_stage,
+                outcome=state.outcome,
+                block_reason=state.block_reason,
+                last_event_timestamp=state.last_event_timestamp,
+                matriarch_sync_failed=_sync_failed(repo_root, run_dir.name),
+            )
+        )
+
+    return summaries
+
+
 def compute_flow_state(
     feature_dir: Path | str,
     repo_root: Path | str | None = None,
@@ -1072,6 +1183,7 @@ def compute_flow_state(
     if _has_material_conflict(ambiguities):
         current_stage = None
     next_step = _next_step(milestones, ambiguities, evidence)
+    yolo_runs = list_yolo_runs_for_feature(evidence.repo_root, evidence.feature_id)
     result = FlowStateResult(
         feature_id=evidence.feature_id,
         current_stage=current_stage,
@@ -1081,6 +1193,7 @@ def compute_flow_state(
         ambiguities=ambiguities,
         next_step=next_step,
         evidence_summary=_evidence_summary(evidence, milestones, reviews),
+        yolo_runs=yolo_runs,
     )
 
     if write_resume:

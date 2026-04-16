@@ -104,6 +104,22 @@ cleanup) is complete. This file covers Phase 2 (core runtime) through Phase 7.
 - [x] T037 RED: Write tests for CLI arg parsing — `start`, `next`, `resume`, `status`, `recover`, `cancel`, `list` subcommands
 - [x] T038 GREEN: Implement `cli_main(argv) → int`
 
+**Checkpoint**: CLI works for standalone mode. All subcommands dispatch correctly.
+
+---
+
+## Phase 7: Command Stub and Registration
+
+**Purpose**: Register yolo in the extension and create command stub.
+
+- [x] T039 Create `commands/yolo.md` stub (prompt body deferred per runtime-plan)
+- [x] T040 Register `speckit.orca.yolo` in `extension.yml`
+- [x] T041 Verify all existing tests still pass after the runtime lands — 249/249 passed
+
+**Checkpoint**: 009 runtime is integrated into Orca's command surface.
+
+---
+
 ### Post-cross-review BLOCKER fixes (codex cross-pass 2026-04-16)
 
 - [x] T042 Add `next_run()` — the authoritative driver loop with `--result success/failure/blocked`
@@ -126,19 +142,45 @@ cleanup) is complete. This file covers Phase 2 (core runtime) through Phase 7.
 
 - [x] T054 Reconcile `context_handoffs.py:CANONICAL_STAGE_IDS` with 012/009 vocabulary. Added `clarify`, `review-spec`, `review-code`, `pr-ready`, `pr-create`, `review-pr`. Legacy 006 names (self-review, code-review, cross-review, pr-review) kept for backward compat so pre-012 handoffs still parse. Updated `TRANSITION_ORDER`, `TRANSITION_REQUIRED_INPUTS`, and `_embedded_search_paths` for the new stages. Added cross-module invariant test: `set(yolo.STAGES) ⊆ set(context_handoffs.CANONICAL_STAGE_IDS)`.
 
-**Checkpoint**: CLI works for standalone mode. All subcommands dispatch correctly.
+---
+
+## Phase 8: flow-state Integration (PR C from runtime-plan §13)
+
+**Purpose**: Make yolo runs visible through the "state" primitive. flow_state
+should discover active runs under `.specify/orca/yolo/runs/*` and report them
+as part of the per-feature view.
+
+**Branch**: `009-yolo-integrations` (continuation of 009, not a new spec)
+
+- [x] T055 RED: Tests for `YoloRunSummary` dataclass and `list_yolo_runs_for_feature(repo_root, feature_id)` — finds all runs whose RUN_STARTED event carries the feature_id, returns summaries
+- [x] T056 GREEN: Implement `YoloRunSummary` + `list_yolo_runs_for_feature` in `src/speckit_orca/flow_state.py`
+- [x] T057 RED: Tests that `FlowStateResult.yolo_runs` is populated when a run exists for the feature; empty list otherwise
+- [x] T058 GREEN: Add `yolo_runs: list[YoloRunSummary]` field to `FlowStateResult`; populate in `compute_flow_state`
+- [x] T059 GREEN: Update `to_dict` and `to_text` to surface yolo run status in output
+- [x] T060 Verify: canceled/failed/completed yolo runs report their terminal state correctly
+
+**Checkpoint**: `uv run python -m speckit_orca.flow_state specs/NNN-feature --format json` includes `yolo_runs` with current stage/outcome.
 
 ---
 
-## Phase 7: Command Stub and Registration
+## Phase 9: matriarch Supervised Mode (PR D from runtime-plan §13)
 
-**Purpose**: Register yolo in the extension and create command stub.
+**Purpose**: In `matriarch-supervised` mode, yolo events dual-write to the
+lane mailbox, matriarch consumes yolo events to update lane state, and
+`resume_run` consults the lane registry before acting on local state alone
+(per 009 FR-018).
 
-- [x] T039 Create `commands/yolo.md` stub (prompt body deferred per runtime-plan)
-- [x] T040 Register `speckit.orca.yolo` in `extension.yml`
-- [x] T041 Verify all existing tests still pass after the runtime lands — 249/249 passed
+- [x] T061 RED: Test for `append_event` dual-write — supervised mode events land in matriarch's inbound mailbox
+- [x] T062 GREEN: Implement dual-write via `_mirror_event_to_matriarch`; `_YOLO_TO_MATRIARCH_TYPE` maps 9 yolo event types to matriarch's `status`/`blocker`/`question` vocabulary
+- [x] T063 RED: Test `append_event` never raises when lane not registered
+- [x] T064 GREEN: Graceful degradation via `try/except Exception` in mirror path. Yolo event log is always authoritative.
+- [x] T065/T067 Matriarch consumer: NO new code needed. Existing `list_mailbox_events` / `summarize_lane` reads show yolo events alongside operator events. Readiness aggregation derives from mailbox + reports.
+- [x] T069 RED: Test `resume_run` raises ValueError when lane owner reassigned
+- [x] T070 GREEN: Added `_check_lane_ownership_unchanged` helper; `resume_run` calls it in supervised mode. Standalone mode skipped. `recover_run` bypasses the check (explicit operator override).
 
-**Checkpoint**: 009 runtime is integrated into Orca's command surface.
+**Checkpoint**: Supervised-mode yolo run with a matriarch lane shows
+coherent state across both subsystems; resume is safe across ownership
+changes.
 
 ---
 
@@ -147,18 +189,22 @@ cleanup) is complete. This file covers Phase 2 (core runtime) through Phase 7.
 ### Phase Dependencies
 
 - **Phase 1** (Contract Alignment): Complete ✓
-- **Phase 2** (Event System): Can start immediately
-- **Phase 3** (Reducer): Depends on Phase 2 (needs Event dataclass)
-- **Phase 4** (Decision Logic): Depends on Phase 3 (needs RunState)
-- **Phase 5** (Run Lifecycle): Depends on Phases 2-4 (needs events, reducer, decisions)
-- **Phase 6** (CLI): Depends on Phase 5 (needs lifecycle functions)
-- **Phase 7** (Registration): Depends on Phase 6
+- **Phase 2** (Event System): Complete ✓
+- **Phase 3** (Reducer): Complete ✓ — depends on Phase 2 (Event dataclass)
+- **Phase 4** (Decision Logic): Complete ✓ — depends on Phase 3 (RunState)
+- **Phase 5** (Run Lifecycle): Complete ✓ — depends on Phases 2-4
+- **Phase 6** (CLI): Complete ✓ — depends on Phase 5
+- **Phase 7** (Command Stub + Registration): Complete ✓ — depends on Phase 6
+- **Phase 8** (flow-state Integration, PR C): Complete ✓ — depends on Phase 5
+- **Phase 9** (matriarch Supervised Mode, PR D): Complete ✓ — depends on Phase 5 + 010 lane/mailbox contracts
 
 ### Parallel Opportunities
 
 - T002-T005 and T007 ran in parallel (Phase 1) ✓
 - T031-T034 can run in parallel (cancel and status are independent)
 - T010 and T014 can overlap if Event dataclass is extracted early
+- Phases 8 and 9 shipped together in a single PR (`009-yolo-integrations`)
+  since they share event data, though they could have been separated
 
 ### TDD Execution Rule
 
@@ -169,9 +215,8 @@ and verified failing FIRST. No production code without a failing test.
 
 ## Out of Scope (Deferred to Later PRs)
 
-- Flow-state integration (PR C)
-- Matriarch supervised mode and dual-write (PR D)
-- Worktree lifecycle (PR E)
-- Command prompt body (PR F)
-- Cross-pass routing via 012 policy
-- Spec-lite as start artifact
+- Worktree lifecycle + head_commit_sha drift detection (PR E)
+- Full operator-facing prompt body in `commands/yolo.md` (PR F)
+- Tasks reconciliation pass (PR G)
+- Stale-run threshold warnings (3d/7d) in `resume_run`
+- Spec-lite as a valid start artifact (permanently out of scope in v1)

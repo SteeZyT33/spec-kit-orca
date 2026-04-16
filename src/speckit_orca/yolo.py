@@ -190,11 +190,168 @@ def _events_path(repo_root: Path, run_id: str) -> Path:
 
 
 def append_event(repo_root: Path, run_id: str, event: Event) -> None:
-    """Append an event to the run's JSONL log. UTF-8 encoded."""
+    """Append an event to the run's JSONL log. UTF-8 encoded.
+
+    In matriarch-supervised mode (event.lane_id is not None), also mirrors
+    the event to matriarch per runtime-plan §11 dual-write, routing by
+    event type per 010 contracts:
+      - RUN_STARTED → report queue as startup ACK (via emit_startup_ack)
+      - BLOCK / STAGE_FAILED → mailbox as "blocker"
+      - DECISION_REQUIRED → mailbox as "question" or "approval_needed"
+      - STAGE_ENTERED / CROSS_PASS_* / UNBLOCK / TERMINAL → report queue
+
+    Mirror failures are recorded via a sync-failure marker file so the
+    next load_events() can reflect `matriarch_sync_failed=True`. The yolo
+    event log is still the authoritative record of yolo state; marking
+    the failure lets operators detect lost matriarch visibility.
+
+    Raises ValueError if event.lane_id is an empty string — supervised
+    runs must carry a valid lane_id, not a falsy empty one (which would
+    otherwise silently degrade to standalone behavior since `if ""` is
+    False).
+    """
+    if event.lane_id == "":
+        raise ValueError(
+            "event.lane_id must be None (standalone) or a non-empty string "
+            "(matriarch-supervised). Empty string is not valid."
+        )
+
     path = _events_path(repo_root, run_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "a", encoding="utf-8") as f:
         f.write(event.to_json() + "\n")
+
+    if event.lane_id is not None:
+        _mirror_event_to_matriarch(repo_root, event)
+
+
+# Event routing per 010 contracts:
+#   "report" → append_report_event (status/progress queue)
+#   "blocker" / "question" / "approval_needed" → send_mailbox_event
+#   "startup_ack" → emit_startup_ack
+# Events not in this map are NOT mirrored (internal transitions only).
+_YOLO_MIRROR_ROUTE: dict[EventType, tuple[str, str]] = {
+    EventType.RUN_STARTED: ("startup_ack", "ack"),
+    EventType.STAGE_ENTERED: ("report", "status"),
+    EventType.STAGE_FAILED: ("mailbox", "blocker"),
+    EventType.BLOCK: ("mailbox", "blocker"),
+    EventType.UNBLOCK: ("report", "status"),
+    EventType.DECISION_REQUIRED: ("mailbox", "decision_required"),  # resolved below
+    EventType.CROSS_PASS_REQUESTED: ("report", "status"),
+    EventType.CROSS_PASS_COMPLETED: ("report", "status"),
+    EventType.TERMINAL: ("report", "status"),
+}
+
+# Review-gate stages where a DECISION_REQUIRED means an approval is needed
+# (as opposed to a clarification question).
+_APPROVAL_STAGES = frozenset({"review-spec", "review-code", "pr-create"})
+
+
+def _sync_failed_marker(repo_root: Path, run_id: str) -> Path:
+    return _run_dir(repo_root, run_id) / ".matriarch_sync_failed"
+
+
+def _resolve_decision_required_type(event: Event) -> str:
+    """Differentiate question vs approval_needed.
+
+    Review gates (review-spec, review-code, pr-create) require approval.
+    Everything else is a clarification question.
+    """
+    stage = event.from_stage or event.to_stage
+    if stage in _APPROVAL_STAGES:
+        return "approval_needed"
+    return "question"
+
+
+def _mirror_event_to_matriarch(repo_root: Path, event: Event) -> None:
+    """Mirror a yolo event to matriarch via the correct 010 channel.
+
+    Identity: sender = 'lane_agent:<lane_id>' per event-envelope.md:21.
+    Channels:
+      - report queue for status/progress
+      - mailbox for blocker/question/approval_needed
+      - startup ACK for RUN_STARTED
+    """
+    route = _YOLO_MIRROR_ROUTE.get(event.event_type)
+    if route is None:
+        return
+    channel, matriarch_type = route
+
+    try:
+        from speckit_orca.matriarch import (
+            append_report_event,
+            emit_startup_ack,
+            send_mailbox_event,
+        )
+    except ImportError as exc:
+        # In supervised mode, a matriarch import failure is a real lost-
+        # visibility event, not just "skip quietly." Record it.
+        marker = _sync_failed_marker(repo_root, event.run_id)
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(
+            f"ImportError: speckit_orca.matriarch not importable: {exc}\n",
+            encoding="utf-8",
+        )
+        return
+
+    sender = f"lane_agent:{event.lane_id}"
+    payload = {
+        "yolo_event_id": event.event_id,
+        "yolo_run_id": event.run_id,
+        "yolo_event_type": event.event_type.value,
+        "from_stage": event.from_stage,
+        "to_stage": event.to_stage,
+        "reason": event.reason,
+        "evidence": event.evidence,
+    }
+
+    try:
+        if channel == "startup_ack":
+            emit_startup_ack(
+                event.lane_id,  # type: ignore[arg-type]
+                repo_root=repo_root,
+                sender=sender,
+                context_refs=[f"yolo:{event.run_id}"],
+            )
+        elif channel == "report":
+            append_report_event(
+                event.lane_id,  # type: ignore[arg-type]
+                repo_root=repo_root,
+                sender=sender,
+                recipient="matriarch",
+                event_type=matriarch_type,
+                payload=payload,
+            )
+        elif channel == "mailbox":
+            resolved_type = (
+                _resolve_decision_required_type(event)
+                if event.event_type == EventType.DECISION_REQUIRED
+                else matriarch_type
+            )
+            send_mailbox_event(
+                event.lane_id,  # type: ignore[arg-type]
+                repo_root=repo_root,
+                direction="to_matriarch",
+                sender=sender,
+                recipient="matriarch",
+                event_type=resolved_type,
+                payload=payload,
+            )
+        # Clear any prior sync-failed marker on successful mirror
+        marker = _sync_failed_marker(repo_root, event.run_id)
+        if marker.exists():
+            marker.unlink()
+    except Exception as exc:
+        # Record the failure as a marker file so the reducer can pick
+        # it up on next reduce() and surface matriarch_sync_failed=True.
+        marker = _sync_failed_marker(repo_root, event.run_id)
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(f"{type(exc).__name__}: {exc}\n", encoding="utf-8")
+
+
+def sync_failed(repo_root: Path, run_id: str) -> bool:
+    """Return True if a matriarch mirror write failed since the last successful one."""
+    return _sync_failed_marker(repo_root, run_id).exists()
 
 
 def load_events(repo_root: Path, run_id: str) -> list[Event]:
@@ -256,6 +413,10 @@ class RunState:
     last_mailbox_event_id: str | None
     # Retry tracking per-stage (orchestration-policies default: 2 attempts)
     retry_counts: dict[str, int]
+    # True when a supervised-mode dual-write to matriarch has failed and
+    # has not been repaired. A supervised run with this flag set is NOT
+    # safe to treat as healthy — matriarch visibility has been lost.
+    matriarch_sync_failed: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -355,6 +516,7 @@ def reduce(events: list[Event]) -> RunState:
         mailbox_path=None,
         last_mailbox_event_id=None,
         retry_counts={},
+        matriarch_sync_failed=False,
     )
 
     terminated = False
@@ -629,6 +791,7 @@ def _write_snapshot(repo_root: Path, run_id: str, state: RunState) -> None:
         "mailbox_path": state.mailbox_path,
         "last_mailbox_event_id": state.last_mailbox_event_id,
         "retry_counts": state.retry_counts,
+        "matriarch_sync_failed": state.matriarch_sync_failed,
     }
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
@@ -724,24 +887,92 @@ def start_run(
     append_event(repo_root, run_id, event)
 
     # Write initial snapshot
-    state = reduce(load_events(repo_root, run_id))
+    _, state = _load_state(repo_root, run_id)
     _write_snapshot(repo_root, run_id, state)
 
     return run_id
 
 
-def resume_run(repo_root: Path, run_id: str) -> Decision:
-    """Resume a run from its event log. Returns the current Decision."""
+def _load_state(repo_root: Path, run_id: str) -> tuple[list[Event], RunState]:
+    """Load events, reduce, and stamp matriarch_sync_failed from marker file.
+
+    Used by all state-reading paths so the supervision-failure flag is
+    visible everywhere state is observed.
+    """
     events = load_events(repo_root, run_id)
     if not events:
         raise ValueError(f"No events found for run {run_id}")
-
     state = reduce(events)
+    state.matriarch_sync_failed = sync_failed(repo_root, run_id)
+    return events, state
+
+
+def resume_run(repo_root: Path, run_id: str) -> Decision:
+    """Resume a run from its event log. Returns the current Decision.
+
+    In matriarch-supervised mode, consults matriarch's lane registry
+    per FR-018. If the lane owner has changed since the run started,
+    resume refuses with ValueError. Operator must explicitly override
+    via recover_run.
+    """
+    events, state = _load_state(repo_root, run_id)
+
+    # FR-018: supervised-mode ownership reconciliation
+    if state.mode == "matriarch-supervised" and state.lane_id:
+        _check_lane_ownership_unchanged(repo_root, run_id, state, events)
 
     # Regenerate snapshot (may have been deleted or stale)
     _write_snapshot(repo_root, run_id, state)
 
     return next_decision(state)
+
+
+def _check_lane_ownership_unchanged(
+    repo_root: Path,
+    run_id: str,
+    state: RunState,
+    events: list[Event],
+) -> None:
+    """Raise ValueError if matriarch's lane owner differs from the actor
+    recorded in the run_started event, OR if the lane is no longer
+    registered.
+
+    Per 009 FR-018: supervised-mode resume MUST consult matriarch's
+    lane registry before acting on local state alone. A missing lane is
+    a failure mode — a supervised run whose lane was deleted is NOT safe
+    to resume silently.
+    """
+    try:
+        from speckit_orca.matriarch import MatriarchError, summarize_lane
+    except ImportError as exc:
+        raise ValueError(
+            f"Cannot reconcile lane {state.lane_id} for supervised run "
+            f"{run_id}: matriarch module not importable. Use recover_run "
+            f"with confirm_reassignment=True AND a non-empty reason if "
+            f"this is intentional."
+        ) from exc
+
+    try:
+        lane = summarize_lane(state.lane_id, repo_root=repo_root)  # type: ignore[arg-type]
+    except MatriarchError as exc:
+        raise ValueError(
+            f"Cannot reconcile lane {state.lane_id} for supervised run "
+            f"{run_id}: matriarch lane registry returned error: {exc}. "
+            f"A supervised run whose lane has been unregistered is unsafe "
+            f"to resume. Use recover_run with confirm_reassignment=True "
+            f"AND a non-empty reason to override."
+        ) from exc
+
+    current_owner = lane.get("owner_id")
+    started_actor = events[0].actor
+
+    if current_owner and started_actor and current_owner != started_actor:
+        raise ValueError(
+            f"Lane {state.lane_id} was reassigned from {started_actor} to "
+            f"{current_owner} since run {run_id} started. Refusing to resume "
+            f"without explicit operator confirmation. Use recover_run with "
+            f"confirm_reassignment=True to override."
+        )
 
 
 def next_run(
@@ -851,7 +1082,7 @@ def next_run(
         )
 
     # Recompute state and return next decision
-    new_state = reduce(load_events(repo_root, run_id))
+    _, new_state = _load_state(repo_root, run_id)
     _write_snapshot(repo_root, run_id, new_state)
     return next_decision(new_state)
 
@@ -861,17 +1092,62 @@ def recover_run(
     run_id: str,
     *,
     actor: str = "claude",
+    confirm_reassignment: bool = False,
+    reason: str | None = None,
 ) -> Decision:
-    """Explicit override for stale-run warnings and head-commit drift.
+    """Explicit operator override for supervised-mode lane state changes.
 
-    Emits a `resume` event that acknowledges the operator has inspected
-    the run and explicitly approves continuing despite staleness or drift.
+    Currently gates on:
+      - matriarch lane reassigned to a different owner
+      - matriarch lane record removed (unregistered)
+
+    When either condition is detected in supervised mode, the caller MUST
+    pass `confirm_reassignment=True` AND a non-empty `reason`. This makes
+    recovery an auditable operator action, not a silent retry path.
+
+    Standalone runs and supervised runs where the lane is still owned by
+    the original actor do not require the confirmation (emits a RESUME
+    event unconditionally).
+
+    Note: stale-run thresholds and head_commit_sha drift detection are
+    DEFERRED to a future stale-detection PR per runtime-plan §10. This
+    function does not gate on those conditions today.
     """
     events = load_events(repo_root, run_id)
     if not events:
         raise ValueError(f"No events found for run {run_id}")
 
     state = reduce(events)
+
+    # In supervised mode, require explicit confirmation if the lane has
+    # actually changed. Probe the reconciliation check to find out.
+    # IMPORTANT: catch only the specific reconciliation-failure classes,
+    # not bare ValueError — otherwise a "matriarch not importable" error
+    # (also raised as ValueError) would be misclassified as "lane changed".
+    if state.mode == "matriarch-supervised" and state.lane_id:
+        reconciliation_error: Exception | None = None
+        try:
+            _check_lane_ownership_unchanged(repo_root, run_id, state, events)
+        except ValueError as exc:
+            reconciliation_error = exc
+
+        if reconciliation_error is not None:
+            if not confirm_reassignment:
+                raise ValueError(
+                    f"Supervised lane reconciliation failed for run {run_id}: "
+                    f"{reconciliation_error}. recover_run requires "
+                    f"confirm_reassignment=True AND a non-empty reason to "
+                    f"override. This gate ensures recovery is an auditable "
+                    f"operator action, not a silent retry."
+                ) from reconciliation_error
+            if not (reason and reason.strip()):
+                raise ValueError(
+                    "recover_run requires a non-empty reason when "
+                    "confirm_reassignment=True. Record why the override is "
+                    f"safe. Underlying reconciliation error: "
+                    f"{reconciliation_error}"
+                ) from reconciliation_error
+
     max_clock = max(e.lamport_clock for e in events)
 
     event = Event(
@@ -887,11 +1163,11 @@ def recover_run(
         head_commit_sha=state.head_commit_sha_at_last_event,
         from_stage=state.current_stage,
         to_stage=state.current_stage,
-        reason="operator recovery override",
+        reason=reason or "operator recovery override",
         evidence=None,
     )
     append_event(repo_root, run_id, event)
-    new_state = reduce(load_events(repo_root, run_id))
+    _, new_state = _load_state(repo_root, run_id)
     _write_snapshot(repo_root, run_id, new_state)
     return next_decision(new_state)
 
@@ -933,16 +1209,18 @@ def cancel_run(
     )
     append_event(repo_root, run_id, event)
 
-    new_state = reduce(load_events(repo_root, run_id))
+    _, new_state = _load_state(repo_root, run_id)
     _write_snapshot(repo_root, run_id, new_state)
 
 
 def run_status(repo_root: Path, run_id: str) -> RunState:
-    """Get current RunState for a run from the event log."""
-    events = load_events(repo_root, run_id)
-    if not events:
-        raise ValueError(f"No events found for run {run_id}")
-    return reduce(events)
+    """Get current RunState for a run from the event log.
+
+    The returned state reflects any matriarch sync failures via the
+    `matriarch_sync_failed` flag.
+    """
+    _, state = _load_state(repo_root, run_id)
+    return state
 
 
 def list_runs(repo_root: Path) -> list[str]:
@@ -1013,10 +1291,23 @@ def cli_main(argv: list[str] | None = None) -> int:
     # -- recover --
     p_recover = sub.add_parser(
         "recover",
-        help="Explicitly override stale-warning or head-commit drift",
+        help=(
+            "Explicitly override a supervised-mode lane reassignment or "
+            "missing-lane error. (Stale-run and head-commit drift overrides "
+            "are planned; not yet implemented — runtime-plan §10.)"
+        ),
     )
     p_recover.add_argument("run_id")
     p_recover.add_argument("--actor", default="claude")
+    p_recover.add_argument(
+        "--confirm-reassignment",
+        action="store_true",
+        help="Required if supervised-mode lane ownership has changed",
+    )
+    p_recover.add_argument(
+        "--reason", default=None,
+        help="Required with --confirm-reassignment: why the override is safe",
+    )
 
     # -- status --
     p_status = sub.add_parser("status", help="Show run status")
@@ -1085,7 +1376,12 @@ def cli_main(argv: list[str] | None = None) -> int:
 
     elif args.command == "recover":
         try:
-            decision = recover_run(root, args.run_id, actor=args.actor)
+            decision = recover_run(
+                root, args.run_id,
+                actor=args.actor,
+                confirm_reassignment=args.confirm_reassignment,
+                reason=args.reason,
+            )
             print(f"Recovered. Decision: {decision.kind}")
             if decision.next_stage:
                 print(f"Next stage: {decision.next_stage}")
