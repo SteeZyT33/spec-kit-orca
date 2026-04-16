@@ -1,23 +1,25 @@
-<p align="center">
-  <img src="https://img.shields.io/badge/v1.4.1-spec--kit--orca-blue?style=flat-square" alt="version" />
-</p>
+<div align="center">
 
-```text
-         .
-        ":"
-      ___:____     |"\/"|
-    ,'        `.    \  /
-    |  O        \___/  |
-  ~^~^~^~^~^~^~^~^~^~^~^~
+<img src="https://img.shields.io/badge/v1.4.1-spec--kit--orca-blue?style=flat-square" alt="version" />
 
-   ██████  ██████   ██████  █████
-  ██    ██ ██   ██ ██      ██   ██
-  ██    ██ ██████  ██      ███████
-  ██    ██ ██   ██ ██      ██   ██
-   ██████  ██   ██  ██████ ██   ██
+<pre>
+        .
+       ":"
+     ___:____     |"\/"|
+   ,'        `.    \  /
+   |  O        \___/  |
+ ~^~^~^~^~^~^~^~^~^~^~^~
 
-  spec-kit orchestration · orcas don't sleep
-```
+  ██████  ██████   ██████  █████
+ ██    ██ ██   ██ ██      ██   ██
+ ██    ██ ██████  ██      ███████
+ ██    ██ ██   ██ ██      ██   ██
+  ██████  ██   ██  ██████ ██   ██
+
+ spec-kit orchestration · orcas don't sleep
+</pre>
+
+</div>
 
 Orca is an add-on for Spec Kit.
 
