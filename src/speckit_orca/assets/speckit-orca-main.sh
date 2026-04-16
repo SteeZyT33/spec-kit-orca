@@ -289,7 +289,7 @@ refresh_catalog_extension() {
     echo -e "\r  ${GREEN}✓${NC} ${label}                    "
     return 0
   fi
-  echo -e "\r  ${YELLOW}!${NC} ${label} — unavailable      "
+  echo -e "\r  ${DIM}  · ${label} — not yet in catalog${NC}"
   return 1
 }
 
@@ -597,12 +597,9 @@ fi
 if [[ "$MINIMAL" == "1" ]]; then
   warn "Minimal — skipping companions"
 else
-  # Only list companions that actually exist in the community catalog.
-  # Removed: status, doctor, repoindex, speckit-utils, verify-tasks
-  # (planned but unpublished — add back when they ship).
   EXTENSIONS=(
-    superb verify reconcile
-    archive fixit ship
+    superb verify reconcile status
+    archive doctor fixit repoindex ship speckit-utils verify-tasks
   )
 
   ADDED=0 PRESENT=0 UNAVAIL=0
@@ -630,7 +627,11 @@ else
       fi
     fi
   done
-  ok "Extensions: $ADDED added, $PRESENT present, $UNAVAIL unavailable"
+  if [[ "$UNAVAIL" -gt 0 ]]; then
+    ok "Extensions: $ADDED added, $PRESENT present, ${DIM}$UNAVAIL pending catalog${NC}"
+  else
+    ok "Extensions: $ADDED added, $PRESENT present"
+  fi
 fi
 
 # ── Done ──────────────────────────────────────────────────────────────────────
