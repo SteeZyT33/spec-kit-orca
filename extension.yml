@@ -47,6 +47,10 @@ provides:
       file: "commands/matriarch.md"
       description: "Multi-lane supervisor for parallel feature work. Manages lane registry, dependency evaluation, mailbox events, and delegated tasks. Experimental in v1 — optional for single-feature workflows."
 
+    - name: "speckit.orca.yolo"
+      file: "commands/yolo.md"
+      description: "Single-lane execution runner. Event-sourced full-cycle workflow from brainstorm through PR-ready completion with durable state, resume, and bounded retry."
+
   config:
     - name: "orca-config.yml"
       template: "config-template.yml"
