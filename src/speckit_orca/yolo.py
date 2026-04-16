@@ -192,10 +192,10 @@ def _events_path(repo_root: Path, run_id: str) -> Path:
 def append_event(repo_root: Path, run_id: str, event: Event) -> None:
     """Append an event to the run's JSONL log. UTF-8 encoded.
 
-    In matriarch-supervised mode (event.lane_id is set), also mirrors the
-    event to matriarch per runtime-plan §11 dual-write, routing by event
-    type per 010 contracts:
-      - RUN_STARTED → mailbox startup ACK (lane-mailbox.md)
+    In matriarch-supervised mode (event.lane_id is not None), also mirrors
+    the event to matriarch per runtime-plan §11 dual-write, routing by
+    event type per 010 contracts:
+      - RUN_STARTED → report queue as startup ACK (via emit_startup_ack)
       - BLOCK / STAGE_FAILED → mailbox as "blocker"
       - DECISION_REQUIRED → mailbox as "question" or "approval_needed"
       - STAGE_ENTERED / CROSS_PASS_* / UNBLOCK / TERMINAL → report queue
@@ -204,13 +204,24 @@ def append_event(repo_root: Path, run_id: str, event: Event) -> None:
     next load_events() can reflect `matriarch_sync_failed=True`. The yolo
     event log is still the authoritative record of yolo state; marking
     the failure lets operators detect lost matriarch visibility.
+
+    Raises ValueError if event.lane_id is an empty string — supervised
+    runs must carry a valid lane_id, not a falsy empty one (which would
+    otherwise silently degrade to standalone behavior since `if ""` is
+    False).
     """
+    if event.lane_id == "":
+        raise ValueError(
+            "event.lane_id must be None (standalone) or a non-empty string "
+            "(matriarch-supervised). Empty string is not valid."
+        )
+
     path = _events_path(repo_root, run_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "a", encoding="utf-8") as f:
         f.write(event.to_json() + "\n")
 
-    if event.lane_id:
+    if event.lane_id is not None:
         _mirror_event_to_matriarch(repo_root, event)
 
 
@@ -272,7 +283,15 @@ def _mirror_event_to_matriarch(repo_root: Path, event: Event) -> None:
             emit_startup_ack,
             send_mailbox_event,
         )
-    except ImportError:
+    except ImportError as exc:
+        # In supervised mode, a matriarch import failure is a real lost-
+        # visibility event, not just "skip quietly." Record it.
+        marker = _sync_failed_marker(repo_root, event.run_id)
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(
+            f"ImportError: speckit_orca.matriarch not importable: {exc}\n",
+            encoding="utf-8",
+        )
         return
 
     sender = f"lane_agent:{event.lane_id}"
@@ -925,12 +944,13 @@ def _check_lane_ownership_unchanged(
     """
     try:
         from speckit_orca.matriarch import MatriarchError, summarize_lane
-    except ImportError:
+    except ImportError as exc:
         raise ValueError(
             f"Cannot reconcile lane {state.lane_id} for supervised run "
             f"{run_id}: matriarch module not importable. Use recover_run "
-            f"with explicit confirmation if this is intentional."
-        )
+            f"with confirm_reassignment=True AND a non-empty reason if "
+            f"this is intentional."
+        ) from exc
 
     try:
         lane = summarize_lane(state.lane_id, repo_root=repo_root)  # type: ignore[arg-type]
@@ -940,8 +960,8 @@ def _check_lane_ownership_unchanged(
             f"{run_id}: matriarch lane registry returned error: {exc}. "
             f"A supervised run whose lane has been unregistered is unsafe "
             f"to resume. Use recover_run with confirm_reassignment=True "
-            f"to override."
-        )
+            f"AND a non-empty reason to override."
+        ) from exc
 
     current_owner = lane.get("owner_id")
     started_actor = events[0].actor
@@ -1101,26 +1121,32 @@ def recover_run(
 
     # In supervised mode, require explicit confirmation if the lane has
     # actually changed. Probe the reconciliation check to find out.
+    # IMPORTANT: catch only the specific reconciliation-failure classes,
+    # not bare ValueError — otherwise a "matriarch not importable" error
+    # (also raised as ValueError) would be misclassified as "lane changed".
     if state.mode == "matriarch-supervised" and state.lane_id:
+        reconciliation_error: Exception | None = None
         try:
             _check_lane_ownership_unchanged(repo_root, run_id, state, events)
-            lane_changed = False
-        except ValueError:
-            lane_changed = True
+        except ValueError as exc:
+            reconciliation_error = exc
 
-        if lane_changed and not confirm_reassignment:
-            raise ValueError(
-                f"Lane {state.lane_id} reassignment or removal detected for "
-                f"run {run_id}. recover_run requires confirm_reassignment=True "
-                f"and a non-empty reason when the matriarch lane state has "
-                f"changed. This gate ensures recovery is an auditable "
-                f"operator action, not a silent retry."
-            )
-        if lane_changed and not (reason and reason.strip()):
-            raise ValueError(
-                "recover_run requires a non-empty reason when "
-                "confirm_reassignment=True. Record why the override is safe."
-            )
+        if reconciliation_error is not None:
+            if not confirm_reassignment:
+                raise ValueError(
+                    f"Supervised lane reconciliation failed for run {run_id}: "
+                    f"{reconciliation_error}. recover_run requires "
+                    f"confirm_reassignment=True AND a non-empty reason to "
+                    f"override. This gate ensures recovery is an auditable "
+                    f"operator action, not a silent retry."
+                ) from reconciliation_error
+            if not (reason and reason.strip()):
+                raise ValueError(
+                    "recover_run requires a non-empty reason when "
+                    "confirm_reassignment=True. Record why the override is "
+                    f"safe. Underlying reconciliation error: "
+                    f"{reconciliation_error}"
+                ) from reconciliation_error
 
     max_clock = max(e.lamport_clock for e in events)
 

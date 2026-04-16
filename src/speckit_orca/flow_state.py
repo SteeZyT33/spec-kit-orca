@@ -152,7 +152,6 @@ class FeatureEvidence:
     review_evidence: ReviewEvidence
     linked_brainstorms: list[Path]
     worktree_lanes: list[WorktreeLane]
-    yolo_runs: list[YoloRunSummary] = field(default_factory=list)
     ambiguities: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
@@ -1107,9 +1106,10 @@ def list_yolo_runs_for_feature(
 ) -> list[YoloRunSummary]:
     """Find all yolo runs whose RUN_STARTED event carries `feature_id`.
 
-    Reads from `.specify/orca/yolo/runs/*/events.jsonl`. Returns empty list
-    if no runs directory exists or no matching runs found. Gracefully handles
-    missing status.json by replaying events.
+    Discovers runs by replaying `.specify/orca/yolo/runs/*/events.jsonl`.
+    Returns empty list if no runs directory exists or no matching runs
+    are found. status.json is not consulted — the event log is
+    authoritative, and status.json is only a derived snapshot.
     """
     if repo_root is None:
         return []
@@ -1125,10 +1125,9 @@ def list_yolo_runs_for_feature(
         return []
 
     try:
-        from speckit_orca.yolo import sync_failed as _sync_failed
+        from speckit_orca.yolo import EventType, sync_failed as _sync_failed
     except ImportError:
-        def _sync_failed(*_args, **_kwargs) -> bool:  # type: ignore[misc]
-            return False
+        return []
 
     summaries: list[YoloRunSummary] = []
     for run_dir in sorted(runs_dir.iterdir()):
@@ -1141,7 +1140,14 @@ def list_yolo_runs_for_feature(
             events = load_events(repo_root, run_dir.name)
             if not events:
                 continue
-            if events[0].feature_id != feature_id:
+            # Explicitly locate RUN_STARTED instead of assuming events[0]
+            # is it. Sort order usually guarantees it, but a corrupted log
+            # with bad lamport clocks could put another event first.
+            started = next(
+                (e for e in events if e.event_type == EventType.RUN_STARTED),
+                None,
+            )
+            if started is None or started.feature_id != feature_id:
                 continue
             state = reduce(events)
         except (ValueError, KeyError, OSError):
