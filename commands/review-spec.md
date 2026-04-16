@@ -1,9 +1,9 @@
 ---
 description: Cross-only adversarial review of a clarified spec. Validates cross-spec consistency, feasibility, security implications, dependency risks, and industry patterns against the feature's spec.md.
 handoffs:
-  - label: Continue To Plan
-    agent: speckit.plan
-    prompt: Spec review passed — proceed to implementation planning
+  - label: Revise The Spec
+    agent: speckit.specify
+    prompt: Spec review found issues — revise the spec before planning
 ---
 
 ## User Input
@@ -42,7 +42,7 @@ self-pass — spec review is adversarial by design.
    - Dependency risks (upstream contracts consumed, downstream impact)
    - Industry patterns (are there better-known approaches?)
 4. Write findings to `<feature-dir>/review-spec.md`.
-5. Report verdict: `pass`, `needs-revision`, or `blocked`.
+5. Report verdict: `ready`, `needs-revision`, or `blocked`.
 
 ## Guardrails
 
