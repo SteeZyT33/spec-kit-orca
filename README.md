@@ -1,5 +1,22 @@
 # Orca
 
+```
+        .
+       ":"
+     ___:____     |"\/"|
+   ,'        `.    \  /
+   |  O        \___/  |
+ ~^~^~^~^~^~^~^~^~^~^~^~
+
+  ██████  ██████   ██████  █████
+ ██    ██ ██   ██ ██      ██   ██
+ ██    ██ ██████  ██      ███████
+ ██    ██ ██   ██ ██      ██   ██
+  ██████  ██   ██  ██████ ██   ██
+
+ spec-kit orchestration
+```
+
 Orca is an add-on for Spec Kit.
 
 It keeps more of the workflow in the repo instead of in chat history: idea
