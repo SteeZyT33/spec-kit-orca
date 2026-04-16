@@ -634,6 +634,109 @@ else
   fi
 fi
 
+# ── 5. Generate skills for the active harness ────────────────────────────────
+# Spec-kit's integration system generates skills for built-in commands but
+# does not auto-generate skills for extension commands. This step reads
+# each command from the installed orca extension and writes a SKILL.md
+# wrapper into the harness-specific skills directory.
+
+generate_extension_skills() {
+  local ext_commands=".specify/extensions/orca/commands"
+  local integration=""
+
+  # Detect active integration
+  if [[ -f ".specify/init-options.json" ]]; then
+    integration=$(python3 -c "import json; print(json.load(open('.specify/init-options.json')).get('integration',''))" 2>/dev/null || true)
+  fi
+  [[ -z "$integration" ]] && integration="$PRIMARY"
+
+  [[ -d "$ext_commands" ]] || return 0
+
+  # Single Python call generates all skill files at once
+  local result
+  result=$(python3 - "$ext_commands" "$integration" "$FORCE" <<'SKILL_GEN'
+import json, os, pathlib, re, sys
+
+commands_dir = pathlib.Path(sys.argv[1])
+integration = sys.argv[2]
+force = sys.argv[3] == "1"
+
+# Map integration to skills directory + extra frontmatter
+if integration == "claude":
+    skills_dir = pathlib.Path(".claude/skills")
+    extra_fm = "user-invocable: true\ndisable-model-invocation: true\n"
+else:
+    skills_dir = pathlib.Path(".agents/skills")
+    extra_fm = ""
+
+generated = 0
+skipped = 0
+
+for cmd_file in sorted(commands_dir.glob("*.md")):
+    base = cmd_file.stem
+    skill_name = f"speckit-orca-{base}"
+    skill_dir = skills_dir / skill_name
+
+    if skill_dir.exists() and not force:
+        skipped += 1
+        continue
+
+    text = cmd_file.read_text(encoding="utf-8")
+
+    # Extract description from YAML frontmatter
+    description = ""
+    body = text
+    m = re.match(r"^---\n(.*?)\n---\n?", text, re.DOTALL)
+    if m:
+        for line in m.group(1).splitlines():
+            if line.startswith("description:"):
+                description = line[len("description:"):].strip().strip("\"'")
+                break
+        body = text[m.end():]
+
+    if not description:
+        description = f"Spec-kit workflow command: {skill_name}"
+
+    # Escape single quotes in description for YAML
+    safe_desc = description.replace("'", "''")
+
+    skill_dir.mkdir(parents=True, exist_ok=True)
+
+    frontmatter = (
+        f"---\n"
+        f"name: {skill_name}\n"
+        f"description: '{safe_desc}'\n"
+        f"compatibility: Requires spec-kit project structure with .specify/ directory\n"
+        f"metadata:\n"
+        f"  author: github-spec-kit\n"
+        f"  source: orca:commands/{base}.md\n"
+        f"{extra_fm}"
+        f"---\n"
+    )
+
+    (skill_dir / "SKILL.md").write_text(frontmatter + "\n" + body, encoding="utf-8")
+    generated += 1
+
+# Output counts as "generated:skipped:dir"
+print(f"{generated}:{skipped}:{skills_dir}")
+SKILL_GEN
+  ) || true
+
+  if [[ -n "$result" ]]; then
+    local gen skip sdir
+    IFS=: read -r gen skip sdir <<< "$result"
+    if [[ "$gen" -gt 0 || "$skip" -gt 0 ]]; then
+      if [[ "$skip" -gt 0 ]]; then
+        ok "Skills: $gen generated, $skip present (${sdir})"
+      else
+        ok "Skills: $gen generated (${sdir})"
+      fi
+    fi
+  fi
+}
+
+generate_extension_skills
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo ""
 echo -e "  ${BOLD}Agents:${NC} ${AGENTS[*]}"
