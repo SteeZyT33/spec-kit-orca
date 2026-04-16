@@ -22,6 +22,7 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 DIM='\033[2m'
 BOLD='\033[1m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
 ok()   { echo -e "  ${GREEN}✓${NC} $1"; }
@@ -517,8 +518,21 @@ if [[ ${#AGENTS[@]} -eq 0 ]]; then
 fi
 
 echo ""
-echo -e "  ${BOLD}speckit-orca${NC}"
-echo "  ──────────────────"
+echo -e "  ${CYAN}        .${NC}"
+echo -e "  ${CYAN}       \":\"${NC}"
+echo -e "  ${CYAN}     ___:____     |\"\\\/\"|${NC}"
+echo -e "  ${CYAN}   ,'        \`.    \\  /${NC}"
+echo -e "  ${CYAN}   |  O        \\___/  |${NC}"
+echo -e "  ${CYAN} ~^~^~^~^~^~^~^~^~^~^~^~${NC}"
+echo ""
+echo -e "  ${BOLD} ██████  ██████   ██████  █████${NC}"
+echo -e "  ${BOLD}██    ██ ██   ██ ██      ██   ██${NC}"
+echo -e "  ${BOLD}██    ██ ██████  ██      ███████${NC}"
+echo -e "  ${BOLD}██    ██ ██   ██ ██      ██   ██${NC}"
+echo -e "  ${BOLD} ██████  ██   ██  ██████ ██   ██${NC}"
+echo ""
+echo -e "  ${DIM}spec-kit orchestration · v${VERSION}${NC}"
+echo "  ──────────────────────────────────"
 echo ""
 
 # ── 1. Check specify CLI ─────────────────────────────────────────────────────
@@ -583,9 +597,12 @@ fi
 if [[ "$MINIMAL" == "1" ]]; then
   warn "Minimal — skipping companions"
 else
+  # Only list companions that actually exist in the community catalog.
+  # Removed: status, doctor, repoindex, speckit-utils, verify-tasks
+  # (planned but unpublished — add back when they ship).
   EXTENSIONS=(
-    superb verify reconcile status
-    archive doctor fixit repoindex ship speckit-utils verify-tasks
+    superb verify reconcile
+    archive fixit ship
   )
 
   ADDED=0 PRESENT=0 UNAVAIL=0
