@@ -333,155 +333,83 @@ class TestSpecKitLoadFeatureFullTree:
 
 
 class TestSpecKitLoadFeatureMatchesLegacy:
-    def test_spec_kit_load_feature_matches_legacy(self, tmp_path: Path):
-        """T016 parity gate.
+    """T016 parity gate — golden-snapshot edition.
 
-        Builds a realistic fixture (spec + plan + tasks + three review files
-        + brainstorm.md + registered worktree lane), runs both the legacy
-        code path (`collect_feature_evidence`) and the adapter, then asserts
-        field-by-field equality on every FeatureEvidence field.
-        """
-        from dataclasses import asdict
+    The prior iteration of this test compared `SpecKitAdapter` against
+    `collect_feature_evidence`, but after Phase C both sides are adapter
+    code, so the equality proved self-consistency rather than legacy
+    parity. This version pins the pre-refactor (commit 7510fc1) JSON
+    output of `compute_flow_state` as a golden snapshot per fixture and
+    asserts the current code path reproduces it byte-for-byte after
+    path normalization.
 
-        from speckit_orca.flow_state import collect_feature_evidence
-        from speckit_orca.sdd_adapter import FeatureHandle, SpecKitAdapter
+    Snapshots and fixture trees live under
+    `tests/fixtures/flow_state_snapshots/<feature_id>/`:
+      - `fixture/specs/<feature_id>/...` — frozen copy of the feature
+        directory as it existed at 7510fc1
+      - `fixture/.specify/`              — repo-root anchor
+      - `golden.json`                    — pre-refactor CLI output with
+        absolute paths replaced by `<FIXTURE_ROOT>`
+    """
 
-        repo_root = tmp_path
-        (repo_root / ".specify").mkdir()
-        feature_dir = repo_root / "specs" / "007-parity-check"
+    SNAPSHOTS_ROOT = (
+        Path(__file__).parent / "fixtures" / "flow_state_snapshots"
+    )
 
-        _write(
-            feature_dir / "spec.md",
-            "\n".join(
-                [
-                    "# Spec",
-                    "",
-                    "## Clarifications",
-                    "",
-                    "### Session 2026-04-10",
-                    "- Q: something? → A: yes.",
-                    "",
-                ]
-            ),
+    SNAPSHOT_FEATURES = [
+        "009-orca-yolo",
+        "010-orca-matriarch",
+        "015-brownfield-adoption",
+        "005-orca-flow-state",
+    ]
+
+    @staticmethod
+    def _normalize_paths(obj, fixture_root: Path):
+        root_str = str(fixture_root)
+        if isinstance(obj, str):
+            return obj.replace(root_str, "<FIXTURE_ROOT>")
+        if isinstance(obj, list):
+            return [
+                TestSpecKitLoadFeatureMatchesLegacy._normalize_paths(
+                    x, fixture_root
+                )
+                for x in obj
+            ]
+        if isinstance(obj, dict):
+            return {
+                k: TestSpecKitLoadFeatureMatchesLegacy._normalize_paths(
+                    v, fixture_root
+                )
+                for k, v in obj.items()
+            }
+        return obj
+
+    @pytest.mark.parametrize("feature_id", SNAPSHOT_FEATURES)
+    def test_compute_flow_state_matches_golden(self, feature_id: str):
+        from speckit_orca.flow_state import compute_flow_state
+
+        snapshot_dir = self.SNAPSHOTS_ROOT / feature_id
+        fixture_root = (snapshot_dir / "fixture").resolve()
+        feature_dir = fixture_root / "specs" / feature_id
+        golden_path = snapshot_dir / "golden.json"
+
+        assert fixture_root.is_dir(), (
+            f"missing fixture tree for {feature_id}: {fixture_root}"
         )
-        _write(feature_dir / "plan.md", "# Plan\n")
-        _write(
-            feature_dir / "tasks.md",
-            "\n".join(
-                [
-                    "# Tasks",
-                    "",
-                    "## Phase A",
-                    "",
-                    "- [x] T001 first done",
-                    "- [ ] T002 [@agent-pm] second",
-                    "- [ ] T003 third",
-                    "",
-                    "## Phase B",
-                    "",
-                    "- [x] T004 another done [@agent-dev]",
-                    "",
-                ]
-            ),
-        )
-        _write(
-            feature_dir / "review-spec.md",
-            "\n".join(
-                [
-                    "# Review spec",
-                    "- status: ready",
-                    "- Clarify session: 2026-04-10",
-                    "",
-                    "## Cross Pass (primary)",
-                    "body",
-                    "",
-                ]
-            ),
-        )
-        _write(
-            feature_dir / "review-code.md",
-            "\n".join(
-                [
-                    "# Review code",
-                    "- status: ready-for-pr",
-                    "",
-                    "## Phase A Self Pass (primary)",
-                    "body",
-                    "",
-                    "## Phase A Cross Pass (reviewer)",
-                    "body",
-                    "",
-                    "## Overall Verdict",
-                    "LGTM",
-                    "",
-                ]
-            ),
-        )
-        _write(
-            feature_dir / "review-pr.md",
-            "\n".join(
-                [
-                    "# Review PR",
-                    "- status: merged",
-                    "",
-                    "## Retro Note",
-                    "fine",
-                    "",
-                ]
-            ),
-        )
-        # Linked brainstorm reference in legacy repo-root brainstorm dir
-        _write(
-            repo_root / "brainstorm" / "idea.md",
-            "pointer at specs/007-parity-check/\n",
-        )
-        # Worktree lane registered with matching feature id
-        worktrees = repo_root / ".specify" / "orca" / "worktrees"
-        _write(
-            worktrees / "registry.json",
-            json.dumps({"lanes": ["lane-a"]}),
-        )
-        _write(
-            worktrees / "lane-a.json",
-            json.dumps(
-                {
-                    "id": "lane-a",
-                    "feature": "007-parity-check",
-                    "branch": "work/007",
-                    "status": "active",
-                    "path": "/tmp/lane-a",
-                    "task_scope": ["T001", "T002"],
-                }
-            ),
+        assert golden_path.is_file(), (
+            f"missing golden snapshot for {feature_id}: {golden_path}"
         )
 
-        # --- Legacy path ---
-        legacy = collect_feature_evidence(feature_dir, repo_root=repo_root)
+        golden = json.loads(golden_path.read_text(encoding="utf-8"))
 
-        # --- Adapter path ---
-        adapter = SpecKitAdapter()
-        handle = FeatureHandle(
-            feature_id="007-parity-check",
-            display_name="007-parity-check",
-            root_path=feature_dir.resolve(),
-            adapter_name="spec-kit",
+        result = compute_flow_state(feature_dir, repo_root=fixture_root)
+        live = self._normalize_paths(result.to_dict(), fixture_root)
+
+        assert live == golden, (
+            f"Flow-state parity drift for {feature_id}: current output "
+            f"diverges from pre-refactor (7510fc1) golden. Regenerate "
+            f"golden only after verifying the drift is intentional."
         )
-        normalized = adapter.load_feature(handle, repo_root=repo_root)
-        ported = adapter.to_feature_evidence(normalized, repo_root=repo_root)
-
-        # Field-by-field parity on the public FeatureEvidence dataclass.
-        assert ported.feature_id == legacy.feature_id
-        assert ported.feature_dir == legacy.feature_dir
-        assert ported.repo_root == legacy.repo_root
-        assert ported.artifacts == legacy.artifacts
-        assert asdict(ported.task_summary) == asdict(legacy.task_summary)
-        assert asdict(ported.review_evidence) == asdict(legacy.review_evidence)
-        assert ported.linked_brainstorms == legacy.linked_brainstorms
-        assert [asdict(l) for l in ported.worktree_lanes] == [
-            asdict(l) for l in legacy.worktree_lanes
-        ]
-        assert ported.ambiguities == legacy.ambiguities
-        assert ported.notes == legacy.notes
 
 
 class TestSpecKitComputeStageOrder:
