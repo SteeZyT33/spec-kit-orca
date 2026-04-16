@@ -1,5 +1,5 @@
 ---
-description: PR review command that manages GitHub review feedback, comment dispositions, thread resolution, and post-merge verification after code review is complete.
+description: PR comment disposition and process retrospective. Tracks external reviewer comments, records a required retro note, and produces the final merge verdict. Last gate before merge.
 scripts:
   sh: scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks
   ps: scripts/powershell/check-prerequisites.ps1 -Json -RequireTasks -IncludeTasks

@@ -1,5 +1,22 @@
 # Orca
 
+```
+        .
+       ":"
+     ___:____     |"\/"|
+   ,'        `.    \  /
+   |  O        \___/  |
+ ~^~^~^~^~^~^~^~^~^~^~^~
+
+  ██████  ██████   ██████  █████
+ ██    ██ ██   ██ ██      ██   ██
+ ██    ██ ██████  ██      ███████
+ ██    ██ ██   ██ ██      ██   ██
+  ██████  ██   ██  ██████ ██   ██
+
+ spec-kit orchestration
+```
+
 Orca is an add-on for Spec Kit.
 
 It keeps more of the workflow in the repo instead of in chat history: idea
@@ -77,12 +94,20 @@ next-step guidance, and any blockers. Ask flow-state first when you pick
 up a feature that was worked on in another session.
 
 ```bash
+# Full-spec feature directory
 uv run python -m speckit_orca.flow_state specs/NNN-feature-name --format text
+
+# Spec-lite record (per-file)
+uv run python -m speckit_orca.flow_state .specify/orca/spec-lite/SL-001-slug.md
+
+# Adoption record (per-file)
+uv run python -m speckit_orca.flow_state .specify/orca/adopted/AR-001-slug.md
 ```
 
-Flow-state is the visible aggregator of truth. When you need a specific
-artifact (a review document, a handoff record, a lane state), flow-state
-points at it — you do not need to know which internal subsystem owns it.
+Flow-state accepts three target types: feature directories (full spec),
+spec-lite record files, and adoption record files. Each returns a view
+shape fitted to the target kind. Flow-state is the visible aggregator of
+truth — you do not need to know which internal subsystem owns an artifact.
 
 ### 3. Review — durable evidence at every gate
 

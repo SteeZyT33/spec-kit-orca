@@ -22,6 +22,7 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 DIM='\033[2m'
 BOLD='\033[1m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
 ok()   { echo -e "  ${GREEN}✓${NC} $1"; }
@@ -288,7 +289,7 @@ refresh_catalog_extension() {
     echo -e "\r  ${GREEN}✓${NC} ${label}                    "
     return 0
   fi
-  echo -e "\r  ${YELLOW}!${NC} ${label} — unavailable      "
+  echo -e "\r  ${DIM}  · ${label} — not yet in catalog${NC}"
   return 1
 }
 
@@ -517,8 +518,21 @@ if [[ ${#AGENTS[@]} -eq 0 ]]; then
 fi
 
 echo ""
-echo -e "  ${BOLD}speckit-orca${NC}"
-echo "  ──────────────────"
+echo -e "  ${CYAN}        .${NC}"
+echo -e "  ${CYAN}       \":\"${NC}"
+echo -e "  ${CYAN}     ___:____     |\"\\\/\"|${NC}"
+echo -e "  ${CYAN}   ,'        \`.    \\  /${NC}"
+echo -e "  ${CYAN}   |  O        \\___/  |${NC}"
+echo -e "  ${CYAN} ~^~^~^~^~^~^~^~^~^~^~^~${NC}"
+echo ""
+echo -e "  ${BOLD} ██████  ██████   ██████  █████${NC}"
+echo -e "  ${BOLD}██    ██ ██   ██ ██      ██   ██${NC}"
+echo -e "  ${BOLD}██    ██ ██████  ██      ███████${NC}"
+echo -e "  ${BOLD}██    ██ ██   ██ ██      ██   ██${NC}"
+echo -e "  ${BOLD} ██████  ██   ██  ██████ ██   ██${NC}"
+echo ""
+echo -e "  ${DIM}spec-kit orchestration · v${VERSION}${NC}"
+echo "  ──────────────────────────────────"
 echo ""
 
 # ── 1. Check specify CLI ─────────────────────────────────────────────────────
@@ -613,7 +627,11 @@ else
       fi
     fi
   done
-  ok "Extensions: $ADDED added, $PRESENT present, $UNAVAIL unavailable"
+  if [[ "$UNAVAIL" -gt 0 ]]; then
+    ok "Extensions: $ADDED added, $PRESENT present, ${DIM}$UNAVAIL pending catalog${NC}"
+  else
+    ok "Extensions: $ADDED added, $PRESENT present"
+  fi
 fi
 
 # ── Done ──────────────────────────────────────────────────────────────────────

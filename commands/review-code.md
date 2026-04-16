@@ -1,5 +1,5 @@
 ---
-description: Implementation review command that validates code against spec artifacts, analyzes merge readiness, and records findings before PR feedback handling begins.
+description: Self+cross code review per user-story phase. Self-pass by the implementation author, cross-pass by a different agent routed via the cross-pass tier system. Append-only across review rounds. Produces review-code.md artifact.
 scripts:
   sh: scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks
   ps: scripts/powershell/check-prerequisites.ps1 -Json -RequireTasks -IncludeTasks
@@ -8,10 +8,10 @@ handoffs:
     agent: speckit.implement
     prompt: Continue to the next implementation phase
   - label: Cross-Agent Code Review (optional)
-    agent: speckit.orca.cross-review
+    agent: speckit.orca.review-code
     prompt: Run a cross-agent adversarial review of the implemented code
   - label: PR Review
-    agent: speckit.orca.pr-review
+    agent: speckit.orca.review-pr
     prompt: Process PR comments, review threads, and post-merge checks after code review
   - label: Re-Analyze Artifacts
     agent: speckit.analyze
@@ -30,7 +30,7 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 This is the standard implementation review pass.
 
-Use `/speckit.orca.code-review` to:
+Use `/speckit.orca.review-code` to:
 
 - validate implementation against `spec.md`, `plan.md`, and `tasks.md`
 - detect merge-readiness and integration risks
@@ -40,7 +40,7 @@ Use `/speckit.orca.code-review` to:
 - refresh `FEATURE_DIR/review.md` as the summary/index layer
 
 This command does **not** own GitHub comment response workflows. External PR
-feedback is handled by `/speckit.orca.pr-review`.
+feedback is handled by `/speckit.orca.review-pr`.
 
 ## Pre-Execution Checks
 
@@ -107,7 +107,7 @@ feedback is handled by `/speckit.orca.pr-review`.
    uv run python -m speckit_orca.context_handoffs resolve \
      --feature-dir "$FEATURE_DIR" \
      --source-stage implement \
-     --target-stage code-review \
+     --target-stage review-code \
      --format json
    ```
 
@@ -295,9 +295,9 @@ This command stops at implementation review and delivery readiness.
 After `review-code.md` is written and `review.md` is refreshed:
 
 - if the code is not ready, continue implementation
-- if the code is ready for external feedback, move to `/speckit.orca.pr-review`
+- if the code is ready for external feedback, move to `/speckit.orca.review-pr`
 
-Use `/speckit.orca.pr-review` for:
+Use `/speckit.orca.review-pr` for:
 
 - PR creation/update workflow
 - external reviewer comments
@@ -329,6 +329,6 @@ After all steps complete:
    - count of auto-fixes, suggest-fixes, and flagged issues
    - path to `review-code.md`
    - path to `review.md`
-   - whether the implementation is ready for `/speckit.orca.pr-review`
+   - whether the implementation is ready for `/speckit.orca.review-pr`
 
 2. Check `.specify/extensions.yml` for `hooks.after_review` and surface any optional or mandatory hooks.
