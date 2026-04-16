@@ -12,7 +12,7 @@ set -euo pipefail
 #   speckit-orca --doctor           # Diagnose common install/config issues
 #   speckit-orca --list             # Show available agents
 
-VERSION="2.0.1"
+VERSION="2.0.2"
 ORCH_URL="https://github.com/SteeZyT33/spec-kit-orca/archive/refs/tags/v${VERSION}.zip"
 LOCAL_BIN="${HOME}/.local/bin"
 LOCAL_LINK="${LOCAL_BIN}/speckit-orca"
@@ -743,49 +743,64 @@ SKILL_GEN
 
 generate_extension_skills
 
-# ── 6. Deploy extension scripts to project-level scripts/bash/ ───────────────
-# Orca command prompts reference scripts at `scripts/bash/<name>.sh` (the
-# path that works in the orca source repo). Target projects only get scripts
-# installed under `.specify/extensions/orca/scripts/bash/`, so the commands
-# fail with "file not found". This step copies the orca-owned scripts into
-# `scripts/bash/` at the project root so the command paths resolve.
+# ── 6. Install thin wrappers for extension scripts ──────────────────────────
+# Orca command prompts reference scripts via `scripts/bash/<name>.sh` (as
+# authored in the source repo). Codex infers `.specify/scripts/bash/<name>.sh`
+# from spec-kit's canonical convention. Install thin forwarding wrappers at
+# both locations, each pointing at the single source of truth in the
+# installed extension — no file duplication, no drift risk.
 
 deploy_extension_scripts() {
   local src_dir=".specify/extensions/orca/scripts/bash"
-  local dst_dir="scripts/bash"
-
   [[ -d "$src_dir" ]] || return 0
 
-  local deployed=0 skipped=0
-  mkdir -p "$dst_dir"
+  local wrapper_dirs=("scripts/bash" ".specify/scripts/bash")
+  local total_installed=0
+  local wrapper_dir
 
-  for src in "$src_dir"/*; do
-    [[ -f "$src" ]] || continue
-    local name
-    name="$(basename "$src")"
-    local dst="${dst_dir}/${name}"
+  for wrapper_dir in "${wrapper_dirs[@]}"; do
+    mkdir -p "$wrapper_dir"
 
-    # Skip if destination exists and is identical (avoid needless re-copy)
-    if [[ -f "$dst" ]] && cmp -s "$src" "$dst"; then
-      skipped=$((skipped + 1))
-      continue
-    fi
+    # Depth from wrapper location to project root (for relative target path)
+    local prefix
+    case "$wrapper_dir" in
+      "scripts/bash")          prefix="../.." ;;
+      ".specify/scripts/bash") prefix="../../.." ;;
+      *)                       prefix="../.." ;;
+    esac
 
-    # --force overwrites; otherwise respect existing project-level files
-    if [[ -f "$dst" && "$FORCE" != "1" ]]; then
-      skipped=$((skipped + 1))
-      continue
-    fi
+    for src in "$src_dir"/*; do
+      [[ -f "$src" ]] || continue
+      local name
+      name="$(basename "$src")"
+      local wrapper="${wrapper_dir}/${name}"
 
-    cp "$src" "$dst"
-    chmod +x "$dst" 2>/dev/null || true
-    deployed=$((deployed + 1))
+      # Preserve existing non-wrapper files unless --force
+      if [[ -f "$wrapper" && "$FORCE" != "1" ]] && ! grep -q "orca-extension-wrapper" "$wrapper" 2>/dev/null; then
+        continue
+      fi
+
+      cat > "$wrapper" <<WRAPPER
+#!/usr/bin/env bash
+# orca-extension-wrapper — forwards to the installed extension's copy.
+# Single source of truth: .specify/extensions/orca/scripts/bash/${name}
+set -euo pipefail
+SCRIPT_DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+TARGET="\$SCRIPT_DIR/${prefix}/.specify/extensions/orca/scripts/bash/${name}"
+if [[ ! -f "\$TARGET" ]]; then
+  echo "orca: extension script missing — \$TARGET" >&2
+  echo "orca: run \`speckit-orca --force <harness>\` to reinstall" >&2
+  exit 1
+fi
+exec bash "\$TARGET" "\$@"
+WRAPPER
+      chmod +x "$wrapper" 2>/dev/null || true
+      total_installed=$((total_installed + 1))
+    done
   done
 
-  if [[ $deployed -gt 0 || $skipped -gt 0 ]]; then
-    if [[ $deployed -gt 0 ]]; then
-      ok "Scripts: $deployed deployed, $skipped present (${dst_dir}/)"
-    fi
+  if [[ $total_installed -gt 0 ]]; then
+    ok "Script wrappers: $total_installed installed (scripts/bash/ + .specify/scripts/bash/)"
   fi
 }
 
