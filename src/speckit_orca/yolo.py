@@ -465,7 +465,7 @@ def _track_review(
 
 
 # ---------------------------------------------------------------------------
-# Decision dataclass + next_decision() ��� runtime-plan section 8
+# Decision dataclass + next_decision() - runtime-plan section 8
 # ---------------------------------------------------------------------------
 
 
@@ -991,7 +991,7 @@ def cli_main(argv: list[str] | None = None) -> int:
         help="Result of the previous step (omit for read-only query)",
     )
     p_next.add_argument("--reason", default=None)
-    p_next.add_argument("--evidence", default=None, nargs="*")
+    p_next.add_argument("--evidence", action="append", default=[])
     p_next.add_argument("--actor", default="claude")
     p_next.add_argument("--sha", default="")
 

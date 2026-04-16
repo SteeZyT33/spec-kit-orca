@@ -82,8 +82,8 @@ cleanup) is complete. This file covers Phase 2 (core runtime) through Phase 7.
 
 - [x] T025 RED: Write tests for `start_run()` — creates run directory, emits `run_started` event, records mode/policies, rejects excluded start artifacts (spec-lite, adoption records)
 - [x] T026 GREEN: Implement `start_run()`
-- [x] T027 RED: Write tests for `resume_run()` — replays event log, reconciles with status.json snapshot, detects head_commit_sha drift, detects stale runs (configurable thresholds: 3d claimed / 7d in-progress)
-- [x] T028 GREEN: Implement `resume_run()`
+- [x] T027 RED: Write tests for `resume_run()` — replays event log, regenerates status.json snapshot if missing. (Drift detection and stale-threshold tests are DEFERRED to the stale-detection PR; what shipped here is replay + snapshot reconciliation only.)
+- [x] T028 GREEN: Implement `resume_run()` — event log replay + snapshot regeneration. Head-commit drift detection and stale thresholds (3d/7d) are DEFERRED to the stale-detection PR, not shipped in this PR.
 - [ ] T029 RED: Write tests for `recover_run()` — explicit override of stale warning (deferred to stale-detection PR)
 - [ ] T030 GREEN: Implement `recover_run()` (deferred to stale-detection PR)
 - [x] T031 [P] RED: Write tests for `cancel_run()` — emits terminal event, no further events allowed

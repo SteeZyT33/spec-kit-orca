@@ -132,14 +132,29 @@ feedback is handled by `/speckit.orca.review-pr`.
    a complete review-code artifact per 012. Skipping this step produces an
    incomplete artifact and is a contract violation.
 
-   a. Detect the active (author) agent from `.specify/init-options.json`.
-      If unavailable, fall back to the value of the `$CLAUDE_ACTIVE_AGENT`
-      environment variable or default to `claude`.
-
-   b. Select the cross-pass agent using matriarch's routing:
+   a. Detect and export the active (author) agent. Prefer
+      `.specify/init-options.json`, then the `$ORCA_ACTIVE_AGENT` env var
+      (same convention as `scripts/bash/crossreview.sh`), then default to
+      `claude`:
 
       ```bash
-      CROSS_AGENT=$(uv run python -c "from speckit_orca.matriarch import select_cross_pass_agent; print(select_cross_pass_agent(author_agent='$ACTIVE_AGENT'))")
+      ACTIVE_AGENT=$(
+        jq -r '.agent // empty' .specify/init-options.json 2>/dev/null \
+          || echo ""
+      )
+      : "${ACTIVE_AGENT:=${ORCA_ACTIVE_AGENT:-claude}}"
+      export ACTIVE_AGENT
+      ```
+
+   b. Select the cross-pass agent using matriarch's routing. Use double
+      quotes around the f-string so `$ACTIVE_AGENT` is expanded by the
+      shell before reaching Python:
+
+      ```bash
+      CROSS_AGENT=$(uv run python -c "
+      from speckit_orca.matriarch import select_cross_pass_agent
+      print(select_cross_pass_agent(author_agent='$ACTIVE_AGENT'))
+      ")
       ```
 
    c. Build the cross-pass patch file (diff of the implementation under review).

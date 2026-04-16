@@ -9,9 +9,10 @@
 
 ## PR: #49 — review-in-progress
 
-- Round 1: 9 comments (7 ADDRESSED, 1 REJECTED, 1 informational)
-- Round 2: 3 comments (3 ADDRESSED, 0 REJECTED)
-- Total across rounds: 12 dispositions
+- Round 1 (CodeRabbit): 9 comments (7 ADDRESSED, 1 REJECTED, 1 informational)
+- Round 2 (CodeRabbit): 3 comments (3 ADDRESSED)
+- Round 3 (Copilot): 5 comments (4 ADDRESSED, 1 DUPLICATE)
+- Total across rounds: 17 dispositions
 
 ## External Comment Responses
 
@@ -34,6 +35,16 @@
 | 10 | coderabbitai | `src/speckit_orca/yolo.py` | 895-898 | Actionable | ADDRESSED | `cancel_run` now raises ValueError on empty event log, consistent with resume/next/status/recover |
 | 11 | coderabbitai | `src/speckit_orca/yolo.py` | 615-632 | Nit | ADDRESSED | `_write_snapshot` now serializes `mailbox_path` and `last_mailbox_event_id` |
 | 12 | coderabbitai | `src/speckit_orca/yolo.py` | 394-412 | Nit | ADDRESSED | `retry_counts` now increments on STAGE_FAILED only (not STAGE_ENTERED). Matches orchestration-policies "2 attempts per fix-loop" semantics. Test renamed accordingly. |
+
+### Round 3 — Copilot (copilot-pull-request-reviewer[bot])
+
+| # | Reviewer | File | Line | Severity | Status | Detail |
+|---|---|---|---|---|---|---|
+| 13 | copilot | `src/speckit_orca/yolo.py` | 907 | Actionable | DUPLICATE/ADDRESSED | Already fixed by CodeRabbit round 2 in `1aaf6de` — `cancel_run` raises ValueError |
+| 14 | copilot | `src/speckit_orca/yolo.py` | 994 | Nit | ADDRESSED | `--evidence` changed from `nargs="*"` to `action="append"` for consistency with adoption.py/context_handoffs.py |
+| 15 | copilot | `src/speckit_orca/yolo.py` | 468 | Nit | ADDRESSED | Mojibake (`���`) replaced with ASCII `-` in section comment |
+| 16 | copilot | `commands/review-code.md` | 143 | Actionable | ADDRESSED | `ACTIVE_AGENT` now properly defined via jq+fallback+export, and the Python single-quote expansion works correctly (shell expands `$ACTIVE_AGENT` before Python sees it) |
+| 17 | copilot | `specs/009-orca-yolo/tasks.md` | 88 | Actionable | ADDRESSED | T027/T028 updated to reflect actual shipped scope: replay + snapshot reconciliation only. Drift detection and stale thresholds DEFERRED to stale-detection PR. |
 
 ## Checks
 
