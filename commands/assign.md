@@ -335,7 +335,7 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 ## Review Integration (Spec 001)
 
-When `/speckit.orca.code-review` runs after implementation, it can read the `[@Agent Name]` annotations in tasks.md to understand which agent was assigned to each task. This enables:
+When `/speckit.orca.review-code` runs after implementation, it can read the `[@Agent Name]` annotations in tasks.md to understand which agent was assigned to each task. This enables:
 
 - **"Don't review your own work"**: If `[@Backend Architect]` was assigned to implement a task, the review command can suggest a different agent (e.g., Security Engineer, Evidence Collector) for reviewing that task's output.
 - **Review pass matching**: The security review pass can reference whether a security specialist was assigned to security-related tasks.

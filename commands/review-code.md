@@ -1,5 +1,5 @@
 ---
-description: Implementation review command that validates code against spec artifacts, analyzes merge readiness, and records findings before PR feedback handling begins.
+description: Self+cross code review per user-story phase. Self-pass by the implementation author, cross-pass by a different agent routed via the cross-pass tier system. Append-only across review rounds. Produces review-code.md artifact.
 scripts:
   sh: scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks
   ps: scripts/powershell/check-prerequisites.ps1 -Json -RequireTasks -IncludeTasks
