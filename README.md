@@ -1,20 +1,25 @@
-# Orca
+<p align="center">
+  <img src="https://img.shields.io/badge/v1.4.1-spec--kit--orca-blue?style=flat-square" alt="version" />
+</p>
 
 ```
-        .
-       ":"
-     ___:____     |"\/"|
-   ,'        `.    \  /
-   |  O        \___/  |
- ~^~^~^~^~^~^~^~^~^~^~^~
-
-  ██████  ██████   ██████  █████
- ██    ██ ██   ██ ██      ██   ██
- ██    ██ ██████  ██      ███████
- ██    ██ ██   ██ ██      ██   ██
-  ██████  ██   ██  ██████ ██   ██
-
- spec-kit orchestration
+                         .                          
+                        ":"                         
+                      ___:____     |"\/"|            
+                    ,'        `.    \  /             
+                    |  O        \___/  |             
+                  ~^~^~^~^~^~^~^~^~^~^~^~           
+                                                     
+                   ██████  ██████   ██████  █████    
+                  ██    ██ ██   ██ ██      ██   ██   
+                  ██    ██ ██████  ██      ███████   
+                  ██    ██ ██   ██ ██      ██   ██   
+                   ██████  ██   ██  ██████ ██   ██   
+                                                     
+                ─────────────────────────────────    
+                 s p e c - k i t   orchestration     
+                ─────────────────────────────────    
+                     orcas don't sleep               
 ```
 
 Orca is an add-on for Spec Kit.
@@ -78,12 +83,14 @@ Orca. Everything else is implementation detail or experimental.
 
 ### 1. Intake — where work starts
 
-| Entry point | Use it for |
-|---|---|
-| `brainstorm` | Early thinking, options, constraints, and recommendations before implementation starts. Captured as durable numbered brainstorm records, not chat memory. |
-| `spec-lite` | Bounded small NEW work that does not justify a full feature spec. Single-file record with problem / solution / acceptance / files-affected — no phase gates, no mandatory reviews, no promotion command. If scope grows, hand-author a full spec and cite the spec-lite. |
-| `adopt` | Brownfield intake for EXISTING features that predate Orca. Single-file adoption record with summary / location / key-behaviors. Reference-only: never reviewed, never drivable by yolo, never anchors a matriarch lane. Supersede when a full spec replaces it. |
-| Full spec path | Normal `specify → plan → tasks → assign → implement` flow for larger new features. |
+
+| Entry point    | Use it for                                                                                                                                                                                                                                                               |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `brainstorm`   | Early thinking, options, constraints, and recommendations before implementation starts. Captured as durable numbered brainstorm records, not chat memory.                                                                                                                |
+| `spec-lite`    | Bounded small NEW work that does not justify a full feature spec. Single-file record with problem / solution / acceptance / files-affected — no phase gates, no mandatory reviews, no promotion command. If scope grows, hand-author a full spec and cite the spec-lite. |
+| `adopt`        | Brownfield intake for EXISTING features that predate Orca. Single-file adoption record with summary / location / key-behaviors. Reference-only: never reviewed, never drivable by yolo, never anchors a matriarch lane. Supersede when a full spec replaces it.          |
+| Full spec path | Normal `specify → plan → tasks → assign → implement` flow for larger new features.                                                                                                                                                                                       |
+
 
 ### 2. State — where a feature is right now
 
@@ -111,11 +118,13 @@ truth — you do not need to know which internal subsystem owns an artifact.
 
 ### 3. Review — durable evidence at every gate
 
-| Command | Artifact | Description |
-|---|---|---|
+
+| Command       | Artifact         | Description                                         |
+| ------------- | ---------------- | --------------------------------------------------- |
 | `review-spec` | `review-spec.md` | Cross-only adversarial review of the clarified spec |
 | `review-code` | `review-code.md` | Self+cross review per user-story phase, append-only |
-| `review-pr` | `review-pr.md` | PR comment disposition + required process retro |
+| `review-pr`   | `review-pr.md`   | PR comment disposition + required process retro     |
+
 
 Three review artifacts with distinct structures: `review-spec` is
 cross-only (adversarial), `review-code` has self+cross passes per
@@ -188,24 +197,24 @@ product surface. They are listed here so operators can find the runtime
 when debugging, not so day-one users are expected to understand them.
 
 - **Brainstorm memory** — numbered brainstorm records with a generated
-  overview index under `.specify/orca/brainstorms/`. Called indirectly
-  by the `brainstorm` command.
+overview index under `.specify/orca/brainstorms/`. Called indirectly
+by the `brainstorm` command.
 - **Flow-state** — the aggregator surfaced under "State" above. Runtime
-  at `src/speckit_orca/flow_state.py`, CLI at `python -m speckit_orca.flow_state`.
+at `src/speckit_orca/flow_state.py`, CLI at `python -m speckit_orca.flow_state`.
 - **Review artifacts** — durable per-stage review files owned by the
-  review commands (`commands/review-spec.md`, `commands/review-code.md`,
-  `commands/review-pr.md`) and rendered from
-  templates under `templates/review-*-template.md`.
+review commands (`commands/review-spec.md`, `commands/review-code.md`,
+`commands/review-pr.md`) and rendered from
+templates under `templates/review-*-template.md`.
 - **Context handoffs** — stage-to-stage continuity records under
-  `.specify/orca/handoffs/`, consumed automatically when a feature
-  crosses a stage boundary. Runtime at `src/speckit_orca/context_handoffs.py`.
+`.specify/orca/handoffs/`, consumed automatically when a feature
+crosses a stage boundary. Runtime at `src/speckit_orca/context_handoffs.py`.
 - **Worktree runtime** — shell-level worktree create/list/cleanup
-  lifecycle plus lane metadata under `.specify/orca/worktrees/`. See
-  `scripts/bash/orca-worktree.sh` and `scripts/bash/orca-worktree-lib.sh`.
+lifecycle plus lane metadata under `.specify/orca/worktrees/`. See
+`scripts/bash/orca-worktree.sh` and `scripts/bash/orca-worktree-lib.sh`.
 - **Capability packs** — optional composition layer that keeps
-  cross-cutting concerns out of the core command set. Runtime at
-  `src/speckit_orca/capability_packs.py`. Most operators never need to
-  configure packs manually.
+cross-cutting concerns out of the core command set. Runtime at
+`src/speckit_orca/capability_packs.py`. Most operators never need to
+configure packs manually.
 
 ### Maintainer Subsystems
 
@@ -213,14 +222,14 @@ These are for maintainers who are harvesting external systems into Orca
 or running structural reviews. They are not operator-facing.
 
 - **Evolve inventory** — durable adoption record for external patterns,
-  wrapper capabilities, and deferred ideas under `.specify/orca/evolve/`.
-  One entry per harvested pattern with decision, rationale, and target
-  mapping. Runtime at `src/speckit_orca/evolve.py`; CLI at
-  `uv run python -m speckit_orca.evolve --root . list`.
+wrapper capabilities, and deferred ideas under `.specify/orca/evolve/`.
+One entry per harvested pattern with decision, rationale, and target
+mapping. Runtime at `src/speckit_orca/evolve.py`; CLI at
+`uv run python -m speckit_orca.evolve --root . list`.
 - **Refinement reviews** — structured product-surface reviews under
-  `docs/refinement-reviews/`. Use when the repo's architecture has grown
-  faster than its external narrative. See the directory README for the
-  five-section framework and when to run one.
+`docs/refinement-reviews/`. Use when the repo's architecture has grown
+faster than its external narrative. See the directory README for the
+five-section framework and when to run one.
 
 ## Companion Extensions
 
@@ -231,24 +240,28 @@ companions, not install failures.
 
 **Stable companions** (expected to be present):
 
-| Extension | What it adds |
-|---|---|
-| `superb` | stronger testing, verification, and debugging discipline |
-| `verify` | evidence-based completion validation |
-| `reconcile` | drift detection between intent and implementation |
-| `status` | lightweight workflow visibility |
+
+| Extension   | What it adds                                             |
+| ----------- | -------------------------------------------------------- |
+| `superb`    | stronger testing, verification, and debugging discipline |
+| `verify`    | evidence-based completion validation                     |
+| `reconcile` | drift detection between intent and implementation        |
+| `status`    | lightweight workflow visibility                          |
+
 
 **Tracked companions** (attempted, may be unavailable):
 
-| Extension | Intended purpose |
-|---|---|
-| `archive` | long-term record keeping for retired lanes and features |
-| `doctor` | extended environment diagnostics |
-| `fixit` | structured fix-it loops for failed reviews |
-| `repoindex` | durable repo-wide indexing for faster lookup |
-| `ship` | optional final-stage promotion helpers |
-| `speckit-utils` | shared helpers across Spec Kit extensions |
-| `verify-tasks` | focused verification pass over `tasks.md` |
+
+| Extension       | Intended purpose                                        |
+| --------------- | ------------------------------------------------------- |
+| `archive`       | long-term record keeping for retired lanes and features |
+| `doctor`        | extended environment diagnostics                        |
+| `fixit`         | structured fix-it loops for failed reviews              |
+| `repoindex`     | durable repo-wide indexing for faster lookup            |
+| `ship`          | optional final-stage promotion helpers                  |
+| `speckit-utils` | shared helpers across Spec Kit extensions               |
+| `verify-tasks`  | focused verification pass over `tasks.md`               |
+
 
 If a tracked companion is not in the catalog yet, `speckit-orca claude`
 will count it under `unavailable` in the install summary and continue.

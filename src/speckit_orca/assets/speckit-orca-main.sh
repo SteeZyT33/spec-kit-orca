@@ -289,7 +289,7 @@ refresh_catalog_extension() {
     echo -e "\r  ${GREEN}✓${NC} ${label}                    "
     return 0
   fi
-  echo -e "\r  ${DIM}  · ${label} — not yet in catalog${NC}"
+  echo -e "\r  ${DIM}  · ${label} — not yet in catalog${NC}      "
   return 1
 }
 
