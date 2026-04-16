@@ -167,7 +167,9 @@ class TestSddAdapterABC:
             ) -> list[StageProgress]:
                 return []
 
-            def id_for_path(self, path: Path) -> str | None:
+            def id_for_path(
+                self, path: Path, repo_root: Path | None = None
+            ) -> str | None:
                 return None
 
         obj = Stub()

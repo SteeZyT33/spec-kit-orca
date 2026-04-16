@@ -128,11 +128,15 @@ class SddAdapter(ABC):
         """Compute per-stage progress from loaded artifacts."""
 
     @abstractmethod
-    def id_for_path(self, path: Path) -> str | None:
+    def id_for_path(
+        self, path: Path, repo_root: Path | None = None
+    ) -> str | None:
         """Map a file path to a feature_id if it lives under one.
 
-        Returns None if the path is not inside any feature this adapter
-        manages.
+        `repo_root` is optional: when provided, the adapter uses it as
+        the anchor; when omitted, the adapter should walk the path's
+        parents looking for a format-specific marker. Returns None if
+        `path` is not inside any feature this adapter manages.
         """
 
 
