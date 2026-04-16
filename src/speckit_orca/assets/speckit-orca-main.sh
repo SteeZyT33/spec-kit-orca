@@ -743,6 +743,54 @@ SKILL_GEN
 
 generate_extension_skills
 
+# ── 6. Deploy extension scripts to project-level scripts/bash/ ───────────────
+# Orca command prompts reference scripts at `scripts/bash/<name>.sh` (the
+# path that works in the orca source repo). Target projects only get scripts
+# installed under `.specify/extensions/orca/scripts/bash/`, so the commands
+# fail with "file not found". This step copies the orca-owned scripts into
+# `scripts/bash/` at the project root so the command paths resolve.
+
+deploy_extension_scripts() {
+  local src_dir=".specify/extensions/orca/scripts/bash"
+  local dst_dir="scripts/bash"
+
+  [[ -d "$src_dir" ]] || return 0
+
+  local deployed=0 skipped=0
+  mkdir -p "$dst_dir"
+
+  for src in "$src_dir"/*; do
+    [[ -f "$src" ]] || continue
+    local name
+    name="$(basename "$src")"
+    local dst="${dst_dir}/${name}"
+
+    # Skip if destination exists and is identical (avoid needless re-copy)
+    if [[ -f "$dst" ]] && cmp -s "$src" "$dst"; then
+      skipped=$((skipped + 1))
+      continue
+    fi
+
+    # --force overwrites; otherwise respect existing project-level files
+    if [[ -f "$dst" && "$FORCE" != "1" ]]; then
+      skipped=$((skipped + 1))
+      continue
+    fi
+
+    cp "$src" "$dst"
+    chmod +x "$dst" 2>/dev/null || true
+    deployed=$((deployed + 1))
+  done
+
+  if [[ $deployed -gt 0 || $skipped -gt 0 ]]; then
+    if [[ $deployed -gt 0 ]]; then
+      ok "Scripts: $deployed deployed, $skipped present (${dst_dir}/)"
+    fi
+  fi
+}
+
+deploy_extension_scripts
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo ""
 echo -e "  ${BOLD}Agents:${NC} ${AGENTS[*]}"
