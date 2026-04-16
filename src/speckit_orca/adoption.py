@@ -260,6 +260,11 @@ def _parse_record_text(path: Path, text: str) -> AdoptionRecord:
                 key = meta_match.group("key")
                 value = meta_match.group("value")
                 if key is not None and value is not None:
+                    if key in metadata:
+                        raise AdoptionParseError(
+                            path, index + 1,
+                            f"duplicate metadata field: {key!r}",
+                        )
                     metadata[key] = value.strip()
             # Unknown metadata lines ignored.
         index += 1
@@ -321,10 +326,13 @@ def _parse_record_text(path: Path, text: str) -> AdoptionRecord:
             else:
                 # Unknown section — captured in extra bucket, may
                 # appear in any position without violating the
-                # recognized-section ordering rule.
+                # recognized-section ordering rule. If the same
+                # unknown heading repeats, append to the existing
+                # list instead of overwriting.
                 current = section_name
                 current_is_recognized = False
-                extra_sections[section_name] = []
+                if section_name not in extra_sections:
+                    extra_sections[section_name] = []
         elif current is not None:
             if current_is_recognized:
                 sections[current].append(raw)
@@ -535,7 +543,7 @@ def create_record(
             path=directory / f"{record_id}-{slug}.md",
         )
         _atomic_write(record.path, _render_record(record))
-        regenerate_overview(repo_root)
+        _regenerate_overview_unlocked(repo_root)
     return record
 
 
@@ -618,7 +626,7 @@ def supersede_record(
             extra=dict(record.extra),
         )
         _atomic_write(updated.path, _render_record(updated))
-        regenerate_overview(repo_root)
+        _regenerate_overview_unlocked(repo_root)
     return updated
 
 
@@ -660,7 +668,7 @@ def retire_record(
             extra=dict(record.extra),
         )
         _atomic_write(updated.path, _render_record(updated))
-        regenerate_overview(repo_root)
+        _regenerate_overview_unlocked(repo_root)
     return updated
 
 
@@ -722,13 +730,26 @@ def _render_overview(records: list[AdoptionRecord]) -> str:
     return "\n".join(lines)
 
 
-def regenerate_overview(repo_root: Path) -> Path:
-    """Rewrite the 00-overview.md index from current registry state."""
+def _regenerate_overview_unlocked(repo_root: Path) -> Path:
+    """Rewrite 00-overview.md without acquiring the lock.
+
+    Called by mutation functions that already hold `_adoption_lock`.
+    """
     directory = _ensure_dir(_adopted_dir(repo_root))
     records = list_records(repo_root=repo_root)
     overview_path = directory / OVERVIEW_FILENAME
     _atomic_write(overview_path, _render_overview(records))
     return overview_path
+
+
+def regenerate_overview(repo_root: Path) -> Path:
+    """Rewrite the 00-overview.md index from current registry state.
+
+    Acquires the advisory lock to prevent races with concurrent
+    create / supersede / retire calls.
+    """
+    with _adoption_lock(repo_root):
+        return _regenerate_overview_unlocked(repo_root)
 
 
 # ---------------------------------------------------------------------------
