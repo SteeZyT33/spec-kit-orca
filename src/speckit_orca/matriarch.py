@@ -703,7 +703,11 @@ def _record_warning(record: LaneRecord, warning: str) -> None:
         record.notes = f"{record.notes}\n{warning}".strip()
 
 
-_SPEC_LITE_HEADER_RE = re.compile(r"^# Spec-Lite SL-\d{3}(?::.*)?$")
+# Header fallback matches the full contracted title shape per 013:
+# `# Spec-Lite SL-NNN: <title>` with a non-empty title. Stubs
+# without a colon or without a title are rejected so malformed
+# files under specs/<spec_id>/spec.md don't trip the guard.
+_SPEC_LITE_HEADER_RE = re.compile(r"^# Spec-Lite SL-\d{3}:\s+\S.*$")
 
 
 def _is_spec_lite_record(paths: MatriarchPaths, spec_id: str) -> bool:

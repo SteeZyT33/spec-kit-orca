@@ -133,6 +133,32 @@ def test_review_state_cross_reviewed_takes_precedence(tmp_path: Path) -> None:
     assert _is_spec_lite_target(cross_path) is False
 
 
+def test_header_fallback_rejects_titleless_headers(tmp_path: Path) -> None:
+    """Header regex must require the full contracted title shape.
+
+    `# Spec-Lite SL-007` (no colon) and `# Spec-Lite SL-007:` (colon
+    with no title) are both malformed stubs and must NOT trip the
+    header fallback — the 013 contract keys the fallback off the
+    full `# Spec-Lite SL-NNN: <title>` shape.
+    """
+    for bad_header in (
+        "# Spec-Lite SL-007\n",                  # no colon, no title
+        "# Spec-Lite SL-007:\n",                 # colon, no title
+        "# Spec-Lite SL-007:\n\nbody\n",         # colon with trailing whitespace only
+        "# Spec-Lite SL-007:    \n",             # colon with only spaces after
+    ):
+        misplaced = tmp_path / f"notes_{hash(bad_header) & 0xffff}.md"
+        misplaced.write_text(bad_header)
+        assert _is_spec_lite_target(misplaced) is False, (
+            f"Header {bad_header!r} should not match"
+        )
+
+    # Positive control: a real header with title still matches.
+    good = tmp_path / "notes_good.md"
+    good.write_text("# Spec-Lite SL-007: A real title\n")
+    assert _is_spec_lite_target(good) is True
+
+
 def test_is_spec_lite_target_rejects_nested_subdirectory(tmp_path: Path) -> None:
     """Path match requires the file IMMEDIATELY inside `spec-lite/`.
 
