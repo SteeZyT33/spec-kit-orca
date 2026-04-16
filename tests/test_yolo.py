@@ -45,6 +45,26 @@ def _event(clock: int, etype: str, **kw):
 # ---------------------------------------------------------------------------
 
 
+class TestCrossModuleStageContract:
+    """yolo's STAGES must be a subset of context_handoffs' canonical stages
+    so handoffs created during a yolo run are not rejected as unknown.
+
+    This closes the divergence Copilot flagged (round 4 #21) where yolo's
+    new vocabulary (clarify, review-spec, review-code, pr-ready, pr-create,
+    review-pr) was absent from 007's CANONICAL_STAGE_IDS.
+    """
+
+    def test_yolo_stages_all_recognized_by_context_handoffs(self):
+        from speckit_orca.context_handoffs import CANONICAL_STAGE_IDS
+        from speckit_orca.yolo import STAGES
+
+        missing = set(STAGES) - set(CANONICAL_STAGE_IDS)
+        assert missing == set(), (
+            f"yolo STAGES not in context_handoffs CANONICAL_STAGE_IDS: "
+            f"{sorted(missing)}. Divergence causes handoff creation to fail."
+        )
+
+
 class TestEventType:
     """EventType enum covers all 12 event types from runtime-plan section 6."""
 

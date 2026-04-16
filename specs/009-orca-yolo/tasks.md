@@ -122,9 +122,9 @@ cleanup) is complete. This file covers Phase 2 (core runtime) through Phase 7.
 - [x] T052 `next_decision` handles `outcome == "canceled"` as terminal (prevents resume of canceled runs)
 - [x] T053 `next_run(success)` auto-emits TERMINAL when advancing into a terminal stage (pr-ready, review-pr); keeps snapshot outcome and next_decision in agreement
 
-### Deferred (out of scope for this PR)
+### Post-verification additions
 
-- [ ] T054 DEFERRED — Reconcile `context_handoffs.py:CANONICAL_STAGE_IDS` with 012 vocabulary. Currently uses 006-era names (self-review/code-review/cross-review) and missing `clarify`/`review-spec`/`review-code`/`pr-ready`/`pr-create`. This is a 007-touching refactor that should ship as its own PR after 009 merges to minimize blast radius.
+- [x] T054 Reconcile `context_handoffs.py:CANONICAL_STAGE_IDS` with 012/009 vocabulary. Added `clarify`, `review-spec`, `review-code`, `pr-ready`, `pr-create`, `review-pr`. Legacy 006 names (self-review, code-review, cross-review, pr-review) kept for backward compat so pre-012 handoffs still parse. Updated `TRANSITION_ORDER`, `TRANSITION_REQUIRED_INPUTS`, and `_embedded_search_paths` for the new stages. Added cross-module invariant test: `set(yolo.STAGES) ⊆ set(context_handoffs.CANONICAL_STAGE_IDS)`.
 
 **Checkpoint**: CLI works for standalone mode. All subcommands dispatch correctly.
 
