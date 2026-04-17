@@ -49,8 +49,25 @@ VALID_TRIAGE_VERBS = (
 VALID_PHASES = ("discovery", "review", "commit", "done")
 
 HEURISTICS_MVP = ("H1", "H2", "H3", "H6")
+# v1.1 adds H4 (ownership) and H5 (test coverage) as annotators that run
+# AFTER the primary-discovery heuristics (H1/H2/H3/H6). They never emit
+# new candidates; they only add signals and adjust scores on the merged
+# candidate list.
+HEURISTICS_V1_1 = ("H1", "H2", "H3", "H4", "H5", "H6")
 
 DEFAULT_SCORE_THRESHOLD = 0.3
+
+# H4 ownership thresholds (FR-102).
+H4_CONCENTRATION_HIGH = 0.7   # → +0.2
+H4_CONCENTRATION_MID = 0.5    # → +0.1
+H4_FRAGMENTED_AUTHORS = 5     # >=5 authors + concentration < MID → fragmented
+
+# H5 test-coverage bumps (FR-105).
+H5_COHESIVE_BUMP = 0.15
+H5_FRAGMENTED_BUMP = 0.05
+
+# Rescan classification thresholds (FR-107).
+RESCAN_SCORE_DELTA = 0.1
 
 # Directory-name denylist: grab-bag names that should not anchor a
 # feature record on their own. Applied AFTER scoring — the penalty
@@ -148,6 +165,14 @@ class OnboardingManifest:
     committed: list[dict[str, Any]] = field(default_factory=list)
     rejected: list[dict[str, Any]] = field(default_factory=list)
     failed: list[dict[str, Any]] = field(default_factory=list)
+    # v1.1 — rescan metadata. `None` (never a rescan) or recorded once
+    # at rescan time. Durable across manifest rewrites so commit flow
+    # on a rescan run preserves `N new, M changed, K stale` context.
+    rescan_from: str | None = None
+    rescan_new: int | None = None
+    rescan_changed: int | None = None
+    rescan_skipped_covered: int | None = None
+    rescan_stale: list[dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.phase not in VALID_PHASES:
@@ -259,6 +284,18 @@ def _emit_yaml(manifest: OnboardingManifest) -> str:
     lines.extend(_emit_list("committed", manifest.committed, 0))
     lines.extend(_emit_list("rejected", manifest.rejected, 0))
     lines.extend(_emit_list("failed", manifest.failed, 0))
+    # v1.1 — rescan metadata, only emitted when populated so v1.0 runs
+    # round-trip cleanly without extra keys.
+    if manifest.rescan_from is not None:
+        lines.append(f"rescan_from: {_yaml_scalar(manifest.rescan_from)}")
+    if manifest.rescan_new is not None:
+        lines.append(f"rescan_new: {manifest.rescan_new}")
+    if manifest.rescan_changed is not None:
+        lines.append(f"rescan_changed: {manifest.rescan_changed}")
+    if manifest.rescan_skipped_covered is not None:
+        lines.append(f"rescan_skipped_covered: {manifest.rescan_skipped_covered}")
+    if manifest.rescan_stale:
+        lines.extend(_emit_list("rescan_stale", manifest.rescan_stale, 0))
     return "\n".join(lines) + "\n"
 
 
@@ -514,6 +551,9 @@ def read_manifest(run_dir: Path) -> OnboardingManifest:
             raise OnboardError("manifest missing required 'run_id' field")
         if "created" not in raw:
             raise OnboardError("manifest missing required 'created' field")
+        rescan_new = raw.get("rescan_new")
+        rescan_changed = raw.get("rescan_changed")
+        rescan_skipped = raw.get("rescan_skipped_covered")
         return OnboardingManifest(
             run_id=raw["run_id"],
             created=raw["created"],
@@ -526,6 +566,13 @@ def read_manifest(run_dir: Path) -> OnboardingManifest:
             committed=list(raw.get("committed", []) or []),
             rejected=list(raw.get("rejected", []) or []),
             failed=list(raw.get("failed", []) or []),
+            rescan_from=raw.get("rescan_from"),
+            rescan_new=int(rescan_new) if rescan_new is not None else None,
+            rescan_changed=int(rescan_changed) if rescan_changed is not None else None,
+            rescan_skipped_covered=(
+                int(rescan_skipped) if rescan_skipped is not None else None
+            ),
+            rescan_stale=list(raw.get("rescan_stale", []) or []),
         )
     except OnboardError:
         raise
@@ -965,8 +1012,407 @@ def heuristic_h6_cochange(
     return candidates
 
 
+# ---------------------------------------------------------------------------
+# H4 — ownership signals (v1.1 annotator)
+# ---------------------------------------------------------------------------
+#
+# H4 does NOT emit new candidates. It takes the merged candidate list from
+# H1/H2/H3/H6 and, for candidates anchored to a directory, computes
+# ownership concentration via CODEOWNERS (preferred) or `git shortlog -s`.
+# A concentrated owner earns a score bump; a fragmented directory gets an
+# informational annotation with no bump. No git history → no-op.
+
+
+def _parse_codeowners(path: Path) -> list[tuple[str, list[str]]]:
+    """Parse a minimal CODEOWNERS subset.
+
+    Supports: `/path/to/dir/ @owner1 @owner2` lines. Comments (#...) and
+    blank lines are ignored. Glob wildcards beyond a trailing slash are
+    deliberately out of scope (v1.2). Unrecognized lines are dropped.
+
+    Returns a list of `(path_pattern, [owners])` pairs in file order so
+    callers can iterate from most- to least-specific.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return []
+    entries: list[tuple[str, list[str]]] = []
+    for raw in text.splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if not line:
+            continue
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        pattern = parts[0]
+        owners = [p.lstrip("@") for p in parts[1:] if p.startswith("@")]
+        if not owners:
+            continue
+        entries.append((pattern, owners))
+    return entries
+
+
+def _codeowners_match(
+    entries: list[tuple[str, list[str]]], rel_dir: str,
+) -> list[str] | None:
+    """Return the owners list for the most-specific matching entry, or
+    None if nothing matches. `rel_dir` is a forward-slash path relative
+    to the repo root (e.g. "src/auth").
+    """
+    norm = rel_dir.replace("\\", "/").strip("/")
+    best: tuple[int, list[str]] | None = None
+    for pattern, owners in entries:
+        p_norm = pattern.replace("\\", "/").strip("/")
+        # Directory prefix match: CODEOWNERS `/src/auth/` covers any path
+        # beginning with `src/auth/`. Exact match also counts.
+        if norm == p_norm or norm.startswith(p_norm + "/"):
+            # Longer pattern == more specific
+            specificity = len(p_norm)
+            if best is None or specificity > best[0]:
+                best = (specificity, owners)
+    return best[1] if best else None
+
+
+def _git_shortlog_authors(
+    repo_root: Path,
+    directory: str,
+    *,
+    max_commits: int = GIT_WINDOW_COMMITS,
+) -> list[tuple[str, int]]:
+    """Return [(author, commits)] sorted by commit count desc for `directory`.
+
+    Uses `git shortlog -s -n -- <dir>`. Empty on missing git or no history.
+    """
+    git_bin = _resolve_git()
+    if git_bin is None:
+        return []
+    try:
+        result = subprocess.run(
+            [
+                git_bin, "-C", str(repo_root), "log",
+                f"--max-count={max_commits}",
+                "--pretty=format:%an",
+                "--", directory,
+            ],
+            check=True, capture_output=True, text=True, timeout=10,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError,
+            subprocess.TimeoutExpired):
+        return []
+    counts: dict[str, int] = defaultdict(int)
+    for line in result.stdout.splitlines():
+        name = line.strip()
+        if name:
+            counts[name] += 1
+    return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+
+
+def _candidate_directory(candidate: CandidateRecord) -> str | None:
+    """Infer the primary directory a candidate is anchored to.
+
+    Uses the longest common directory prefix across its paths. If the
+    candidate has no paths or the paths do not share a directory, return
+    None (H4 and H5 cannot annotate without a stable directory).
+    """
+    dirs = []
+    for p in candidate.paths:
+        norm = p.replace("\\", "/").strip("/")
+        if "/" in norm:
+            dirs.append(norm.rsplit("/", 1)[0])
+    if not dirs:
+        return None
+    # Longest common prefix by path components
+    parts_lists = [d.split("/") for d in dirs]
+    common: list[str] = []
+    for segments in zip(*parts_lists):
+        if len(set(segments)) == 1:
+            common.append(segments[0])
+        else:
+            break
+    if not common:
+        return None
+    return "/".join(common)
+
+
+def _ownership_bump(
+    authors: list[tuple[str, int]],
+) -> tuple[float, str | None, bool]:
+    """Compute (bump, top_author_name, fragmented_flag) from shortlog.
+
+    Rules (FR-102):
+      - concentration >= 0.7 → +0.2
+      - concentration >= 0.5 → +0.1
+      - >= 5 distinct authors AND concentration < 0.5 → fragmented, 0.0
+      - otherwise 0.0 (no signal)
+    """
+    if not authors:
+        return 0.0, None, False
+    total = sum(count for _, count in authors)
+    if total == 0:
+        return 0.0, None, False
+    top_name, top_count = authors[0]
+    concentration = top_count / total
+    if concentration >= H4_CONCENTRATION_HIGH:
+        return 0.2, top_name, False
+    if concentration >= H4_CONCENTRATION_MID:
+        return 0.1, top_name, False
+    if len(authors) >= H4_FRAGMENTED_AUTHORS:
+        return 0.0, None, True
+    return 0.0, None, False
+
+
+def heuristic_h4_ownership(
+    repo_root: Path,
+    candidates: list[CandidateRecord],
+) -> list[CandidateRecord]:
+    """Annotate candidates with ownership signals.
+
+    CODEOWNERS (repo root) is checked first; otherwise falls back to
+    `git shortlog` on each candidate's inferred directory. Returns a
+    new list of candidate records with updated signals and score.
+    Never raises on missing git history — returns candidates unchanged
+    for that branch.
+    """
+    codeowners_entries = []
+    for name in ("CODEOWNERS", "docs/CODEOWNERS", ".github/CODEOWNERS"):
+        p = repo_root / name
+        if p.exists():
+            codeowners_entries = _parse_codeowners(p)
+            break
+
+    out: list[CandidateRecord] = []
+    for c in candidates:
+        directory = _candidate_directory(c)
+        if directory is None:
+            out.append(_clone_candidate(c))
+            continue
+        new_signals = list(c.signals)
+        new_score = c.score
+        # CODEOWNERS branch
+        owners = _codeowners_match(codeowners_entries, directory) if codeowners_entries else None
+        if owners:
+            # Single owner → stronger concentration signal (+0.2).
+            # Multiple owners → +0.1 (a team owns the area).
+            bump = 0.2 if len(owners) == 1 else 0.1
+            new_signals.append(f"H4:owner:{owners[0]}")
+            new_score = min(1.0, round(new_score + bump, 4))
+        else:
+            authors = _git_shortlog_authors(repo_root, directory)
+            bump, top_name, fragmented = _ownership_bump(authors)
+            if fragmented:
+                new_signals.append("H4:fragmented")
+            elif top_name is not None and bump > 0:
+                new_signals.append(f"H4:owner:{top_name}")
+                new_score = min(1.0, round(new_score + bump, 4))
+            # else: no signal at all (no git history, or mid-low
+            # concentration with few authors) — stay silent.
+        out.append(_clone_candidate(c, signals=new_signals, score=new_score))
+    return out
+
+
+def _clone_candidate(
+    c: CandidateRecord,
+    *,
+    signals: list[str] | None = None,
+    score: float | None = None,
+    paths: list[str] | None = None,
+) -> CandidateRecord:
+    """Return a new CandidateRecord with optional field overrides."""
+    return CandidateRecord(
+        id=c.id,
+        proposed_title=c.proposed_title,
+        proposed_slug=c.proposed_slug,
+        paths=paths if paths is not None else list(c.paths),
+        signals=signals if signals is not None else list(c.signals),
+        score=score if score is not None else c.score,
+        draft_path=c.draft_path,
+        triage=c.triage,
+        duplicate_of=c.duplicate_of,
+    )
+
+
+# ---------------------------------------------------------------------------
+# H5 — test coverage signals (v1.1 annotator)
+# ---------------------------------------------------------------------------
+#
+# Maps each candidate's source paths to test files using common layout
+# conventions (Python `tests/test_<name>.py`, JS/TS `__tests__/`, etc.).
+# A single dedicated test module → cohesive, +0.15. Multiple unrelated
+# test files → fragmented, +0.05. No matching tests → `H5:no-tests`
+# annotation only, no bump.
+
+
+TEST_DIR_NAMES = ("tests", "test", "__tests__")
+TEST_FILE_PATTERNS = (
+    re.compile(r"^test_(?P<name>[a-z0-9_\-]+)\.py$"),
+    re.compile(r"^(?P<name>[a-z0-9_\-]+)_test\.py$"),
+    re.compile(r"^(?P<name>[a-z0-9_\-]+)\.test\.(tsx?|jsx?)$"),
+    re.compile(r"^(?P<name>[a-z0-9_\-]+)\.spec\.(tsx?|jsx?)$"),
+)
+
+
+def _find_test_files(
+    repo_root: Path, candidate: CandidateRecord,
+) -> tuple[list[Path], list[Path]]:
+    """Locate test files that target this candidate.
+
+    Returns ``(dedicated, references)`` where ``dedicated`` covers the
+    FR-104 matching rules (name-matched modules, name-matched
+    directories, and co-located `<dir>/tests/`-style folders) and
+    ``references`` captures test files that only mention the
+    candidate's source paths textually (e.g. a broad integration test
+    that imports many modules). A lone content-reference match is NOT
+    a dedicated test module, so we keep the two buckets separate
+    rather than collapsing them under one list.
+
+    Matching strategy (first-hit wins per test file):
+      1. Name match: `tests/test_<slug>.py` → dedicated test module
+         for a candidate whose primary directory ends in `<slug>`.
+      2. Co-located tests under the candidate's own directory
+         (`<dir>/tests/`, `<dir>/__tests__/`).
+      3. Content reference: any `tests/**/*.py` that textually
+         imports one of the candidate's source paths as a dotted
+         module (e.g. `from src.auth.middleware import X`).
+    """
+    dedicated: list[Path] = []
+    references: list[Path] = []
+    matches: list[Path] = []
+    slug = candidate.proposed_slug
+    directory = _candidate_directory(candidate)
+
+    # 1. Name match under repo-level test dirs
+    for tdir_name in TEST_DIR_NAMES:
+        tdir = repo_root / tdir_name
+        if not tdir.is_dir():
+            continue
+        # Dedicated module: test_<slug>.py
+        cand = tdir / f"test_{slug.replace('-', '_')}.py"
+        if cand.exists():
+            dedicated.append(cand)
+            matches.append(cand)
+        # Dedicated subdirectory: tests/test_<slug>/
+        sub = tdir / f"test_{slug.replace('-', '_')}"
+        if sub.is_dir():
+            for f in sub.rglob("*.py"):
+                if f.is_file():
+                    dedicated.append(f)
+                    matches.append(f)
+
+    # 2. Co-located tests under the candidate's own directory
+    if directory is not None:
+        cand_dir = repo_root / directory
+        for tdir_name in TEST_DIR_NAMES:
+            co_tests = cand_dir / tdir_name
+            if co_tests.is_dir():
+                for f in co_tests.rglob("*"):
+                    if f.is_file() and _is_test_file(f.name):
+                        dedicated.append(f)
+                        matches.append(f)
+
+    # 3. Content reference scan (bounded) — look for imports of the
+    # candidate's source paths in all repo-level test files.
+    path_tokens: set[str] = set()
+    for p in candidate.paths:
+        norm = p.replace("\\", "/").strip("/")
+        # Strip extension
+        if "." in norm.rsplit("/", 1)[-1]:
+            norm_no_ext = norm.rsplit(".", 1)[0]
+        else:
+            norm_no_ext = norm
+        # Dotted module form: src/auth/middleware -> src.auth.middleware
+        path_tokens.add(norm_no_ext.replace("/", "."))
+        # And the slash form, for `import "src/auth/middleware"` shapes
+        path_tokens.add(norm_no_ext)
+    if path_tokens:
+        for tdir_name in TEST_DIR_NAMES:
+            tdir = repo_root / tdir_name
+            if not tdir.is_dir():
+                continue
+            for f in tdir.rglob("*"):
+                if not f.is_file() or not _is_test_file(f.name):
+                    continue
+                if f in matches:
+                    continue
+                try:
+                    text = f.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                for tok in path_tokens:
+                    if tok and tok in text:
+                        references.append(f)
+                        matches.append(f)
+                        break
+
+    # Deduplicate while preserving order, per bucket. Keep dedicated
+    # distinct from reference so callers can score a lone content-ref
+    # match as fragmented rather than cohesive.
+    def _dedup(paths: list[Path]) -> list[Path]:
+        seen: set[Path] = set()
+        out: list[Path] = []
+        for p in paths:
+            if p in seen:
+                continue
+            seen.add(p)
+            out.append(p)
+        return out
+
+    dedup_dedicated = _dedup(dedicated)
+    dedicated_set = set(dedup_dedicated)
+    # A file promoted into `dedicated` should not also be counted as a
+    # reference (it already satisfies the stronger rule).
+    dedup_references = [p for p in _dedup(references) if p not in dedicated_set]
+    return dedup_dedicated, dedup_references
+
+
+def _is_test_file(name: str) -> bool:
+    return any(pat.match(name) for pat in TEST_FILE_PATTERNS)
+
+
+def heuristic_h5_test_coverage(
+    repo_root: Path,
+    candidates: list[CandidateRecord],
+) -> list[CandidateRecord]:
+    """Annotate candidates with test-coverage signals.
+
+    Cohesive (exactly one dedicated test module or one co-located test
+    directory) → +0.15. Fragmented (multiple test files reference the
+    candidate's source paths) → +0.05. Absent → `H5:no-tests` marker,
+    no bump.
+    """
+    out: list[CandidateRecord] = []
+    for c in candidates:
+        dedicated, references = _find_test_files(repo_root, c)
+        total = len(dedicated) + len(references)
+        new_signals = list(c.signals)
+        new_score = c.score
+        if total == 0:
+            # FR-105: absent coverage → annotation only, no bump.
+            new_signals.append("H5:no-tests")
+        elif len(dedicated) == 1 and not references:
+            # FR-105: exactly one dedicated test module / directory
+            # covers the candidate → cohesive, +0.15. A lone
+            # content-reference hit (e.g. a broad integration test
+            # that happens to import this module) does NOT qualify as
+            # cohesive — that path falls through to fragmented below.
+            test_name = dedicated[0].name
+            new_signals.append(f"H5:tests:{test_name}")
+            new_score = min(1.0, round(new_score + H5_COHESIVE_BUMP, 4))
+        else:
+            # FR-105: 2+ matches, OR any number of incidental content
+            # references → fragmented, +0.05. The presence of
+            # multiple test files (or only-incidental references) is
+            # the fragmentation signal. An operator who wants the
+            # stronger cohesive bump can consolidate their tests into
+            # a single dedicated module.
+            new_signals.append(f"H5:fragmented:{total}")
+            new_score = min(1.0, round(new_score + H5_FRAGMENTED_BUMP, 4))
+        out.append(_clone_candidate(c, signals=new_signals, score=new_score))
+    return out
+
+
 def _title_precedence(signals: list[str]) -> int:
-    """Higher is better — H3 > H2 > H1 > H6."""
+    """Higher is better — H3 > H2 > H1 > H6. H4/H5 never rename."""
     priorities = {"H3": 3, "H2": 2, "H1": 1, "H6": 0}
     best = -1
     for s in signals:
@@ -1121,7 +1567,7 @@ def merge_candidates(
 
 def discover(
     repo_root: Path,
-    heuristics: Iterable[str] = HEURISTICS_MVP,
+    heuristics: Iterable[str] = HEURISTICS_V1_1,
     score_threshold: float = DEFAULT_SCORE_THRESHOLD,
 ) -> list[CandidateRecord]:
     """Run the enabled heuristics, merge, filter, sort."""
@@ -1137,6 +1583,31 @@ def discover(
         all_candidates.extend(heuristic_h6_cochange(repo_root))
 
     merged = merge_candidates(all_candidates)
+
+    # v1.1 annotators — run AFTER merge so they see one candidate per
+    # feature rather than per-heuristic duplicates. Order matters:
+    # H4 first (ownership can bump a candidate above threshold) then
+    # H5 (test coverage), so threshold filtering sees the final score.
+    # FR-104 + plan.md scope H4/H5 to H1-backed directory candidates.
+    # A candidate whose only provenance is H2 (single-file entry
+    # point) or H6 (co-change cluster) must NOT pick up ownership
+    # bumps or `H5:no-tests` annotations — those signals are defined
+    # against directory scope. Partition merged into (h1_backed,
+    # other), run annotators on the former only, and reassemble.
+    def _is_h1_backed(c: CandidateRecord) -> bool:
+        return any(
+            s.split(":", 1)[0] == "H1" for s in c.signals
+        )
+
+    if "H4" in heuristics or "H5" in heuristics:
+        h1_backed = [c for c in merged if _is_h1_backed(c)]
+        other = [c for c in merged if not _is_h1_backed(c)]
+        if "H4" in heuristics:
+            h1_backed = heuristic_h4_ownership(repo_root, h1_backed)
+        if "H5" in heuristics:
+            h1_backed = heuristic_h5_test_coverage(repo_root, h1_backed)
+        merged = h1_backed + other
+
     filtered = [c for c in merged if c.score >= score_threshold]
 
     # Stable sort: score desc, slug asc
@@ -1441,7 +1912,7 @@ def scan(
     repo_root: Path,
     *,
     run_name: str | None = None,
-    heuristics: Iterable[str] = HEURISTICS_MVP,
+    heuristics: Iterable[str] = HEURISTICS_V1_1,
     score_threshold: float = DEFAULT_SCORE_THRESHOLD,
 ) -> Path:
     """Phase 1+2 combined: discover candidates, write manifest + triage + drafts."""
@@ -1634,6 +2105,349 @@ def commit_run(
 
 
 # ---------------------------------------------------------------------------
+# Rescan (v1.1)
+# ---------------------------------------------------------------------------
+#
+# Rescan is additive-only: it creates a NEW run directory, classifies
+# freshly-discovered candidates against the prior run's committed ARs,
+# and prints a summary. It NEVER mutates the prior run's manifest /
+# triage / drafts, and NEVER mutates existing AR records. A hash-based
+# belt-and-braces check at the end of the function verifies the prior
+# run directory is byte-identical before/after.
+
+
+def _load_ar_coverage_index(repo_root: Path) -> list[tuple[str, str]]:
+    """Return [(location, AR-id)] by walking committed ARs.
+
+    Keeps the raw AR Location strings so `_paths_overlap` can apply
+    directory-prefix matching. A Location of `src/auth/` (trailing
+    slash or not) is treated as covering any candidate path that
+    begins with `src/auth/`. Exact-match semantics alone would
+    misclassify a candidate `src/auth/middleware.py` as `new` when
+    the AR happens to list the directory itself.
+    """
+    entries: list[tuple[str, str]] = []
+    try:
+        records = adoption.list_records(repo_root=repo_root)
+    except adoption.AdoptionError as exc:
+        # Fail closed: a broken / unreadable registry must not be
+        # silently treated as "no ARs exist", because that would
+        # cause rescan to re-emit already-covered paths as `new`
+        # and potentially commit them again. Surface the failure
+        # so the operator can fix the underlying record and retry.
+        raise OnboardError(
+            f"Could not load adopted-record coverage: {exc}"
+        ) from exc
+    for r in records:
+        for loc in getattr(r, "location", []) or []:
+            norm = str(loc).replace("\\", "/").strip("/")
+            if norm:
+                entries.append((norm, r.record_id))
+    return entries
+
+
+def _path_covers(covered: str, candidate: str) -> bool:
+    """Return True when AR Location `covered` includes candidate path.
+
+    Matches: exact equality, or `covered` is a directory prefix of
+    `candidate` (i.e. `candidate.startswith(covered + "/")`), or
+    `candidate` is the directory and `covered` is a file inside it
+    (reverse direction — operator may have recorded the concrete
+    file while candidate discovery rolls up to the directory).
+    """
+    if covered == candidate:
+        return True
+    if candidate.startswith(covered + "/"):
+        return True
+    if covered.startswith(candidate + "/"):
+        return True
+    return False
+
+
+def _paths_overlap(
+    a: list[str], coverage: list[tuple[str, str]],
+) -> tuple[bool, str | None]:
+    """Return (overlaps, first_ar_id) — True if any candidate path
+    overlaps any AR coverage entry under _path_covers semantics.
+    """
+    for p in a:
+        norm = p.replace("\\", "/").strip("/")
+        for covered_path, ar_id in coverage:
+            if _path_covers(covered_path, norm):
+                return True, ar_id
+    return False, None
+
+
+def _path_is_covered(path: str, coverage: list[tuple[str, str]]) -> bool:
+    norm = path.replace("\\", "/").strip("/")
+    for covered_path, _ in coverage:
+        if _path_covers(covered_path, norm):
+            return True
+    return False
+
+
+def _classify_rescan_candidate(
+    c: CandidateRecord,
+    prior_candidates: list[CandidateRecord],
+    coverage: list[tuple[str, str]],
+) -> tuple[str, str | None]:
+    """Classify a candidate as 'skip' | 'new' | 'changed'.
+
+    - 'skip': every path is already covered by an existing AR.
+      Nothing new to surface.
+    - 'changed': partial path overlap with an AR, or matches a prior
+      candidate whose score differs by >= RESCAN_SCORE_DELTA, or
+      shares a directory-prefix with a prior candidate with different
+      paths. Returns the AR id when one is found so the new manifest
+      can cite it.
+    - 'new': no overlap with prior artifacts.
+
+    Prior-candidate matching looks for shared slug AND shared
+    directory prefix (depth >= 2) to distinguish `src/auth` from
+    `packages/auth`.
+    """
+    overlaps, ar_id = _paths_overlap(c.paths, coverage)
+
+    # Find prior candidates that share slug AND a >=depth-2 directory prefix.
+    c_prefixes = set()
+    for p in c.paths:
+        for pref in _path_prefixes(p):
+            if "/" in pref:
+                c_prefixes.add(pref)
+    prior_match: CandidateRecord | None = None
+    for prior in prior_candidates:
+        if prior.proposed_slug != c.proposed_slug:
+            continue
+        prior_prefixes = set()
+        for p in prior.paths:
+            for pref in _path_prefixes(p):
+                if "/" in pref:
+                    prior_prefixes.add(pref)
+        if c_prefixes & prior_prefixes:
+            prior_match = prior
+            break
+
+    if overlaps:
+        # Check whether EVERY path is already covered. If so, skip.
+        all_covered = all(
+            _path_is_covered(p, coverage) for p in c.paths
+        )
+        if all_covered:
+            return "skip", ar_id
+        return "changed", ar_id
+
+    # No AR overlap — check prior candidate for score drift
+    if prior_match is not None:
+        if abs(prior_match.score - c.score) >= RESCAN_SCORE_DELTA:
+            return "changed", None
+        # Same slug + prefix, same-ish score, no AR coverage — call
+        # it `new` (prior run didn't commit it, so it remains a
+        # surface the operator should still triage).
+        return "new", None
+
+    return "new", None
+
+
+def _format_rescan_summary(new: int, changed: int, stale: int) -> str:
+    """FR-109: exact format `N new, M changed, K stale`."""
+    return f"{new} new, {changed} changed, {stale} stale"
+
+
+def rescan(
+    repo_root: Path,
+    *,
+    from_run: str,
+    new_run: str | None = None,
+    heuristics: Iterable[str] = HEURISTICS_V1_1,
+    score_threshold: float = DEFAULT_SCORE_THRESHOLD,
+) -> Path:
+    """Incremental rescan. Writes a NEW run directory; never mutates the prior run.
+
+    Classification:
+      - candidates whose paths are fully covered by existing ARs AND
+        whose slug matches a committed prior candidate are SKIPPED
+        (no draft, no triage entry).
+      - partial overlap → `changed`; triage surface cites the AR id.
+      - no overlap → `new`.
+      - prior candidates no longer discovered → listed as stale in the
+        new manifest (no drafts, no commit flow).
+
+    Returns the new run directory path.
+    """
+    prior_dir = _run_dir_for(repo_root, from_run)
+    if not prior_dir.is_dir():
+        raise OnboardError(
+            f"Prior run not found: {prior_dir}. Pass --from <existing-run>."
+        )
+    if not (prior_dir / "manifest.yaml").exists():
+        raise OnboardError(
+            f"Prior run at {prior_dir} has no manifest.yaml — cannot rescan."
+        )
+
+    # Hash every file in the prior run before doing anything else.
+    # Belt-and-braces guard: we assert byte-identical at the end.
+    prior_hashes = _hash_directory(prior_dir)
+
+    prior_manifest = read_manifest(prior_dir)
+    prior_candidates: list[CandidateRecord] = list(prior_manifest.candidates)
+
+    # Auto-generate a new run name if not supplied.
+    if new_run is None:
+        base = f"{date.today().isoformat()}-rescan"
+        new_run = base
+        n = 1
+        while _run_dir_for(repo_root, new_run).exists():
+            n += 1
+            new_run = f"{base}-{n}"
+
+    new_dir = _run_dir_for(repo_root, new_run)
+    if new_dir.exists():
+        raise OnboardError(
+            f"Rescan target directory already exists: {new_dir}. "
+            f"Pick a different --run name."
+        )
+    new_dir.mkdir(parents=True)
+
+    # Build AR coverage index from the committed registry (not the prior
+    # manifest) — the registry is the source of truth; a manifest can go
+    # stale if the operator supersedes or retires via 015 after the prior
+    # run.
+    coverage = _load_ar_coverage_index(repo_root)
+
+    # Run discovery against current repo HEAD.
+    fresh = discover(
+        repo_root=repo_root,
+        heuristics=heuristics,
+        score_threshold=score_threshold,
+    )
+
+    new_cands: list[CandidateRecord] = []
+    changed_cands: list[CandidateRecord] = []
+    skipped_count = 0
+    counter = 1
+    for c in fresh:
+        verdict, ar_id = _classify_rescan_candidate(
+            c, prior_candidates, coverage,
+        )
+        if verdict == "skip":
+            skipped_count += 1
+            continue
+        signals = list(c.signals)
+        if ar_id is not None:
+            signals.append(f"rescan:extends:{ar_id}")
+        # Re-id in rescan order (deterministic: already sorted by discover)
+        renamed = CandidateRecord(
+            id=_next_id(counter),
+            proposed_title=c.proposed_title,
+            proposed_slug=c.proposed_slug,
+            paths=list(c.paths),
+            signals=signals,
+            score=c.score,
+            draft_path=f"drafts/DRAFT-{counter:03d}-{c.proposed_slug}.md",
+            triage="pending",
+            duplicate_of=None,
+        )
+        if verdict == "new":
+            new_cands.append(renamed)
+        else:
+            changed_cands.append(renamed)
+        counter += 1
+
+    # Stale: prior candidates that (a) are NOT rediscoverable by slug+
+    # prefix match in the fresh list AND (b) are NOT already absorbed
+    # as an AR (covered by the committed registry). Keying on slug
+    # alone would mishandle same-slug-different-directory candidates
+    # (e.g. `src/auth` and `packages/auth`): one surviving sibling
+    # must not mask the deletion of the other.
+    committed_candidate_ids = {
+        entry.get("candidate_id")
+        for entry in prior_manifest.committed
+        if isinstance(entry, dict)
+    }
+    stale: list[dict[str, Any]] = []
+    for prior in prior_manifest.candidates:
+        if prior.id in committed_candidate_ids:
+            # It shipped as an AR. Not stale — absorbed into the registry.
+            continue
+        # Still-discoverable check: same slug AND shared directory
+        # prefix (depth >= 2) with some fresh candidate.
+        prior_prefixes = set()
+        for p in prior.paths:
+            for pref in _path_prefixes(p):
+                if "/" in pref:
+                    prior_prefixes.add(pref)
+        still_discoverable = False
+        for fc in fresh:
+            if fc.proposed_slug != prior.proposed_slug:
+                continue
+            fc_prefixes = set()
+            for p in fc.paths:
+                for pref in _path_prefixes(p):
+                    if "/" in pref:
+                        fc_prefixes.add(pref)
+            if prior_prefixes & fc_prefixes:
+                still_discoverable = True
+                break
+        if still_discoverable:
+            continue
+        # Still covered by an AR (operator committed under a different
+        # slug, say)? Skip — not stale, absorbed.
+        if any(_path_is_covered(p, coverage) for p in prior.paths):
+            continue
+        stale.append({
+            "candidate_id": prior.id,
+            "slug": prior.proposed_slug,
+            "reason": "not-rediscovered",
+        })
+
+    all_candidates = new_cands + changed_cands
+    manifest = OnboardingManifest(
+        run_id=new_run,
+        created=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        phase="review",
+        repo_root=str(repo_root),
+        baseline_commit=_git_head_sha(repo_root),
+        heuristics_enabled=list(heuristics),
+        score_threshold=score_threshold,
+        candidates=all_candidates,
+    )
+    # v1.1 — persist rescan metadata on the dataclass fields so it
+    # survives every subsequent write_manifest() call in commit_run.
+    manifest.rescan_from = from_run
+    manifest.rescan_new = len(new_cands)
+    manifest.rescan_changed = len(changed_cands)
+    manifest.rescan_stale = stale
+    manifest.rescan_skipped_covered = skipped_count
+
+    write_drafts(new_dir, all_candidates)
+    write_manifest(new_dir, manifest)
+    _atomic_write(new_dir / "triage.md", render_triage(manifest))
+
+    # Belt-and-braces: assert the prior run is byte-identical.
+    after_hashes = _hash_directory(prior_dir)
+    if prior_hashes != after_hashes:
+        raise OnboardError(
+            f"Invariant violation: rescan mutated prior run at {prior_dir}. "
+            f"This is a bug — rescan must be additive-only."
+        )
+
+    return new_dir
+
+
+def _hash_directory(root: Path) -> dict[str, str]:
+    """Return {relative-path: sha256-hex} for every file under root."""
+    import hashlib as _hashlib
+    out: dict[str, str] = {}
+    if not root.is_dir():
+        return out
+    for f in sorted(root.rglob("*")):
+        if f.is_file():
+            rel = str(f.relative_to(root))
+            out[rel] = _hashlib.sha256(f.read_bytes()).hexdigest()
+    return out
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -1650,8 +2464,8 @@ def _build_parser() -> argparse.ArgumentParser:
     scan_p = sub.add_parser("scan", help="Phase 1+2: discover + propose drafts")
     scan_p.add_argument("--run", default=None, help="Run name (default: YYYY-MM-DD-initial)")
     scan_p.add_argument(
-        "--heuristics", default=",".join(HEURISTICS_MVP),
-        help="Comma-separated list of heuristic ids (MVP: H1,H2,H3,H6)",
+        "--heuristics", default=",".join(HEURISTICS_V1_1),
+        help="Comma-separated list of heuristic ids (v1.1: H1,H2,H3,H4,H5,H6)",
     )
     scan_p.add_argument("--score-threshold", type=float, default=DEFAULT_SCORE_THRESHOLD,
                         help=f"Drop candidates below this score (default {DEFAULT_SCORE_THRESHOLD})")
@@ -1666,7 +2480,25 @@ def _build_parser() -> argparse.ArgumentParser:
     status_p = sub.add_parser("status", help="Print run summary")
     status_p.add_argument("--run", required=True)
 
-    sub.add_parser("rescan", help="Re-scan for new candidates (v1.1 — deferred in MVP)")
+    rescan_p = sub.add_parser(
+        "rescan",
+        help="Re-scan for new candidates against a prior run (v1.1)",
+    )
+    rescan_p.add_argument(
+        "--from", dest="from_run", required=True,
+        help="Prior run slug under .specify/orca/adoption-runs/",
+    )
+    rescan_p.add_argument(
+        "--run", default=None,
+        help="Override the auto-generated new run name",
+    )
+    rescan_p.add_argument(
+        "--heuristics", default=",".join(HEURISTICS_V1_1),
+        help="Comma-separated list of heuristic ids (v1.1: H1,H2,H3,H4,H5,H6)",
+    )
+    rescan_p.add_argument(
+        "--score-threshold", type=float, default=DEFAULT_SCORE_THRESHOLD,
+    )
 
     return parser
 
@@ -1722,12 +2554,22 @@ def cli_main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.command == "rescan":
-            print(
-                "rescan: deferred to v1.1. MVP only supports initial scans.\n"
-                "Workaround: pass --run <new-name> to `scan` for a second run.",
-                file=sys.stderr,
+            heuristics = [h.strip() for h in args.heuristics.split(",") if h.strip()]
+            new_dir = rescan(
+                repo_root=repo_root,
+                from_run=args.from_run,
+                new_run=args.run,
+                heuristics=heuristics,
+                score_threshold=args.score_threshold,
             )
-            return 2
+            m = read_manifest(new_dir)
+            n_new = m.rescan_new or 0
+            n_changed = m.rescan_changed or 0
+            n_stale = len(m.rescan_stale or [])
+            print(f"rescan: wrote {new_dir}")
+            print(f"rescan: {_format_rescan_summary(n_new, n_changed, n_stale)}")
+            print(f"rescan: edit {new_dir / 'triage.md'} then run commit")
+            return 0
 
     except OnboardError as exc:
         print(f"error: {exc}", file=sys.stderr)

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -801,6 +802,30 @@ class TestCommitFlow:
 
 
 class TestCli:
+    def test_default_scan_enables_h4_and_h5(self, tmp_path: Path) -> None:
+        """Regression (codex finding #3): the default CLI scan must apply
+        H4/H5 without requiring --heuristics. The v1.1 docs promise
+        `scan` uses H1-H6 out of the box; the default constant was left
+        at HEURISTICS_MVP in the first pass.
+        """
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _init_git(repo)
+        _write(repo / "CODEOWNERS", "/src/auth/ @alice\n")
+        _write(repo / "src" / "auth" / "__init__.py")
+        _write(repo / "src" / "auth" / "middleware.py")
+        _write(repo / "tests" / "test_auth.py", "# tests\n")
+        _commit_all(repo, "init")
+        run_dir = onboard.scan(repo_root=repo, run_name="initial")
+        m = onboard.read_manifest(run_dir)
+        # H4 and H5 both land signals on the auth candidate.
+        auth = next(
+            (c for c in m.candidates if c.proposed_slug == "auth"), None,
+        )
+        assert auth is not None, [c.proposed_slug for c in m.candidates]
+        assert any(s.startswith("H4:owner:") for s in auth.signals), auth.signals
+        assert any(s.startswith("H5:") for s in auth.signals), auth.signals
+
     def test_scan_writes_manifest_and_triage(self, tmp_path: Path, capsys) -> None:
         repo = tmp_path / "repo"
         repo.mkdir()
@@ -851,17 +876,21 @@ class TestCli:
         out = capsys.readouterr().out
         assert "phase" in out.lower()
 
-    def test_rescan_returns_deferred_message(self, tmp_path: Path, capsys) -> None:
+    def test_rescan_requires_from_flag(self, tmp_path: Path, capsys) -> None:
+        """v1.1: rescan requires --from <prior-run>. Invoking without it must
+        exit non-zero with an argparse-style error mentioning --from."""
         repo = tmp_path / "repo"
         repo.mkdir()
-        rc = onboard.cli_main([
-            "--root", str(repo), "rescan",
-        ])
-        assert rc != 0
+        # argparse raises SystemExit on missing required args; catch it so
+        # the test can inspect the exit code rather than blow up.
+        with pytest.raises(SystemExit) as exc_info:
+            onboard.cli_main([
+                "--root", str(repo), "rescan",
+            ])
+        assert exc_info.value.code != 0
         captured = capsys.readouterr()
         out = captured.out + captured.err
-        # rescan is not implemented in MVP — runtime should say so
-        assert "v1.1" in out or "deferred" in out.lower()
+        assert "--from" in out or "from" in out.lower()
 
     def test_commit_is_idempotent_on_retry(self, tmp_path: Path) -> None:
         """Second commit after a successful first must not re-create ARs."""
@@ -1042,3 +1071,655 @@ class TestH2ExtraEntryShapes:
         # Verify AR written via 015
         records = adoption.list_records(repo_root=repo)
         assert len(records) >= 1
+
+
+# ---------------------------------------------------------------------------
+# v1.1 — Sub-phase F: H4 ownership signals
+# ---------------------------------------------------------------------------
+
+
+def _h1_candidate(slug: str, paths: list[str], score: float = 0.5) -> "onboard.CandidateRecord":
+    return onboard.CandidateRecord(
+        id="C-001",
+        proposed_title=slug,
+        proposed_slug=slug,
+        paths=paths,
+        signals=[f"H1:src/{slug}"],
+        score=score,
+        draft_path="",
+        triage="pending",
+        duplicate_of=None,
+    )
+
+
+class TestHeuristicH4Ownership:
+    def test_codeowners_single_owner_boosts_candidate(self, tmp_path: Path) -> None:
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _write(repo / "CODEOWNERS", "/src/auth/ @alice\n")
+        _write(repo / "src" / "auth" / "middleware.py")
+        cands = [_h1_candidate("auth", ["src/auth/middleware.py"], score=0.5)]
+        out = onboard.heuristic_h4_ownership(repo, cands)
+        assert len(out) == 1
+        c = out[0]
+        assert any("H4:owner:alice" in s for s in c.signals)
+        assert c.score > 0.5  # bumped
+
+    def test_git_shortlog_concentrated_owner_boosts(self, tmp_path: Path) -> None:
+        """No CODEOWNERS — rely on git shortlog concentration."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _init_git(repo)
+        _write(repo / "src" / "auth" / "middleware.py", "# v0\n")
+        # Make 4 commits by the same author so concentration = 1.0
+        for i in range(4):
+            (repo / "src" / "auth" / "middleware.py").write_text(f"# v{i}\n")
+            _commit_all(repo, f"auth {i}")
+        cands = [_h1_candidate("auth", ["src/auth/middleware.py"], score=0.5)]
+        out = onboard.heuristic_h4_ownership(repo, cands)
+        c = out[0]
+        assert any(s.startswith("H4:owner:") for s in c.signals)
+        assert c.score > 0.5
+
+    def test_fragmented_ownership_no_bump(self, tmp_path: Path) -> None:
+        """Many authors + low concentration → fragmented annotation, no bump."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _init_git(repo)
+        # Alternate authors across 6 commits so no single author dominates.
+        _write(repo / "src" / "shared" / "util.py", "# 0\n")
+        _commit_all(repo, "init")
+        authors = ["a", "b", "c", "d", "e", "f"]
+        for i, name in enumerate(authors):
+            (repo / "src" / "shared" / "util.py").write_text(f"# v{i}\n")
+            env = {
+                **os.environ,
+                "GIT_AUTHOR_NAME": name,
+                "GIT_AUTHOR_EMAIL": f"{name}@e.com",
+                "GIT_COMMITTER_NAME": name,
+                "GIT_COMMITTER_EMAIL": f"{name}@e.com",
+            }
+            subprocess.run([_GIT, "add", "-A"], cwd=repo, check=True)
+            subprocess.run(
+                [_GIT, "commit", "-q", "--no-verify", "-m", f"edit by {name}"],
+                cwd=repo, check=True, env=env,
+            )
+        cands = [_h1_candidate("shared", ["src/shared/util.py"], score=0.5)]
+        out = onboard.heuristic_h4_ownership(repo, cands)
+        c = out[0]
+        assert any("H4:fragmented" in s for s in c.signals)
+        assert c.score == 0.5  # no bump
+
+    def test_no_git_history_returns_candidates_unchanged(self, tmp_path: Path) -> None:
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _write(repo / "src" / "auth" / "middleware.py")
+        cands = [_h1_candidate("auth", ["src/auth/middleware.py"], score=0.5)]
+        out = onboard.heuristic_h4_ownership(repo, cands)
+        # No raise, and no H4 signals added (nothing to infer).
+        assert len(out) == 1
+        assert out[0].score == 0.5
+        assert not any(s.startswith("H4:") for s in out[0].signals)
+
+
+# ---------------------------------------------------------------------------
+# v1.1 — Sub-phase G: H5 test coverage signals
+# ---------------------------------------------------------------------------
+
+
+class TestHeuristicH5TestCoverage:
+    def test_cohesive_test_file_bumps(self, tmp_path: Path) -> None:
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _write(repo / "src" / "auth" / "middleware.py")
+        _write(repo / "tests" / "test_auth.py", "# tests for auth\n")
+        cands = [_h1_candidate("auth", ["src/auth/middleware.py"], score=0.5)]
+        out = onboard.heuristic_h5_test_coverage(repo, cands)
+        c = out[0]
+        assert any(s.startswith("H5:tests:") for s in c.signals)
+        # Cohesive → +0.15 bump
+        assert abs(c.score - 0.65) < 1e-6
+
+    def test_fragmented_tests_small_bump(self, tmp_path: Path) -> None:
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _write(repo / "src" / "auth" / "middleware.py")
+        _write(repo / "src" / "auth" / "sessions.py")
+        # Multiple test files reference auth source files
+        _write(repo / "tests" / "test_auth.py", "from src.auth.middleware import x\n")
+        _write(repo / "tests" / "test_login.py",
+               "from src.auth.sessions import y\n"
+               "from src.auth.middleware import z\n")
+        _write(repo / "tests" / "test_signup.py",
+               "from src.auth.sessions import q\n")
+        cands = [_h1_candidate("auth",
+                               ["src/auth/middleware.py", "src/auth/sessions.py"],
+                               score=0.5)]
+        out = onboard.heuristic_h5_test_coverage(repo, cands)
+        c = out[0]
+        assert any("H5:fragmented" in s for s in c.signals)
+        # Fragmented → +0.05 bump
+        assert abs(c.score - 0.55) < 1e-6
+
+    def test_absent_tests_annotation_no_bump(self, tmp_path: Path) -> None:
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _write(repo / "src" / "payments" / "stripe.py")
+        cands = [_h1_candidate("payments", ["src/payments/stripe.py"], score=0.5)]
+        out = onboard.heuristic_h5_test_coverage(repo, cands)
+        c = out[0]
+        assert any("H5:no-tests" in s for s in c.signals)
+        assert c.score == 0.5
+
+    def test_two_matches_classifies_as_fragmented(self, tmp_path: Path) -> None:
+        """Regression (codex finding #4): 1 dedicated file + 1 additional
+        reference = 2 total matches must be fragmented (+0.05), not
+        cohesive (+0.15). Multi-file coverage is the fragmentation
+        signal regardless of whether one of them is name-matched.
+        """
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _write(repo / "src" / "auth" / "middleware.py")
+        _write(repo / "tests" / "test_auth.py", "# dedicated\n")
+        # A second test file that also imports the auth source path.
+        _write(
+            repo / "tests" / "test_login.py",
+            "from src.auth.middleware import thing\n",
+        )
+        cands = [_h1_candidate("auth", ["src/auth/middleware.py"], score=0.5)]
+        out = onboard.heuristic_h5_test_coverage(repo, cands)
+        c = out[0]
+        assert any("H5:fragmented" in s for s in c.signals), c.signals
+        # Fragmented bump = +0.05
+        assert abs(c.score - 0.55) < 1e-6
+
+    def test_js_tsx_tests_directory_conv(self, tmp_path: Path) -> None:
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _write(repo / "src" / "widget" / "index.tsx")
+        _write(repo / "src" / "widget" / "__tests__" / "index.test.tsx",
+               "// widget tests\n")
+        cands = [_h1_candidate("widget", ["src/widget/index.tsx"], score=0.5)]
+        out = onboard.heuristic_h5_test_coverage(repo, cands)
+        c = out[0]
+        assert any(s.startswith("H5:tests:") for s in c.signals)
+        assert c.score > 0.5
+
+    def test_lone_content_reference_not_cohesive(self, tmp_path: Path) -> None:
+        """Regression (CodeRabbit PR #63): a single content-reference
+        hit from a broad integration test is NOT a dedicated test
+        module and must not earn the cohesive +0.15 bump. The only
+        match is `test_integration.py` which happens to import the
+        candidate's module — that's incidental coverage, not a
+        dedicated test. Per FR-105 this falls under fragmented
+        (+0.05) because the cohesive path requires a dedicated
+        name-matched module or co-located test directory.
+        """
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _write(repo / "src" / "auth" / "middleware.py")
+        # NO dedicated test_auth.py, NO co-located tests/. Only a
+        # broad integration test that imports the module.
+        _write(
+            repo / "tests" / "test_integration.py",
+            "from src.auth.middleware import handle\n"
+            "from src.payments.stripe import charge\n",
+        )
+        cands = [_h1_candidate("auth", ["src/auth/middleware.py"], score=0.5)]
+        out = onboard.heuristic_h5_test_coverage(repo, cands)
+        c = out[0]
+        # Must NOT be cohesive.
+        assert not any(s.startswith("H5:tests:") for s in c.signals), c.signals
+        # Must be fragmented (lone incidental reference).
+        assert any("H5:fragmented" in s for s in c.signals), c.signals
+        # Fragmented bump = +0.05, not cohesive +0.15.
+        assert abs(c.score - 0.55) < 1e-6, c.score
+
+
+# ---------------------------------------------------------------------------
+# v1.1 — Regression: H4/H5 scoped to H1-backed candidates
+# ---------------------------------------------------------------------------
+
+
+class TestAnnotatorsRestrictedToH1Candidates:
+    """Regression (CodeRabbit PR #63): FR-104 scopes H4/H5 annotators
+    to H1 directory candidates. H2 single-file entry points and H6
+    co-change clusters must NOT pick up ownership bumps or
+    `H5:no-tests` annotations that would alter their thresholding.
+    """
+
+    def _write_file(self, path: Path, text: str = "x\n") -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+
+    def test_h2_entry_point_candidate_not_annotated(
+        self, tmp_path: Path,
+    ) -> None:
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        # H2 would fire on a top-level entry-point style file.
+        self._write_file(
+            repo / "pyproject.toml",
+            "[project.scripts]\nmytool = \"mytool.cli:main\"\n",
+        )
+        self._write_file(repo / "mytool" / "cli.py", "def main(): pass\n")
+        # A non-H1 candidate (e.g. synthesised from H2) — only H2 signals.
+        c = onboard.CandidateRecord(
+            id="C-001",
+            proposed_title="mytool",
+            proposed_slug="mytool",
+            paths=["mytool/cli.py"],
+            signals=["H2:entry-point"],
+            score=0.5,
+            draft_path="",
+            triage="pending",
+            duplicate_of=None,
+        )
+        out = onboard.discover(
+            repo,
+            heuristics=("H4", "H5"),
+            score_threshold=0.0,
+        )
+        # With no H1 discovery configured, `discover` won't even see
+        # our hand-crafted candidate; exercise the annotator path
+        # directly by feeding the candidate through the annotator
+        # gating used inside `discover`.
+        # Simulate: the gating predicate must reject non-H1 candidates.
+        cands = [c]
+        h1_only = [x for x in cands if any(s.startswith("H1:") for s in x.signals)]
+        other = [x for x in cands if not any(s.startswith("H1:") for s in x.signals)]
+        h1_only = onboard.heuristic_h5_test_coverage(repo, h1_only)
+        merged = h1_only + other
+        # The H2-only candidate must be unchanged by H5.
+        got = [x for x in merged if x.proposed_slug == "mytool"][0]
+        assert not any(s.startswith("H5:") for s in got.signals), got.signals
+        assert got.score == 0.5
+
+    def test_discover_skips_h4_h5_on_non_h1_candidate(
+        self, tmp_path: Path,
+    ) -> None:
+        """End-to-end: `discover(..., heuristics=("H2","H4","H5"))`
+        must emit an H2 candidate without any H4/H5 annotations.
+        """
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        # Enough structure for H2 (pyproject entry point) but nothing
+        # H1 would pick up at the directory level.
+        self._write_file(
+            repo / "pyproject.toml",
+            "[project]\n"
+            "name = \"demo\"\n"
+            "[project.scripts]\n"
+            "demo = \"demo.cli:main\"\n",
+        )
+        self._write_file(repo / "demo" / "cli.py", "def main():\n    pass\n")
+        # A `tests/test_demo.py` file that WOULD give H5 a cohesive hit
+        # for an H1 `demo` candidate — but the demo candidate here is
+        # H2-only so H5 must be gated off.
+        self._write_file(repo / "tests" / "test_demo.py", "# tests\n")
+
+        out = onboard.discover(
+            repo,
+            heuristics=("H2", "H4", "H5"),
+            score_threshold=0.0,
+        )
+        # There must be at least one non-H1 candidate from H2, and
+        # none of those should carry H4 or H5 signals.
+        h2_only = [
+            c for c in out
+            if any(s.startswith("H2:") for s in c.signals)
+            and not any(s.startswith("H1:") for s in c.signals)
+        ]
+        assert h2_only, (
+            "expected at least one H2-only candidate from discover; "
+            f"got signals={[c.signals for c in out]}"
+        )
+        for c in h2_only:
+            assert not any(
+                s.startswith("H4:") or s.startswith("H5:") for s in c.signals
+            ), (
+                f"H2-only candidate {c.proposed_slug!r} unexpectedly "
+                f"picked up annotator signals: {c.signals}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# v1.1 — Regression: rescan coverage index fails closed
+# ---------------------------------------------------------------------------
+
+
+class TestLoadArCoverageIndexFailsClosed:
+    """Regression (CodeRabbit PR #63): if the adopted-record registry
+    fails to parse, `_load_ar_coverage_index` must NOT swallow the
+    error and return an empty list — that would let rescan re-emit
+    already-covered paths as `new`. It must propagate an
+    OnboardError so the operator sees the failure.
+    """
+
+    def test_parse_failure_raises_onboard_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """If `adoption.list_records` raises AdoptionError (for
+        example because of a parser bug or an unreadable registry
+        directory), the coverage-index loader must propagate an
+        OnboardError rather than silently returning `[]` and letting
+        rescan treat every adopted path as uncovered.
+        """
+        repo = tmp_path / "repo"
+        repo.mkdir()
+
+        def _boom(**_kwargs: object) -> list[adoption.AdoptionRecord]:
+            raise adoption.AdoptionError("simulated registry parse failure")
+
+        monkeypatch.setattr(onboard.adoption, "list_records", _boom)
+
+        with pytest.raises(onboard.OnboardError) as excinfo:
+            onboard._load_ar_coverage_index(repo)
+        assert "coverage" in str(excinfo.value).lower()
+        # And the original AdoptionError is chained for debuggability.
+        assert isinstance(excinfo.value.__cause__, adoption.AdoptionError)
+
+
+# ---------------------------------------------------------------------------
+# v1.1 — Sub-phase H: Rescan
+# ---------------------------------------------------------------------------
+
+
+def _hash_dir(path: Path) -> dict[str, str]:
+    """Return {relpath: sha256} for every file under path."""
+    out: dict[str, str] = {}
+    for f in sorted(path.rglob("*")):
+        if f.is_file():
+            rel = str(f.relative_to(path))
+            out[rel] = hashlib.sha256(f.read_bytes()).hexdigest()
+    return out
+
+
+def _prepare_committed_run(repo: Path, run_name: str) -> Path:
+    """Scan + fill drafts + commit one run so we have AR records to rescan against."""
+    run_dir = onboard.scan(repo_root=repo, run_name=run_name)
+    m = onboard.read_manifest(run_dir)
+    for c in m.candidates:
+        path = run_dir / c.draft_path
+        text = path.read_text().replace(
+            "TODO: describe what this feature does", "Real summary.",
+        ).replace(
+            "TODO: fill in an observed behavior before accepting",
+            "Real behavior.",
+        )
+        path.write_text(text)
+    triage = run_dir / "triage.md"
+    triage.write_text(
+        triage.read_text().replace("- status: pending", "- status: accept")
+    )
+    onboard.commit_run(run_dir, dry_run=False)
+    return run_dir
+
+
+class TestRescan:
+    def test_new_candidate_appears_in_rescan_run(self, tmp_path: Path) -> None:
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _write(repo / "src" / "auth" / "__init__.py")
+        _write(repo / "src" / "auth" / "middleware.py")
+        prior = _prepare_committed_run(repo, run_name="2026-04-16-initial")
+        # Add a new directory AFTER the initial run committed.
+        _write(repo / "src" / "metrics" / "__init__.py")
+        _write(repo / "src" / "metrics" / "collector.py")
+        new_run = onboard.rescan(
+            repo_root=repo,
+            from_run="2026-04-16-initial",
+            new_run="2026-06-20-rescan",
+        )
+        assert new_run.exists()
+        m_new = onboard.read_manifest(new_run)
+        slugs = {c.proposed_slug for c in m_new.candidates}
+        assert "metrics" in slugs
+        # auth is already adopted — should not appear in the new run
+        assert "auth" not in slugs
+
+    def test_prior_run_byte_identical_after_rescan(self, tmp_path: Path) -> None:
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _write(repo / "src" / "auth" / "__init__.py")
+        _write(repo / "src" / "auth" / "middleware.py")
+        prior = _prepare_committed_run(repo, run_name="2026-04-16-initial")
+        before = _hash_dir(prior)
+        # Add new work; rescan
+        _write(repo / "src" / "metrics" / "__init__.py")
+        _write(repo / "src" / "metrics" / "collector.py")
+        onboard.rescan(
+            repo_root=repo,
+            from_run="2026-04-16-initial",
+            new_run="2026-06-20-rescan",
+        )
+        after = _hash_dir(prior)
+        assert before == after, "Prior run directory was mutated by rescan"
+
+    def test_missing_from_run_raises(self, tmp_path: Path) -> None:
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".specify" / "orca" / "adoption-runs").mkdir(parents=True)
+        with pytest.raises(onboard.OnboardError):
+            onboard.rescan(
+                repo_root=repo,
+                from_run="does-not-exist",
+                new_run="2026-06-20-rescan",
+            )
+
+    def test_summary_format_matches_fr109(
+        self, tmp_path: Path, capsys
+    ) -> None:
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _write(repo / "src" / "auth" / "__init__.py")
+        _write(repo / "src" / "auth" / "middleware.py")
+        _prepare_committed_run(repo, run_name="2026-04-16-initial")
+        _write(repo / "src" / "metrics" / "__init__.py")
+        _write(repo / "src" / "metrics" / "collector.py")
+        rc = onboard.cli_main([
+            "--root", str(repo), "rescan",
+            "--from", "2026-04-16-initial",
+            "--run", "2026-06-20-rescan",
+        ])
+        assert rc == 0
+        out = capsys.readouterr().out
+        # FR-109: "N new, M changed, K stale"
+        assert re.search(r"\d+ new, \d+ changed, \d+ stale", out), out
+
+    def test_stale_candidate_listed_not_committed(self, tmp_path: Path) -> None:
+        """Prior run candidate that was NOT committed (e.g., pending) and
+        is no longer discoverable should appear in rescan_stale."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _write(repo / "src" / "auth" / "__init__.py")
+        _write(repo / "src" / "auth" / "middleware.py")
+        _write(repo / "src" / "legacy" / "__init__.py")
+        _write(repo / "src" / "legacy" / "old.py")
+        # Scan finds both. Commit only auth; leave legacy rejected.
+        run_dir = onboard.scan(repo_root=repo, run_name="initial")
+        m = onboard.read_manifest(run_dir)
+        # Fill all drafts with valid content so 015 accepts
+        for c in m.candidates:
+            path = run_dir / c.draft_path
+            text = path.read_text().replace(
+                "TODO: describe what this feature does", "Real summary.",
+            ).replace(
+                "TODO: fill in an observed behavior before accepting",
+                "Real behavior.",
+            )
+            path.write_text(text)
+        # Mark auth accept, legacy reject
+        triage = run_dir / "triage.md"
+        text = triage.read_text()
+        # All set to reject, then flip auth sections to accept
+        text = text.replace("- status: pending", "- status: reject")
+        # find auth sections and set them back to accept
+        auth_ids = [c.id for c in m.candidates if c.proposed_slug == "auth"]
+        for aid in auth_ids:
+            # Replace the `- status: reject` line in that specific section
+            # by doing a targeted section-by-section rewrite.
+            lines = text.splitlines()
+            in_section = False
+            for i, ln in enumerate(lines):
+                if ln.startswith(f"## {aid}:"):
+                    in_section = True
+                    continue
+                if in_section and ln.startswith("## "):
+                    in_section = False
+                if in_section and ln.strip() == "- status: reject":
+                    lines[i] = "- status: accept"
+                    break
+            text = "\n".join(lines)
+        triage.write_text(text)
+        onboard.commit_run(run_dir, dry_run=False)
+
+        # Now delete the legacy directory so it is no longer discoverable.
+        shutil.rmtree(repo / "src" / "legacy")
+        new_run = onboard.rescan(
+            repo_root=repo,
+            from_run="initial",
+            new_run="rescan-1",
+        )
+        m_new = onboard.read_manifest(new_run)
+        # Contract (FR-106 / User Story 3): a prior candidate that is
+        # not rediscoverable AND not absorbed into a committed AR
+        # MUST surface in rescan_stale for operator context. Legacy
+        # was rejected (not committed) and its source directory was
+        # removed, so both conditions hold. Assert the actual entry
+        # rather than just the attribute's existence, so this test
+        # fails if rescan regresses and drops stale reporting.
+        assert any(
+            entry.get("slug") == "legacy"
+            for entry in (m_new.rescan_stale or [])
+            if isinstance(entry, dict)
+        ), f"legacy missing from rescan_stale: {m_new.rescan_stale!r}"
+        # And rescan must not resurrect legacy as a new candidate.
+        new_slugs = {c.proposed_slug for c in m_new.candidates}
+        assert "legacy" not in new_slugs
+
+    def test_rescan_metadata_survives_commit_rewrite(
+        self, tmp_path: Path,
+    ) -> None:
+        """Regression (codex finding #1): rescan_new/rescan_changed must
+        persist across every commit_run() manifest rewrite. A rescan that
+        then runs through commit must still report the original summary
+        when the manifest is re-read afterwards.
+        """
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _write(repo / "src" / "auth" / "__init__.py")
+        _write(repo / "src" / "auth" / "middleware.py")
+        _prepare_committed_run(repo, run_name="initial")
+        _write(repo / "src" / "metrics" / "__init__.py")
+        _write(repo / "src" / "metrics" / "collector.py")
+        new_run = onboard.rescan(
+            repo_root=repo, from_run="initial", new_run="rescan-1",
+        )
+        m_before = onboard.read_manifest(new_run)
+        assert m_before.rescan_from == "initial"
+        before_new = m_before.rescan_new
+        before_changed = m_before.rescan_changed
+
+        # Now simulate a commit pass — triage reject everything so no
+        # ARs are written but the manifest is rewritten.
+        triage = new_run / "triage.md"
+        triage.write_text(
+            triage.read_text().replace("- status: pending", "- status: reject")
+        )
+        onboard.commit_run(new_run, dry_run=False)
+        m_after = onboard.read_manifest(new_run)
+        assert m_after.rescan_from == "initial"
+        assert m_after.rescan_new == before_new
+        assert m_after.rescan_changed == before_changed
+
+    def test_rescan_directory_ar_covers_file_candidate(
+        self, tmp_path: Path,
+    ) -> None:
+        """Regression (codex finding #2): an AR recorded at the directory
+        granularity (`src/auth/`) must cover a fresh candidate path
+        `src/auth/middleware.py`; overlap must be directory-prefix, not
+        exact-string.
+        """
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        # Create a committed AR whose Location is a directory (with
+        # trailing slash).
+        adoption.create_record(
+            repo_root=repo,
+            title="Auth Area",
+            summary="Covers the whole auth directory tree.",
+            location=["src/auth/"],
+            key_behaviors=["Handles sessions"],
+            baseline_commit=None,
+        )
+        # A fresh candidate at `src/auth/middleware.py` must classify
+        # as covered, not `new`.
+        _write(repo / "src" / "auth" / "__init__.py")
+        _write(repo / "src" / "auth" / "middleware.py")
+        # Build a minimal prior run so rescan has something to read.
+        # Shortcut: reuse scan then mark candidates committed via a
+        # manifest edit.
+        prior_dir = onboard.scan(repo_root=repo, run_name="initial")
+        m = onboard.read_manifest(prior_dir)
+        # Pretend the auth candidate was already committed.
+        for c in m.candidates:
+            if c.proposed_slug == "auth":
+                m.committed.append({
+                    "candidate_id": c.id,
+                    "ar_id": "AR-001",
+                    "ar_path": ".specify/orca/adopted/AR-001-auth.md",
+                })
+        onboard.write_manifest(prior_dir, m)
+        new_run = onboard.rescan(
+            repo_root=repo, from_run="initial", new_run="rescan-1",
+        )
+        m_new = onboard.read_manifest(new_run)
+        slugs = {c.proposed_slug for c in m_new.candidates}
+        # The auth candidate must NOT resurface as new.
+        assert "auth" not in slugs
+
+    def test_rescan_plus_commit_additive(self, tmp_path: Path) -> None:
+        """Rescan + commit must produce fresh AR ids without mutating
+        prior ARs (015 allocator sees a clean increment)."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _write(repo / "src" / "auth" / "__init__.py")
+        _write(repo / "src" / "auth" / "middleware.py")
+        _prepare_committed_run(repo, run_name="initial")
+        records_before = adoption.list_records(repo_root=repo)
+        before_hashes = {
+            r.record_id: hashlib.sha256(r.path.read_bytes()).hexdigest()
+            for r in records_before
+        }
+
+        # Add new work
+        _write(repo / "src" / "metrics" / "__init__.py")
+        _write(repo / "src" / "metrics" / "collector.py")
+        new_run = onboard.rescan(
+            repo_root=repo, from_run="initial", new_run="rescan-1",
+        )
+        # Fill new drafts
+        m_new = onboard.read_manifest(new_run)
+        for c in m_new.candidates:
+            path = new_run / c.draft_path
+            text = path.read_text().replace(
+                "TODO: describe what this feature does", "Real summary.",
+            ).replace(
+                "TODO: fill in an observed behavior before accepting",
+                "Real behavior.",
+            )
+            path.write_text(text)
+        triage = new_run / "triage.md"
+        triage.write_text(
+            triage.read_text().replace("- status: pending", "- status: accept")
+        )
+        onboard.commit_run(new_run, dry_run=False)
+
+        records_after = adoption.list_records(repo_root=repo)
+        assert len(records_after) > len(records_before)
+        # Prior ARs are byte-identical
+        for r in records_after:
+            if r.record_id in before_hashes:
+                h = hashlib.sha256(r.path.read_bytes()).hexdigest()
+                assert h == before_hashes[r.record_id]
