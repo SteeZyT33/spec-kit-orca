@@ -27,9 +27,40 @@ from speckit_orca.matriarch import (
 
 
 def _repo(tmp_path: Path) -> Path:
+    """Create a bootstrapped spec-kit project with one git commit.
+
+    017 requires ``register_lane`` to resolve a HEAD SHA; tests that
+    exercise registration need a real (tiny) git history.
+    """
+    import os
+    import subprocess
+
     root = tmp_path / "repo"
     (root / ".specify").mkdir(parents=True)
     (root / "specs").mkdir()
+    subprocess.run(
+        ["git", "init", "-q", "-b", "main", str(root)],
+        check=True,
+        capture_output=True,
+    )
+    env = {
+        "PATH": os.environ.get("PATH", ""),
+        "GIT_AUTHOR_NAME": "test",
+        "GIT_AUTHOR_EMAIL": "test@example.com",
+        "GIT_COMMITTER_NAME": "test",
+        "GIT_COMMITTER_EMAIL": "test@example.com",
+    }
+    (root / ".gitkeep").write_text("")
+    subprocess.run(
+        ["git", "-C", str(root), "-c", "core.hooksPath=/dev/null",
+         "add", ".gitkeep"],
+        check=True, capture_output=True, env=env,
+    )
+    subprocess.run(
+        ["git", "-C", str(root), "-c", "core.hooksPath=/dev/null",
+         "-c", "commit.gpgsign=false", "commit", "-q", "-m", "init"],
+        check=True, capture_output=True, env=env,
+    )
     return root
 
 
