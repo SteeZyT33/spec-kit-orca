@@ -1,12 +1,12 @@
-"""019 Sub-phase A parity gate (T016).
+"""019 Sub-phase B parity gate (T031).
 
 For every snapshot in `tests/fixtures/flow_state_snapshots/`, the live
 `compute_flow_state(feature_dir).to_dict()` must match the golden JSON
-byte-for-byte after path normalization and after stripping any `kind`
-field on `completed_milestones[*]` / `incomplete_milestones[*]` (the
-snapshots predate `kind`; sub-phase B regenerates them).
+byte-for-byte after path normalization. The snapshots were regenerated
+at sub-phase B with `FlowMilestone.kind` populated, so the parity gate
+is now full-shape byte equality — no `kind` stripping.
 
-The test intentionally mirrors the existing byte-exact gate in
+The test intentionally mirrors the byte-exact gate in
 `test_sdd_adapter.py::TestSpecKitLoadFeatureMatchesLegacy` so a
 regression surfaces here first.
 """
@@ -45,30 +45,8 @@ def _normalize_paths(obj, fixture_root: Path):
     return obj
 
 
-def _strip_kind_from_milestones(obj):
-    """Remove `kind` from completed/incomplete milestones entries.
-
-    Sub-phase A's `StageProgress.kind` addition does not propagate into
-    `FlowMilestone`, so snapshots should still match byte-exact. This
-    helper runs defensively in case a future commit wires `kind` through.
-    """
-    if not isinstance(obj, dict):
-        return obj
-    out = dict(obj)
-    for key in ("completed_milestones", "incomplete_milestones"):
-        items = out.get(key)
-        if isinstance(items, list):
-            cleaned = []
-            for entry in items:
-                if isinstance(entry, dict) and "kind" in entry:
-                    entry = {k: v for k, v in entry.items() if k != "kind"}
-                cleaned.append(entry)
-            out[key] = cleaned
-    return out
-
-
 @pytest.mark.parametrize("feature_id", SNAPSHOT_FEATURES)
-def test_spec_kit_fixtures_match_phase1_snapshots_modulo_kind(feature_id: str):
+def test_spec_kit_fixtures_match_snapshots_byte_exact(feature_id: str):
     from speckit_orca.flow_state import compute_flow_state
 
     snapshot_dir = SNAPSHOTS_ROOT / feature_id
@@ -83,10 +61,9 @@ def test_spec_kit_fixtures_match_phase1_snapshots_modulo_kind(feature_id: str):
 
     result = compute_flow_state(feature_dir, repo_root=fixture_root)
     live = _normalize_paths(result.to_dict(), fixture_root)
-    live = _strip_kind_from_milestones(live)
     live_text = json.dumps(live, indent=2) + "\n"
 
     assert live_text == golden_text, (
-        f"Flow-state parity drift for {feature_id}: sub-phase A must "
-        "stay byte-exact against the pre-Phase-2 snapshots modulo kind."
+        f"Flow-state parity drift for {feature_id}: sub-phase B must "
+        "stay byte-exact against the kind-populated snapshots."
     )
