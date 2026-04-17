@@ -3,12 +3,65 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import warnings
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from .sdd_adapter import SpecKitAdapter
+
+
+# 019 Sub-phase A / FR-013: dashed-key read alias on FeatureEvidence.filenames.
+# Underscored keys (``review_spec``, ``review_code``, ``review_pr``) are
+# canonical from this release forward. Reads through the legacy dashed keys
+# still resolve for one release, emitting ``DeprecationWarning``. Writes
+# through dashed keys are not supported. The alias lives here, NOT in
+# `sdd_adapter.py`, so the adapter never ships deprecated semantics.
+_DASHED_TO_UNDERSCORED: dict[str, str] = {
+    "review-spec": "review_spec",
+    "review-code": "review_code",
+    "review-pr": "review_pr",
+}
+
+
+class _FilenamesDict(dict):
+    """dict subclass that aliases dashed review keys to underscored.
+
+    Read-only alias; dashed reads emit ``DeprecationWarning``. Writes and
+    every other mapping operation behave exactly like ``dict``.
+    """
+
+    def __getitem__(self, key):  # type: ignore[override]
+        if isinstance(key, str) and key in _DASHED_TO_UNDERSCORED:
+            canonical = _DASHED_TO_UNDERSCORED[key]
+            if canonical in self.keys():
+                warnings.warn(
+                    (
+                        f"FeatureEvidence.filenames[{key!r}] is deprecated; "
+                        f"use {canonical!r} instead. Dashed keys will be "
+                        "removed in a future release."
+                    ),
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+                return dict.__getitem__(self, canonical)
+        return dict.__getitem__(self, key)
+
+    def get(self, key, default=None):  # type: ignore[override]
+        if isinstance(key, str) and key in _DASHED_TO_UNDERSCORED:
+            canonical = _DASHED_TO_UNDERSCORED[key]
+            if canonical in self.keys():
+                warnings.warn(
+                    (
+                        f"FeatureEvidence.filenames.get({key!r}) is "
+                        f"deprecated; use {canonical!r} instead."
+                    ),
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+                return dict.__getitem__(self, canonical)
+        return dict.get(self, key, default)
 
 STAGE_ORDER = [
     "brainstorm",
@@ -420,9 +473,9 @@ def collect_feature_evidence(
 
 def _review_milestones(evidence: FeatureEvidence) -> list[ReviewMilestone]:
     rev = evidence.review_evidence
-    review_spec_name = evidence.filenames["review-spec"]
-    review_code_name = evidence.filenames["review-code"]
-    review_pr_name = evidence.filenames["review-pr"]
+    review_spec_name = evidence.filenames["review_spec"]
+    review_code_name = evidence.filenames["review_code"]
+    review_pr_name = evidence.filenames["review_pr"]
     # Prefer the adapter's real path map over rebuilding from feature_dir.
     # `filenames` is just for display; `artifacts` is the canonical map a
     # future non-spec-kit adapter may anchor outside `feature_dir`.
@@ -512,8 +565,8 @@ def _stage_milestones(evidence: FeatureEvidence, reviews: list[ReviewMilestone])
     plan_path = evidence.artifacts[evidence.filenames["plan"]]
     brainstorm_path = evidence.artifacts[evidence.filenames["brainstorm"]]
     review_code_path = evidence.artifacts.get(
-        evidence.filenames["review-code"],
-        evidence.feature_dir / evidence.filenames["review-code"],
+        evidence.filenames["review_code"],
+        evidence.feature_dir / evidence.filenames["review_code"],
     )
     milestones: list[FlowMilestone] = []
 
@@ -618,7 +671,7 @@ def _completed_stage(milestones: list[FlowMilestone]) -> str | None:
 def _has_material_conflict(
     ambiguities: list[str], filenames: dict[str, str]
 ) -> bool:
-    review_code_name = filenames["review-code"]
+    review_code_name = filenames["review_code"]
     tasks_name = filenames["tasks"]
     conflict_markers = (
         "without specification evidence",

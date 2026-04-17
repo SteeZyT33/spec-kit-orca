@@ -79,9 +79,11 @@ class TestStageProgress:
             status="complete",
             evidence_sources=["/tmp/specs/009/spec.md"],
             notes=[],
+            kind="spec",
         )
         assert progress.stage == "specify"
         assert progress.status == "complete"
+        assert progress.kind == "spec"
 
 
 class TestNormalizedArtifacts:

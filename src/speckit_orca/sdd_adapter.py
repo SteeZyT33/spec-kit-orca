@@ -68,16 +68,15 @@ class StageProgress:
 
     ``kind`` is the v1 stage-kind the adapter maps this stage to (spec,
     plan, tasks, implementation, review_spec, review_code, review_pr,
-    ship). 019 sub-phase A adds it with a sentinel empty default so the
-    Phase 1 positional constructor still resolves; sub-phase B makes
-    every production site set it explicitly.
+    ship). Every construction site sets it explicitly; there is no
+    default. Additive per FR-003; adapters narrow via ``ordered_stage_kinds``.
     """
 
     stage: str
     status: str
     evidence_sources: list[str]
     notes: list[str]
-    kind: str = ""
+    kind: str
 
 
 @dataclass
@@ -289,14 +288,19 @@ _SPEC_KIT_ARTIFACT_NAMES: tuple[str, ...] = (
 # these keys so it never encodes spec-kit-specific filenames. New
 # adapters (OpenSpec, BMAD, Taskmaster) must supply the same key set with
 # their own filename values.
+#
+# 019 sub-phase A (FR-013): review keys migrate from dashed to underscored
+# form (``review_spec``, ``review_code``, ``review_pr``). A one-release
+# read alias lives in ``flow_state.py`` and emits ``DeprecationWarning``
+# when a caller still reads through a dashed key.
 _SPEC_KIT_FILENAMES: dict[str, str] = {
     "brainstorm": SPEC_KIT_BRAINSTORM_FILENAME,
     "spec": SPEC_KIT_SPEC_FILENAME,
     "plan": SPEC_KIT_PLAN_FILENAME,
     "tasks": SPEC_KIT_TASKS_FILENAME,
-    "review-spec": SPEC_KIT_REVIEW_SPEC_FILENAME,
-    "review-code": SPEC_KIT_REVIEW_CODE_FILENAME,
-    "review-pr": SPEC_KIT_REVIEW_PR_FILENAME,
+    "review_spec": SPEC_KIT_REVIEW_SPEC_FILENAME,
+    "review_code": SPEC_KIT_REVIEW_CODE_FILENAME,
+    "review_pr": SPEC_KIT_REVIEW_PR_FILENAME,
 }
 
 _SPEC_KIT_TASK_LINE_RE = re.compile(
@@ -334,9 +338,61 @@ class SpecKitAdapter(SddAdapter):
     parity gate against the legacy code path.
     """
 
+    # 019 Sub-phase A / FR-013: the semantic filename map. Underscored keys
+    # are canonical; ``brainstorm`` is handled separately (it's a spec-kit
+    # early-spec artifact with no peer in other SDD formats).
+    _FILENAME_MAP: dict[str, str] = {
+        "spec": SPEC_KIT_SPEC_FILENAME,
+        "plan": SPEC_KIT_PLAN_FILENAME,
+        "tasks": SPEC_KIT_TASKS_FILENAME,
+        "review_spec": SPEC_KIT_REVIEW_SPEC_FILENAME,
+        "review_code": SPEC_KIT_REVIEW_CODE_FILENAME,
+        "review_pr": SPEC_KIT_REVIEW_PR_FILENAME,
+    }
+
+    # 019 Sub-phase A / FR-015: spec-kit stage-name → v1 kind mapping.
+    # The nine-stage model collapses to eight kinds (assign folds into
+    # tasks because decompose is not a v1 kind; ship is post-merge-only
+    # and not emitted by spec-kit's compute_stage).
+    _STAGE_KIND_MAP: dict[str, str] = {
+        "brainstorm": "spec",
+        "specify": "spec",
+        "plan": "plan",
+        "tasks": "tasks",
+        "assign": "tasks",
+        "implement": "implementation",
+        "review-spec": "review_spec",
+        "review-code": "review_code",
+        "review-pr": "review_pr",
+    }
+
     @property
     def name(self) -> str:
         return "spec-kit"
+
+    # 019 Sub-phase A: FR-001/FR-002/FR-014 overrides.
+
+    def ordered_stage_kinds(self) -> list[str]:
+        # Spec-kit's native order is the v1 canonical list verbatim.
+        return [
+            "spec",
+            "plan",
+            "tasks",
+            "implementation",
+            "review_spec",
+            "review_code",
+            "review_pr",
+            "ship",
+        ]
+
+    def supports(self, capability: str) -> bool:
+        return capability in {
+            "lanes",
+            "yolo",
+            "review_code",
+            "review_pr",
+            "adoption",
+        }
 
     # -- Detection & enumeration -------------------------------------------
 
@@ -472,6 +528,7 @@ class SpecKitAdapter(SddAdapter):
                 status="complete" if brainstorm_sources else "incomplete",
                 evidence_sources=brainstorm_sources,
                 notes=[],
+                kind=self._STAGE_KIND_MAP["brainstorm"],
             )
         )
 
@@ -484,6 +541,7 @@ class SpecKitAdapter(SddAdapter):
                 if a["spec.md"].exists()
                 else [],
                 notes=[],
+                kind=self._STAGE_KIND_MAP["specify"],
             )
         )
         # plan
@@ -495,6 +553,7 @@ class SpecKitAdapter(SddAdapter):
                 if a["plan.md"].exists()
                 else [],
                 notes=[],
+                kind=self._STAGE_KIND_MAP["plan"],
             )
         )
         # tasks
@@ -507,6 +566,7 @@ class SpecKitAdapter(SddAdapter):
                 if tasks_path.exists()
                 else [],
                 notes=[],
+                kind=self._STAGE_KIND_MAP["tasks"],
             )
         )
 
@@ -522,6 +582,7 @@ class SpecKitAdapter(SddAdapter):
                 status=assign_status,
                 evidence_sources=assign_sources,
                 notes=[],
+                kind=self._STAGE_KIND_MAP["assign"],
             )
         )
 
@@ -540,6 +601,7 @@ class SpecKitAdapter(SddAdapter):
                 status=implement_status,
                 evidence_sources=implement_sources,
                 notes=[],
+                kind=self._STAGE_KIND_MAP["implement"],
             )
         )
 
@@ -553,6 +615,7 @@ class SpecKitAdapter(SddAdapter):
                 if rev.review_spec.exists
                 else [],
                 notes=[],
+                kind=self._STAGE_KIND_MAP["review-spec"],
             )
         )
         # review-code
@@ -566,6 +629,7 @@ class SpecKitAdapter(SddAdapter):
                 status=rc_status,
                 evidence_sources=rc_sources,
                 notes=[],
+                kind=self._STAGE_KIND_MAP["review-code"],
             )
         )
         # review-pr
@@ -579,6 +643,7 @@ class SpecKitAdapter(SddAdapter):
                 status=rp_status,
                 evidence_sources=rp_sources,
                 notes=[],
+                kind=self._STAGE_KIND_MAP["review-pr"],
             )
         )
 
@@ -922,6 +987,7 @@ class SpecKitAdapter(SddAdapter):
             ReviewSpecEvidence,
             TaskSummary,
             WorktreeLane,
+            _FilenamesDict,
         )
 
         resolved_repo = (
@@ -979,7 +1045,7 @@ class SpecKitAdapter(SddAdapter):
             feature_dir=normalized.feature_dir,
             repo_root=resolved_repo,
             artifacts=dict(normalized.artifacts),
-            filenames=dict(normalized.filenames),
+            filenames=_FilenamesDict(normalized.filenames),
             task_summary=task_summary,
             review_evidence=review_evidence,
             linked_brainstorms=list(normalized.linked_brainstorms),
