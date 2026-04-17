@@ -281,10 +281,17 @@ def _generate_session_id(agent: str) -> str:
     """Deterministic-ish ID: <agent>-<8 hex chars>. Collisions rejected by create.
 
     The agent name is sanitized to keep the generated id within the
-    filesystem-safe character class. Agent names with unsafe characters
-    are collapsed to ``agent``.
+    filesystem-safe character class AND aligned with the stricter
+    validator pattern. Agent values that do not start with an
+    alphanumeric character (e.g. ``.claude``) or contain unsafe
+    characters are collapsed to ``agent`` so the produced id always
+    passes ``_validate_session_id``.
     """
-    safe_agent = agent if re.fullmatch(r"[A-Za-z0-9._-]{1,64}", agent or "") else "agent"
+    safe_agent = (
+        agent
+        if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", agent or "")
+        else "agent"
+    )
     return f"{safe_agent}-{secrets.token_hex(4)}"
 
 

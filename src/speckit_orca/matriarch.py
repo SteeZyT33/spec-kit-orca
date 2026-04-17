@@ -997,7 +997,15 @@ def register_lane(
     # letting registered_at_sha persist as None would later be
     # indistinguishable from a genuine pre-017 legacy record and cause
     # mark_lane_complete to silently skip the commit-diff gate.
-    sha_cwd: Path | str = Path(current_path) if current_path else paths.repo_root
+    # Normalize sha_cwd against paths.repo_root so relative current_path values
+    # are resolved against the repo rather than the process CWD.
+    if current_path:
+        sha_cwd_path = Path(current_path)
+        if not sha_cwd_path.is_absolute():
+            sha_cwd_path = paths.repo_root / sha_cwd_path
+        sha_cwd: Path | str = sha_cwd_path
+    else:
+        sha_cwd = paths.repo_root
     registered_sha = _current_head_sha(paths, cwd=sha_cwd)
     if registered_sha is None:
         raise MatriarchError(
@@ -1205,12 +1213,18 @@ def _is_worktree_under_managed_root(
 
     An unset worktree_path (non-worktree run) is treated as "at repo root"
     and allowed. Explicit paths get canonicalized before comparison so
-    symlinks and relative paths don't bypass the check.
+    symlinks and relative paths don't bypass the check. Relative paths are
+    resolved against paths.repo_root rather than the process CWD to avoid
+    misclassifying valid managed paths when the caller runs from outside
+    the repo.
     """
     if not worktree_path:
         return True
     try:
-        actual = Path(worktree_path).resolve()
+        candidate = Path(worktree_path)
+        if not candidate.is_absolute():
+            candidate = paths.repo_root / candidate
+        actual = candidate.resolve()
     except OSError:
         return False
     repo_root = paths.repo_root.resolve()

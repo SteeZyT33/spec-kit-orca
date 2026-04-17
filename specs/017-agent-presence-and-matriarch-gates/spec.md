@@ -39,8 +39,11 @@ in and wants to know what is currently happening.
 un-inspectable. This is the core missing primitive.
 
 **Independent Test**: Start an Orca command in one terminal. In a second
-terminal, run `speckit-orca status`. The active session appears with its
-agent, started time, scope, and last heartbeat.
+terminal, inspect the active session via the library API
+(`speckit_orca.session.list_active_sessions(repo_root)`). The session
+appears with its agent, started time, scope, and last heartbeat. A CLI
+wrapper (`speckit-orca status --sessions`) is the deferred UX for this
+verification (see FR-008); it does not gate User Story 1 acceptance in v1.
 
 **Acceptance Scenarios**:
 
