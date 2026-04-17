@@ -63,7 +63,12 @@ def _as_str(value: Any) -> str:
 
 
 def build_lane_drawer(repo_root: Path, row: LaneRow) -> DrawerContent:
-    """Build a DrawerContent for a lane row via matriarch.summarize_lane."""
+    """Build a DrawerContent for a lane row via matriarch.summarize_lane.
+
+    Graceful degradation: failures at either the fetch site OR the render
+    site (malformed payload, missing keys, unexpected types) collapse to a
+    placeholder body that still identifies the lane.
+    """
     title = f"Lane: {row.lane_id}"
     try:
         from speckit_orca import matriarch as _matriarch
@@ -80,34 +85,58 @@ def build_lane_drawer(repo_root: Path, row: LaneRow) -> DrawerContent:
             tail=[],
         )
 
-    mailbox = summary.get("mailbox_counts") or {}
-    mailbox_str = (
-        f"inbound={mailbox.get('inbound', 0)} "
-        f"outbound={mailbox.get('outbound', 0)} "
-        f"reports={mailbox.get('reports', 0)}"
-    )
-    deployment = summary.get("deployment")
-    deployment_str = "-" if not deployment else (
-        f"{deployment.get('kind', '?')} by {deployment.get('launched_by', '?')}"
-    )
-    body: list[tuple[str, str]] = [
-        ("lane_id", _as_str(summary.get("lane_id"))),
-        ("spec_id", _as_str(summary.get("spec_id"))),
-        ("title", _as_str(summary.get("title"))),
-        ("branch", _as_str(summary.get("branch"))),
-        ("worktree_path", _as_str(summary.get("worktree_path"))),
-        ("effective_state", _as_str(summary.get("effective_state"))),
-        ("status_reason", _as_str(summary.get("status_reason"))),
-        ("owner_type", _as_str(summary.get("owner_type"))),
-        ("owner_id", _as_str(summary.get("owner_id"))),
-        ("dependencies", _as_str(summary.get("dependencies"))),
-        ("mailbox_counts", mailbox_str),
-        ("delegated_work", _as_str(summary.get("delegated_work"))),
-        ("assignment_history", _as_str(summary.get("assignment_history"))),
-        ("deployment", deployment_str),
-        ("registry_revision", _as_str(summary.get("registry_revision"))),
-    ]
-    return DrawerContent(title=title, body=body, tail=[])
+    try:
+        mailbox = summary.get("mailbox_counts") if isinstance(summary, dict) else None
+        if not isinstance(mailbox, dict):
+            mailbox = {}
+        mailbox_str = (
+            f"inbound={mailbox.get('inbound', 0)} "
+            f"outbound={mailbox.get('outbound', 0)} "
+            f"reports={mailbox.get('reports', 0)}"
+        )
+        deployment = summary.get("deployment") if isinstance(summary, dict) else None
+        if isinstance(deployment, dict):
+            # summarize_lane emits the LaneDeployment asdict() output,
+            # which carries `deployment_kind` (not `kind`). Fall back
+            # across both for forward/back compat.
+            kind = deployment.get("deployment_kind") or deployment.get("kind") or "?"
+            launcher = deployment.get("launched_by") or "?"
+            deployment_str = f"{kind} by {launcher}"
+        else:
+            deployment_str = "-"
+
+        def _get(key: str) -> Any:
+            return summary.get(key) if isinstance(summary, dict) else None
+
+        body: list[tuple[str, str]] = [
+            ("lane_id", _as_str(_get("lane_id") or row.lane_id)),
+            ("spec_id", _as_str(_get("spec_id"))),
+            ("title", _as_str(_get("title"))),
+            ("branch", _as_str(_get("branch"))),
+            ("worktree_path", _as_str(_get("worktree_path"))),
+            ("effective_state", _as_str(_get("effective_state"))),
+            ("status_reason", _as_str(_get("status_reason"))),
+            ("owner_type", _as_str(_get("owner_type"))),
+            ("owner_id", _as_str(_get("owner_id"))),
+            ("dependencies", _as_str(_get("dependencies"))),
+            ("mailbox_counts", mailbox_str),
+            ("delegated_work", _as_str(_get("delegated_work"))),
+            ("assignment_history", _as_str(_get("assignment_history"))),
+            ("deployment", deployment_str),
+            ("registry_revision", _as_str(_get("registry_revision"))),
+        ]
+        return DrawerContent(title=title, body=body, tail=[])
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("build_lane_drawer: rendering failed", exc_info=True)
+        return DrawerContent(
+            title=title,
+            body=[
+                ("lane_id", row.lane_id),
+                ("effective_state", row.effective_state),
+                ("error", f"lane payload malformed: {exc!s}"),
+            ],
+            tail=[],
+        )
 
 
 def _yolo_event_tail(repo_root: Path, run_id: str, limit: int) -> list[str]:
@@ -137,7 +166,13 @@ def _yolo_event_tail(repo_root: Path, run_id: str, limit: int) -> list[str]:
 
 
 def build_yolo_drawer(repo_root: Path, row: YoloRow) -> DrawerContent:
-    """Build a DrawerContent for a yolo run via yolo.run_status."""
+    """Build a DrawerContent for a yolo run via yolo.run_status.
+
+    Graceful degradation: failures at either the fetch site OR the
+    per-field render site collapse to a placeholder body. Attribute
+    access is wrapped with getattr() fallbacks so a partially-populated
+    RunState never raises during rendering.
+    """
     title = f"Run: {row.run_id}"
     try:
         from speckit_orca import yolo as _yolo
@@ -156,27 +191,46 @@ def build_yolo_drawer(repo_root: Path, row: YoloRow) -> DrawerContent:
             tail=[],
         )
 
-    body: list[tuple[str, str]] = [
-        ("run_id", _as_str(state.run_id)),
-        ("feature_id", _as_str(state.feature_id)),
-        ("mode", _as_str(state.mode)),
-        ("lane_id", _as_str(state.lane_id)),
-        ("current_stage", _as_str(state.current_stage)),
-        ("outcome", _as_str(state.outcome)),
-        ("block_reason", _as_str(state.block_reason)),
-        ("branch", _as_str(state.branch)),
-        ("head_commit_sha_at_last_event", _as_str(state.head_commit_sha_at_last_event)),
-        ("deployment_kind", _as_str(state.deployment_kind)),
-        ("review_spec_status", _as_str(state.review_spec_status)),
-        ("review_code_status", _as_str(state.review_code_status)),
-        ("review_pr_status", _as_str(state.review_pr_status)),
-        ("mailbox_path", _as_str(state.mailbox_path)),
-        ("last_mailbox_event_id", _as_str(state.last_mailbox_event_id)),
-        ("retry_counts", _as_str(state.retry_counts)),
-        ("matriarch_sync_failed", _as_str(state.matriarch_sync_failed)),
-        ("last_event_id", _as_str(state.last_event_id)),
-        ("last_event_timestamp", _as_str(state.last_event_timestamp)),
-    ]
+    def _attr(name: str, default: Any = None) -> Any:
+        try:
+            return getattr(state, name, default)
+        except Exception:  # noqa: BLE001
+            return default
+
+    try:
+        body: list[tuple[str, str]] = [
+            ("run_id", _as_str(_attr("run_id", row.run_id))),
+            ("feature_id", _as_str(_attr("feature_id", row.feature_id))),
+            ("mode", _as_str(_attr("mode"))),
+            ("lane_id", _as_str(_attr("lane_id"))),
+            ("current_stage", _as_str(_attr("current_stage", row.current_stage))),
+            ("outcome", _as_str(_attr("outcome", row.outcome))),
+            ("block_reason", _as_str(_attr("block_reason"))),
+            ("branch", _as_str(_attr("branch"))),
+            ("head_commit_sha_at_last_event",
+             _as_str(_attr("head_commit_sha_at_last_event"))),
+            ("deployment_kind", _as_str(_attr("deployment_kind"))),
+            ("review_spec_status", _as_str(_attr("review_spec_status"))),
+            ("review_code_status", _as_str(_attr("review_code_status"))),
+            ("review_pr_status", _as_str(_attr("review_pr_status"))),
+            ("mailbox_path", _as_str(_attr("mailbox_path"))),
+            ("last_mailbox_event_id", _as_str(_attr("last_mailbox_event_id"))),
+            ("retry_counts", _as_str(_attr("retry_counts"))),
+            ("matriarch_sync_failed", _as_str(_attr("matriarch_sync_failed"))),
+            ("last_event_id", _as_str(_attr("last_event_id"))),
+            ("last_event_timestamp", _as_str(_attr("last_event_timestamp"))),
+        ]
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("build_yolo_drawer: rendering failed", exc_info=True)
+        return DrawerContent(
+            title=title,
+            body=[
+                ("run_id", row.run_id),
+                ("feature_id", row.feature_id),
+                ("error", f"run state malformed: {exc!s}"),
+            ],
+            tail=[],
+        )
     tail = _yolo_event_tail(repo_root, row.run_id, YOLO_EVENT_TAIL)
     if not tail:
         tail = ["(no events)"]
@@ -291,6 +345,16 @@ class DetailDrawer(ModalScreen[None]):
             logger.debug("DetailDrawer mount failed", exc_info=True)
 
     def action_close(self) -> None:
+        """Delegate close to the app so focus restoration happens."""
+        close = getattr(self.app, "_close_drawer", None)
+        if callable(close):
+            try:
+                close()
+                return
+            except Exception:  # noqa: BLE001
+                logger.debug("DetailDrawer _close_drawer delegation failed",
+                             exc_info=True)
+        # Fallback: legacy behavior - just pop the screen.
         try:
             self.app.pop_screen()
         except Exception:  # noqa: BLE001

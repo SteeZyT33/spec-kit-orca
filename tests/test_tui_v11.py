@@ -443,3 +443,164 @@ def test_theme_persists_across_refresh(tmp_path: Path):
             assert app.theme == chosen
 
     asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
+# Phase F - codex review findings (post-review hardening)
+# ---------------------------------------------------------------------------
+
+
+def test_lane_drawer_renders_deployment_kind_key(tmp_path: Path, monkeypatch):
+    """summarize_lane emits `deployment_kind`, not `kind`. FR-104 correctness."""
+    from speckit_orca.tui.collectors import LaneRow
+    from speckit_orca.tui import drawer as drawer_mod
+
+    def _fake_summarize(lane_id, *, repo_root=None):
+        return {
+            "lane_id": lane_id,
+            "spec_id": "020-x",
+            "title": "deployed lane",
+            "branch": "020-x",
+            "worktree_path": "/tmp/020",
+            "effective_state": "active",
+            "status_reason": "",
+            "owner_type": "codex",
+            "owner_id": "ag-1",
+            "dependencies": [],
+            "mailbox_counts": {"inbound": 1, "outbound": 0, "reports": 2},
+            "delegated_work": [],
+            "assignment_history": [],
+            "deployment": {
+                "deployment_kind": "tmux",
+                "launched_by": "ag-1",
+                "session_name": "orca:020",
+            },
+            "registry_revision": 3,
+            "mailbox_path": ".specify/orca/matriarch/mailbox/020-x",
+        }
+
+    from speckit_orca import matriarch as _matriarch
+    monkeypatch.setattr(_matriarch, "summarize_lane", _fake_summarize)
+
+    row = LaneRow(
+        lane_id="020-x", effective_state="active",
+        owner_id="ag-1", status_reason="",
+    )
+    content = drawer_mod.build_lane_drawer(tmp_path, row)
+    dep_value = dict(content.body).get("deployment", "")
+    assert "tmux" in dep_value
+    assert "ag-1" in dep_value
+    assert "?" not in dep_value
+
+
+def test_lane_drawer_degrades_on_malformed_payload(tmp_path: Path, monkeypatch):
+    """A non-dict / partial summarize_lane return must not crash the drawer."""
+    from speckit_orca.tui.collectors import LaneRow
+    from speckit_orca.tui import drawer as drawer_mod
+
+    def _bad_summarize(lane_id, *, repo_root=None):
+        return "this is not a dict"  # malformed payload
+
+    from speckit_orca import matriarch as _matriarch
+    monkeypatch.setattr(_matriarch, "summarize_lane", _bad_summarize)
+
+    row = LaneRow(
+        lane_id="020-x", effective_state="active",
+        owner_id=None, status_reason="",
+    )
+    # Must not raise.
+    content = drawer_mod.build_lane_drawer(tmp_path, row)
+    joined = " ".join(v for (_l, v) in content.body).lower()
+    assert "020-x" in joined or "error" in joined or "malformed" in joined
+
+
+def test_yolo_drawer_degrades_on_partial_runstate(tmp_path: Path, monkeypatch):
+    """A RunState missing expected attributes must render via getattr fallback."""
+    from speckit_orca.tui.collectors import YoloRow
+    from speckit_orca.tui import drawer as drawer_mod
+
+    class _Partial:
+        run_id = "r-1"
+        feature_id = "020"
+        # Intentionally missing most fields.
+
+    from speckit_orca import yolo as _yolo
+    monkeypatch.setattr(_yolo, "run_status", lambda repo, rid: _Partial())
+
+    row = YoloRow(
+        run_id="r-1", feature_id="020", current_stage="implement",
+        outcome="running", matriarch_sync_failed=False,
+    )
+    content = drawer_mod.build_yolo_drawer(tmp_path, row)
+    labels = [l for (l, _v) in content.body]
+    # Rendering did not raise; required labels are present with fallbacks.
+    assert "run_id" in labels
+    assert "mode" in labels
+    assert "retry_counts" in labels
+
+
+def test_theme_index_does_not_advance_on_setter_failure(tmp_path: Path, monkeypatch):
+    """If theme setter raises, _theme_index must not advance (FR-109 stable)."""
+    from speckit_orca.tui import OrcaTUI
+
+    (tmp_path / ".git").mkdir()
+
+    async def _run():
+        app = OrcaTUI(repo_root=tmp_path)
+        async with app.run_test() as pilot:
+            start_idx = app._theme_index
+            # Force the theme setter to raise for the next call.
+            type(app).theme = property(
+                lambda self: getattr(self, "_forced_theme", "textual-dark"),
+                lambda self, v: (_ for _ in ()).throw(RuntimeError("boom")),
+            )
+            try:
+                await pilot.press("t")
+                await pilot.pause()
+            finally:
+                # Unbind the forced property so teardown doesn't blow up.
+                del type(app).theme
+            assert app._theme_index == start_idx
+
+    asyncio.run(_run())
+
+
+def test_drawer_close_restores_focus_to_origin_pane(tmp_path: Path):
+    """Escape after drill on lane pane leaves the lane pane focused."""
+    from speckit_orca.tui import OrcaTUI
+    from speckit_orca.tui.panes import LanePane
+
+    _init_repo(tmp_path)
+    matriarch.register_lane(
+        spec_id="020-focus",
+        title="focus",
+        branch="020-focus",
+        worktree_path=str(tmp_path),
+        repo_root=tmp_path,
+    )
+
+    async def _run():
+        app = OrcaTUI(repo_root=tmp_path)
+        async with app.run_test() as pilot:
+            app._do_refresh()
+            await pilot.pause()
+            await pilot.press("1")
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            await pilot.press("escape")
+            await pilot.pause()
+            # The originating pane (or a descendant of it) should hold focus.
+            pane = app.query_one("#lane-pane", LanePane)
+            focused = app.focused
+            assert focused is not None
+            node = focused
+            found = False
+            while node is not None:
+                if node is pane:
+                    found = True
+                    break
+                node = getattr(node, "parent", None)
+            assert found, f"focus not restored to lane pane; focused={focused!r}"
+
+    asyncio.run(_run())

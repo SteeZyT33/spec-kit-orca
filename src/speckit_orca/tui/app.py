@@ -118,6 +118,9 @@ class OrcaTUI(App):
         # `available_themes` resolves to in the running Textual version.
         self._theme_cycle: list[str] = []
         self._theme_index: int = 0
+        # v1.1: pane id that originated the currently-open drawer so we
+        # can restore focus to the same pane after Escape / Enter close.
+        self._drawer_origin_pane_id: str | None = None
 
     # ------------------------------------------------------------------
 
@@ -298,10 +301,7 @@ class OrcaTUI(App):
         """
         # If a drawer is already open, treat Enter as close (toggle).
         if isinstance(self.screen, DetailDrawer):
-            try:
-                self.pop_screen()
-            except Exception:  # noqa: BLE001
-                logger.debug("Failed to pop drawer on toggle", exc_info=True)
+            self._close_drawer()
             return
 
         match = self._find_focused_pane()
@@ -311,21 +311,52 @@ class OrcaTUI(App):
         content = self._build_drawer_for(pane_id, pane)
         if content is None:
             return
+        self._drawer_origin_pane_id = pane_id
         try:
             self.push_screen(DetailDrawer(content))
         except Exception:  # noqa: BLE001
             logger.debug("Failed to push DetailDrawer", exc_info=True)
+            self._drawer_origin_pane_id = None
+
+    def _close_drawer(self) -> None:
+        """Pop the drawer screen and restore focus to the originating pane.
+
+        Focus restoration is explicit rather than relying on Textual's
+        default restore-last-focus behavior, so the pane the operator
+        drilled into stays focused after Escape / Enter.
+        """
+        origin = self._drawer_origin_pane_id
+        self._drawer_origin_pane_id = None
+        try:
+            self.pop_screen()
+        except Exception:  # noqa: BLE001
+            logger.debug("Failed to pop drawer", exc_info=True)
+            return
+        if origin is None:
+            return
+        try:
+            self.query_one(f"#{origin}").focus()
+        except Exception:  # noqa: BLE001
+            logger.debug("Failed to restore focus to %s", origin, exc_info=True)
 
     def action_cycle_theme(self) -> None:
-        """Advance the theme cycle one step, wrapping around the end."""
+        """Advance the theme cycle one step, wrapping around the end.
+
+        Index advancement only commits after a successful theme
+        application, so a runtime theme-setter failure does not leave
+        the internal cursor out of sync with the visible theme (would
+        otherwise cause the next `t` press to skip an entry).
+        """
         if not self._theme_cycle:
             return
-        self._theme_index = (self._theme_index + 1) % len(self._theme_cycle)
-        target = self._theme_cycle[self._theme_index]
+        next_index = (self._theme_index + 1) % len(self._theme_cycle)
+        target = self._theme_cycle[next_index]
         try:
             self.theme = target
         except Exception:  # noqa: BLE001
             logger.debug("Failed to apply theme %s", target, exc_info=True)
+            return
+        self._theme_index = next_index
 
 
 # ---------------------------------------------------------------------------
