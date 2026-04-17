@@ -12,44 +12,44 @@
 
 ## Phase B — Drawer module (TDD)
 
-- [ ] B1. RED: write `test_drawer_content_lane_builds_from_row` against
+- [x] B1. RED: write `test_drawer_content_lane_builds_from_row` against
       a not-yet-existent `speckit_orca.tui.drawer` module.
-- [ ] B2. RED: `test_drawer_content_lane_degrades_on_missing_lane`.
-- [ ] B3. RED: `test_drawer_content_yolo_includes_runstate_fields`.
-- [ ] B4. RED: `test_drawer_content_yolo_degrades_on_read_failure`.
-- [ ] B5. RED: `test_drawer_content_review_previews_artifact`.
-- [ ] B6. RED: `test_drawer_content_review_missing_artifact`.
-- [ ] B7. GREEN: implement `drawer.py` with `DrawerContent` dataclass,
+- [x] B2. RED: `test_drawer_content_lane_degrades_on_missing_lane`.
+- [x] B3. RED: `test_drawer_content_yolo_includes_runstate_fields`.
+- [x] B4. RED: `test_drawer_content_yolo_degrades_on_read_failure`.
+- [x] B5. RED: `test_drawer_content_review_previews_artifact`.
+- [x] B6. RED: `test_drawer_content_review_missing_artifact`.
+- [x] B7. GREEN: implement `drawer.py` with `DrawerContent` dataclass,
       `build_lane_drawer`, `build_yolo_drawer`,
       `build_review_drawer`, and the `DetailDrawer` ModalScreen.
-- [ ] B8. All six drawer tests pass plus original 25 still pass.
+- [x] B8. All six drawer tests pass plus original 25 still pass.
 
 ## Phase C — Enter dispatch wiring
 
-- [ ] C1. RED: Pilot test `test_enter_on_lane_pushes_drawer`.
-- [ ] C2. RED: Pilot test `test_escape_closes_drawer`.
-- [ ] C3. RED: Pilot test `test_enter_toggles_drawer_closed`.
-- [ ] C4. RED: Pilot test `test_enter_on_event_pane_is_noop`.
-- [ ] C5. GREEN: extend panes to cache `_last_rows`; add
+- [x] C1. RED: Pilot test `test_enter_on_lane_pushes_drawer`.
+- [x] C2. RED: Pilot test `test_escape_closes_drawer`.
+- [x] C3. RED: Pilot test `test_enter_toggles_drawer_closed`.
+- [x] C4. RED: Pilot test `test_enter_on_event_pane_is_noop`.
+- [x] C5. GREEN: extend panes to cache `_last_rows`; add
       `action_open_drawer` + `action_close_drawer` on the App; add
       `Enter` and `Escape` bindings. Event-pane Enter is a no-op.
-- [ ] C6. All Pilot tests pass; no regressions.
+- [x] C6. All Pilot tests pass; no regressions.
 
 ## Phase D — Theme cycle
 
-- [ ] D1. RED: `test_theme_cycle_advances_on_t`.
-- [ ] D2. RED: `test_theme_cycle_wraps_around`.
-- [ ] D3. RED: `test_theme_cycle_filters_unavailable`.
-- [ ] D4. RED: `test_theme_persists_across_refresh`.
-- [ ] D5. GREEN: implement `action_cycle_theme`, mount-time
+- [x] D1. RED: `test_theme_cycle_advances_on_t`.
+- [x] D2. RED: `test_theme_cycle_wraps_around`.
+- [x] D3. RED: `test_theme_cycle_filters_unavailable`.
+- [x] D4. RED: `test_theme_persists_across_refresh`.
+- [x] D5. GREEN: implement `action_cycle_theme`, mount-time
       `_theme_cycle` computation, and add the `t` Binding.
-- [ ] D6. All theme tests pass.
+- [x] D6. All theme tests pass.
 
 ## Phase E — Documentation
 
-- [ ] E1. Create `commands/tui.md` (new) documenting v1.1 keybindings
+- [x] E1. Create `commands/tui.md` (new) documenting v1.1 keybindings
       and drawer semantics.
-- [ ] E2. Verify no changes needed in `commands/matriarch.md` besides
+- [x] E2. Verify no changes needed in `commands/matriarch.md` besides
       a cross-reference if helpful (optional).
 
 ## Phase F — Cross-harness review
