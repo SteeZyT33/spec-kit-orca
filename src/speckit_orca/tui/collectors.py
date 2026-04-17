@@ -205,7 +205,10 @@ def _tail_jsonl(path: Path, limit: int) -> list[dict[str, Any]]:
         return []
     try:
         raw = path.read_text(encoding="utf-8").splitlines()
-    except OSError:
+    except (OSError, UnicodeDecodeError):
+        # Unreadable (permissions, disappeared mid-read) or non-utf8 bytes:
+        # degrade to empty for this file rather than aborting the feed.
+        logger.debug("Skipping unreadable event-feed file: %s", path, exc_info=True)
         return []
     # Walk from the end, collecting valid JSON lines up to limit.
     collected: list[dict[str, Any]] = []
@@ -223,16 +226,35 @@ def _tail_jsonl(path: Path, limit: int) -> list[dict[str, Any]]:
     return list(reversed(collected))
 
 
+def _safe_iterdir(path: Path) -> list[Path]:
+    """Return sorted children of `path`, or `[]` if the tree is unreadable.
+
+    `iterdir()` can raise `OSError` (e.g. permission denied, directory removed
+    mid-walk). The event feed is best-effort, so degrade silently rather than
+    propagating the failure and aborting the refresh.
+    """
+    try:
+        return sorted(path.iterdir())
+    except OSError:
+        logger.debug("Skipping unreadable directory: %s", path, exc_info=True)
+        return []
+
+
 def _collect_yolo_event_entries(repo_root: Path, per_run_limit: int = 30) -> list[EventFeedEntry]:
     runs_dir = repo_root / ".specify" / "orca" / "yolo" / "runs"
     if not runs_dir.exists():
         return []
     entries: list[EventFeedEntry] = []
-    for run_dir in sorted(runs_dir.iterdir()):
+    for run_dir in _safe_iterdir(runs_dir):
         if not run_dir.is_dir():
             continue
         events_path = run_dir / "events.jsonl"
-        for obj in _tail_jsonl(events_path, per_run_limit):
+        try:
+            objs = _tail_jsonl(events_path, per_run_limit)
+        except Exception:  # noqa: BLE001 - one bad file shouldn't kill the feed
+            logger.debug("Skipping unreadable yolo event file: %s", events_path, exc_info=True)
+            continue
+        for obj in objs:
             ts = obj.get("timestamp", "")
             etype = obj.get("event_type", "?")
             to_stage = obj.get("to_stage")
@@ -252,11 +274,16 @@ def _collect_matriarch_event_entries(repo_root: Path, per_lane_limit: int = 30) 
     if not mailbox_root.exists():
         return []
     entries: list[EventFeedEntry] = []
-    for lane_dir in sorted(mailbox_root.iterdir()):
+    for lane_dir in _safe_iterdir(mailbox_root):
         if not lane_dir.is_dir():
             continue
         inbound = lane_dir / "inbound.jsonl"
-        for obj in _tail_jsonl(inbound, per_lane_limit):
+        try:
+            objs = _tail_jsonl(inbound, per_lane_limit)
+        except Exception:  # noqa: BLE001 - one bad mailbox shouldn't kill the feed
+            logger.debug("Skipping unreadable matriarch mailbox: %s", inbound, exc_info=True)
+            continue
+        for obj in objs:
             ts = obj.get("timestamp", "")
             etype = obj.get("type", "?")
             sender = obj.get("sender", "?")
@@ -266,8 +293,21 @@ def _collect_matriarch_event_entries(repo_root: Path, per_lane_limit: int = 30) 
 
 
 def collect_event_feed(repo_root: Path) -> list[EventFeedEntry]:
-    """Merge yolo + matriarch mailbox entries, sort desc by timestamp, cap at 30."""
-    entries = _collect_yolo_event_entries(repo_root) + _collect_matriarch_event_entries(repo_root)
+    """Merge yolo + matriarch mailbox entries, sort desc by timestamp, cap at 30.
+
+    Every per-file / per-directory failure degrades to empty for that source
+    rather than aborting the refresh, so one corrupt JSONL or permission
+    error never zeros out the whole feed.
+    """
+    entries: list[EventFeedEntry] = []
+    try:
+        entries.extend(_collect_yolo_event_entries(repo_root))
+    except Exception:  # noqa: BLE001
+        logger.debug("yolo event-feed collection failed", exc_info=True)
+    try:
+        entries.extend(_collect_matriarch_event_entries(repo_root))
+    except Exception:  # noqa: BLE001
+        logger.debug("matriarch event-feed collection failed", exc_info=True)
     entries.sort(key=lambda e: e.timestamp, reverse=True)
     return entries[:EVENT_FEED_MAX_ENTRIES]
 

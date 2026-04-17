@@ -32,11 +32,18 @@ logger = logging.getLogger(__name__)
 
 def _git_branch(repo_root: Path) -> str | None:
     try:
-        out = subprocess.check_output(
+        completed = subprocess.run(
             ["git", "-C", str(repo_root), "rev-parse", "--abbrev-ref", "HEAD"],
+            check=True,
+            stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=2.0,
         )
-        return out.decode("utf-8").strip()
+        return completed.stdout.strip()
+    except subprocess.TimeoutExpired:
+        logger.debug("git branch probe timed out for %s", repo_root)
+        return None
     except Exception:  # noqa: BLE001
         return None
 
@@ -146,15 +153,21 @@ class OrcaTUI(App):
 
     def _do_refresh(self) -> None:
         result: CollectorResult = collect_all(self.repo_root, polling_mode=self.polling_mode)
-        try:
-            self.query_one("#lane-pane", LanePane).update_rows(result.lanes)
-            self.query_one("#yolo-pane", YoloPane).update_rows(result.yolo_runs)
-            self.query_one("#review-pane", ReviewPane).update_rows(result.reviews)
-            self.query_one("#event-pane", EventFeedPane).update_rows(result.event_feed)
-        except Exception:  # noqa: BLE001
-            # If the app is in the middle of mounting, widgets may not be
-            # queryable yet. A subsequent refresh will catch up.
-            logger.debug("Refresh failed while querying pane widgets", exc_info=True)
+        # One try per pane so a single widget lookup / update failure does
+        # not zero out the remaining three panes. During early mount the
+        # widgets may not yet be queryable; later refreshes catch up.
+        for pane_id, widget_cls, rows in (
+            ("#lane-pane", LanePane, result.lanes),
+            ("#yolo-pane", YoloPane, result.yolo_runs),
+            ("#review-pane", ReviewPane, result.reviews),
+            ("#event-pane", EventFeedPane, result.event_feed),
+        ):
+            try:
+                self.query_one(pane_id, widget_cls).update_rows(rows)
+            except Exception:  # noqa: BLE001
+                logger.debug(
+                    "Refresh failed for pane %s", pane_id, exc_info=True
+                )
 
     # ------------------------------------------------------------------
     # Actions

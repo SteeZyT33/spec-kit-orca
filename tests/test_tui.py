@@ -376,3 +376,171 @@ def test_main_defaults_to_cwd(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     rc = main(["--no-run"])
     assert rc == 0
+
+
+# ---------------------------------------------------------------------------
+# Phase F - robustness fixes (PR #61 review threads)
+# ---------------------------------------------------------------------------
+
+
+def test_git_branch_probe_times_out_gracefully(tmp_path: Path, monkeypatch):
+    """A hung git subprocess must not block the UI; _git_branch returns None."""
+    import subprocess as _subprocess
+
+    from speckit_orca.tui import app as app_mod
+
+    def _raise_timeout(*_args, **_kwargs):
+        raise _subprocess.TimeoutExpired(cmd="git", timeout=2.0)
+
+    monkeypatch.setattr(app_mod.subprocess, "run", _raise_timeout)
+    assert app_mod._git_branch(tmp_path) is None
+
+
+def test_git_branch_probe_passes_timeout_argument(tmp_path: Path, monkeypatch):
+    """The git probe must invoke subprocess.run with a positive `timeout`."""
+    from speckit_orca.tui import app as app_mod
+
+    captured: dict[str, object] = {}
+
+    class _FakeCompleted:
+        stdout = "main\n"
+
+    def _fake_run(*args, **kwargs):
+        captured.update(kwargs)
+        return _FakeCompleted()
+
+    monkeypatch.setattr(app_mod.subprocess, "run", _fake_run)
+    result = app_mod._git_branch(tmp_path)
+    assert result == "main"
+    assert "timeout" in captured
+    assert isinstance(captured["timeout"], (int, float))
+    assert captured["timeout"] > 0
+
+
+def test_do_refresh_isolates_pane_failures(tmp_path: Path):
+    """One pane raising on update_rows must not prevent the others from refreshing."""
+    import asyncio
+
+    from speckit_orca.tui import OrcaTUI
+    from speckit_orca.tui.panes import LanePane
+
+    (tmp_path / ".git").mkdir()
+
+    async def _run():
+        app = OrcaTUI(repo_root=tmp_path)
+        async with app.run_test():
+            # Sabotage just one pane's update_rows; the other three should
+            # still receive a refresh call.
+            lane_pane = app.query_one("#lane-pane", LanePane)
+
+            def _boom(_rows):
+                raise RuntimeError("lane pane exploded")
+
+            lane_pane.update_rows = _boom  # type: ignore[assignment]
+
+            calls: dict[str, int] = {"yolo": 0, "review": 0, "event": 0}
+
+            from speckit_orca.tui.panes import EventFeedPane, ReviewPane, YoloPane
+
+            yolo = app.query_one("#yolo-pane", YoloPane)
+            review = app.query_one("#review-pane", ReviewPane)
+            event = app.query_one("#event-pane", EventFeedPane)
+
+            orig_yolo = yolo.update_rows
+            orig_review = review.update_rows
+            orig_event = event.update_rows
+
+            def _wrap_yolo(rows):
+                calls["yolo"] += 1
+                return orig_yolo(rows)
+
+            def _wrap_review(rows):
+                calls["review"] += 1
+                return orig_review(rows)
+
+            def _wrap_event(rows):
+                calls["event"] += 1
+                return orig_event(rows)
+
+            yolo.update_rows = _wrap_yolo  # type: ignore[assignment]
+            review.update_rows = _wrap_review  # type: ignore[assignment]
+            event.update_rows = _wrap_event  # type: ignore[assignment]
+
+            # Trigger refresh explicitly; must not raise.
+            app._do_refresh()
+
+            assert calls["yolo"] >= 1
+            assert calls["review"] >= 1
+            assert calls["event"] >= 1
+
+    asyncio.run(_run())
+
+
+def test_event_feed_survives_corrupt_jsonl(tmp_path: Path):
+    """A corrupt events.jsonl line must not abort the feed; valid entries still surface."""
+    from speckit_orca.tui.collectors import collect_event_feed
+
+    (tmp_path / ".git").mkdir()
+
+    # One clean run
+    _write_yolo_run(tmp_path, "run-clean", "020-example", outcome="running")
+
+    # One corrupt run: overwrite events.jsonl with garbage lines (no valid JSON)
+    bad_run = tmp_path / ".specify" / "orca" / "yolo" / "runs" / "run-bad"
+    bad_run.mkdir(parents=True, exist_ok=True)
+    (bad_run / "events.jsonl").write_text("this is not json\n{broken\n")
+
+    entries = collect_event_feed(tmp_path)
+    # Clean run's events still present.
+    assert any("run-clea" in e.summary for e in entries if e.source == "yolo")
+
+
+def test_event_feed_survives_invalid_utf8(tmp_path: Path):
+    """Non-UTF-8 bytes in events.jsonl degrade to empty for that file, not whole feed."""
+    from speckit_orca.tui.collectors import collect_event_feed
+
+    (tmp_path / ".git").mkdir()
+
+    # Clean run
+    _write_yolo_run(tmp_path, "run-utf8ok", "020-example", outcome="running")
+
+    # Run with invalid UTF-8 bytes in its events.jsonl
+    bad_run = tmp_path / ".specify" / "orca" / "yolo" / "runs" / "run-utf8bad"
+    bad_run.mkdir(parents=True, exist_ok=True)
+    (bad_run / "events.jsonl").write_bytes(b"\xff\xfe\xfd not-utf-8 bytes\n")
+
+    # Must not raise; must still return the clean run's entries.
+    entries = collect_event_feed(tmp_path)
+    assert any(e.source == "yolo" for e in entries)
+
+
+def test_tail_jsonl_handles_unicode_decode_error(tmp_path: Path):
+    """_tail_jsonl swallows UnicodeDecodeError and returns []."""
+    from speckit_orca.tui.collectors import _tail_jsonl
+
+    bad = tmp_path / "bad.jsonl"
+    bad.write_bytes(b"\xff\xfe\xfd\n")
+    assert _tail_jsonl(bad, 10) == []
+
+
+def test_event_feed_survives_unreadable_directory(tmp_path: Path, monkeypatch):
+    """If iterdir() raises OSError mid-refresh, the feed degrades to the other source."""
+    from speckit_orca.tui import collectors as coll
+
+    (tmp_path / ".git").mkdir()
+    # Make the runs dir exist so the code path is entered.
+    runs_dir = tmp_path / ".specify" / "orca" / "yolo" / "runs"
+    runs_dir.mkdir(parents=True)
+
+    real_iterdir = Path.iterdir
+
+    def _iterdir(self):
+        if self == runs_dir:
+            raise OSError("simulated unreadable tree")
+        return real_iterdir(self)
+
+    monkeypatch.setattr(Path, "iterdir", _iterdir)
+
+    # Must not raise.
+    entries = coll.collect_event_feed(tmp_path)
+    assert entries == []
