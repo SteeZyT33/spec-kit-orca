@@ -160,15 +160,17 @@ on every subsequent refinement.
   of implementing a multi-pane TUI in shell is higher than the
   cost of taking a Textual dependency, and the result is worse.
 
-Decision: **Textual**. Taking a dependency on `textual>=0.50` (and
-transitively `rich>=13`) is worth it. Both are pure-Python, BSD-ish
-licensed, and widely adopted.
+Decision: **Textual**. Taking a dependency on `textual>=0.50` is
+worth it. Rich ships transitively via Textual and should not be
+pinned separately. Both are pure-Python, BSD-ish licensed, and
+widely adopted.
 
 ### Install / invocation shape
 
-- Add `textual` and `rich` to the main `pyproject.toml` dependency
-  list (not an extras group — the TUI is part of the product
-  surface, not a plugin).
+- Add `textual` to the main `pyproject.toml` dependency list (not
+  an extras group — the TUI is part of the product surface, not a
+  plugin). Rich is pulled in transitively by Textual and is not
+  pinned separately.
 - New entry point: `speckit-orca tui` dispatches to
   `speckit_orca.tui.cli:main`. Optionally: `python -m
   speckit_orca.tui` as a direct invocation.
@@ -240,8 +242,8 @@ review-spec (where clarify re-ran after review).
 yolo event logs for all active runs, (b) matriarch mailbox and
 report queues for all active lanes. Each row: timestamp, source
 ("yolo" / "matr"), one-line summary (event_type + feature/lane +
-key payload field). Auto-scrolls to newest. Pressing `Space`
-pauses the scroll for reading.
+key payload field). Auto-scrolls to newest. Pressing `p` pauses
+and resumes the scroll for reading.
 
 ### Header and footer
 
@@ -424,8 +426,10 @@ doesn't promise "now matriarch is stable." It surfaces what's there.
 
 016-multi-sdd-layer is the in-flight spec for Orca being usable
 across multiple spec-development frameworks (spec-kit, OpenSpec,
-spec-kitty, etc.). Its shape is still being defined — the directory
-exists but there's no brainstorm.md yet.
+spec-kitty, etc.). 016's brainstorm.md landed in this same PR; its
+plan and contracts are still open. This doc assumes 016's
+brainstorm-level direction and will align to its plan/contracts as
+they land.
 
 The TUI's posture toward 016: **render against the Orca abstraction
 layer, not the raw SDD files.** Concretely:
@@ -471,8 +475,8 @@ directly.** Everything goes through flow-state or matriarch.
   - `flow_state_poller.py` — debounced flow-state recompute
 - `theme.css` — Textual CSS for pane colors, borders, hover states
 - `README.md` — brief operator guide (how to run, how to interpret
-  panes). **Note**: per CLAUDE.md, documentation files require
-  explicit user request; skip this for v1 unless requested.
+  panes). **Note**: defer this for v1 unless the user explicitly
+  requests operator documentation.
 
 ### `src/speckit_orca/cli.py`
 
@@ -491,10 +495,10 @@ directly.** Everything goes through flow-state or matriarch.
 ### `README.md`
 
 - Add a short subsection under the four-concept workflow:
-  "Live view (optional): `speckit-orca tui` opens a single-pane
-  TUI that watches lanes, yolo runs, and reviews simultaneously.
-  The TUI is a companion to the CLI — all mutations still go
-  through CLI commands."
+  "Live view (optional): `speckit-orca tui` opens a single-screen,
+  four-pane TUI that watches lanes, yolo runs, and reviews
+  simultaneously. The TUI is a companion to the CLI — all
+  mutations still go through CLI commands."
 - Mention in the Experimental section that the TUI helps close
   matriarch's visibility gap.
 
