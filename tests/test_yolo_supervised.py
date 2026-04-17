@@ -11,8 +11,41 @@ import pytest
 
 
 def _init_repo(tmp_path: Path) -> None:
-    """Give tmp_path a minimal .specify/ so matriarch can locate repo root."""
+    """Give tmp_path a minimal .specify/ so matriarch can locate repo root.
+
+    Also initializes a git repo with one commit so ``register_lane`` can
+    resolve a HEAD SHA (017 LANE_REGISTRATION_HEAD_UNRESOLVED guard).
+    """
+    import subprocess
+
     (tmp_path / ".specify").mkdir(exist_ok=True)
+    if (tmp_path / ".git").exists():
+        return
+    env = {
+        "GIT_AUTHOR_NAME": "test",
+        "GIT_AUTHOR_EMAIL": "test@example.com",
+        "GIT_COMMITTER_NAME": "test",
+        "GIT_COMMITTER_EMAIL": "test@example.com",
+    }
+    subprocess.run(
+        ["git", "init", "-q", "-b", "main", str(tmp_path)],
+        check=True,
+        capture_output=True,
+    )
+    # Need at least one commit so rev-parse HEAD succeeds.
+    (tmp_path / ".gitkeep").write_text("")
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "add", ".gitkeep"],
+        check=True,
+        capture_output=True,
+        env={**env, "PATH": __import__("os").environ.get("PATH", "")},
+    )
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "commit", "-q", "-m", "init"],
+        check=True,
+        capture_output=True,
+        env={**env, "PATH": __import__("os").environ.get("PATH", "")},
+    )
 
 
 def _setup_supervised_run(tmp_path: Path, feature_id: str = "020-example"):

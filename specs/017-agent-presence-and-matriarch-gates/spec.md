@@ -113,15 +113,17 @@ Then add `review-code.md`, attempt again. Succeeds.
 
 ---
 
-### User Story 4 - Visible Status From One Command (Priority: P2)
+### User Story 4 - Visible Status From One Command (DEFERRED to follow-up)
 
-An operator can run a single command and see everything currently
-happening across the repo: sessions, lanes, conflicts.
+**Status**: Deferred out of scope for this iteration. The CLI status
+surface (`speckit-orca status --sessions`) will land in a follow-up PR.
+017 ships the session primitive (`session.py`) and the Matriarch
+completion gates; operators can inspect presence directly via the
+library API and the `.specify/orca/sessions/*.json` files in the
+meantime. The acceptance criteria below describe the eventual target
+shape.
 
-**Why this priority**: Presence data is only useful if it's trivial to
-view. A dedicated `status` surface makes daily use viable.
-
-**Acceptance Scenarios**:
+**Acceptance Scenarios** (deferred):
 
 1. **Given** two active sessions and three registered lanes, **When**
    the operator runs `speckit-orca status --sessions`, **Then** a
@@ -181,8 +183,12 @@ view. A dedicated `status` surface makes daily use viable.
 - **FR-007**: All gate failures MUST raise `MatriarchError` with an
   error-code prefix (e.g., `LANE_NO_COMMITS: ...`) so callers and
   operators can switch on the code programmatically.
-- **FR-008**: `speckit-orca status` MUST gain a sessions view listing
-  every active session with agent, scope, started, and last heartbeat.
+- **FR-008** (DEFERRED): `speckit-orca status` will gain a sessions
+  view listing every active session with agent, scope, started, and
+  last heartbeat. The CLI surface is deferred to a follow-up PR; 017
+  only requires the session primitive and matriarch gates. Operators
+  can list sessions via the library API
+  (`speckit_orca.session.list_active_sessions`) until the CLI ships.
 - **FR-009**: Session operations MUST use `flock`-backed advisory
   locking on `.specify/orca/sessions/.lock` to tolerate concurrent
   writers.
@@ -247,6 +253,10 @@ mailbox event) cheap and avoids false rejections during normal work.
 
 ## Out of Scope (Deferred)
 
+- **User Story 4 / FR-008 `speckit-orca status --sessions` CLI
+  surface**: deferred to a follow-up PR. Presence data is exposed via
+  the library API (`list_active_sessions`) and direct filesystem
+  inspection of `.specify/orca/sessions/*.json` in the meantime.
 - Cross-machine presence (e.g., operator on Mac sees agent on
   Linux workstation). v1 is single-host.
 - Session-to-session messaging beyond what Matriarch mailbox
@@ -271,6 +281,7 @@ The feature is successful when:
 1. The mneme failure mode is mechanically impossible: agents cannot
    mark a lane complete without commits, reviews, and a managed worktree.
 2. Two concurrent Orca sessions on the same project are visible to each
-   other via `speckit-orca status --sessions`.
+   other via the session library API (`list_active_sessions`) and, in
+   the follow-up PR, via `speckit-orca status --sessions`.
 3. A crashed agent's phantom lock is reaped within 5 minutes.
 4. All new code ships with tests covering every `LANE_*` rejection path.

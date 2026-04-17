@@ -56,7 +56,7 @@ separate shorter-critical-section pattern.
 
 ## Security implications
 
-**Low risk surface overall.** No network, no shell exec, no eval. Filesystem
+**Low-risk surface overall.** No network, no shell exec, no eval. Filesystem
 writes are bounded to `.specify/orca/sessions/`.
 
 **Finding: session files disclose PID and hostname.** If the repo is

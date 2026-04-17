@@ -205,6 +205,49 @@ def test_complete_rejects_when_worktree_escaped_post_register(repo: Path, tmp_pa
 # ─── mark_lane_complete: legacy compatibility ────────────────────────────
 
 
+def test_complete_propagates_completed_state_into_status_derivation(repo: Path):
+    """After ``mark_lane_complete`` the derived effective_state must be
+    ``completed``, not regress to ``active``/``review_ready``/``registered``.
+    Regression for PR #58 (CodeRabbit)."""
+    matriarch.register_lane("888-test-feature", repo_root=repo)
+    _make_commit(repo, "work")
+    (repo / "specs" / "888-test-feature" / "review-code.md").write_text("ok\n")
+    matriarch.mark_lane_complete("888-test-feature", repo_root=repo)
+    summary = matriarch.summarize_lane("888-test-feature", repo_root=repo)
+    assert summary["effective_state"] == "completed"
+    overall = matriarch.overall_status(repo_root=repo)
+    assert overall["counts"]["completed"] == 1
+
+
+def test_register_fails_when_head_unresolvable(tmp_path: Path):
+    """Regression for PR #58 (CodeRabbit/Copilot Critical): if HEAD
+    cannot be resolved, ``register_lane`` must raise rather than
+    silently persisting ``registered_at_sha=None`` (which would later
+    masquerade as a legacy record and bypass the commit-diff gate)."""
+    # tmp_path is NOT a git repo
+    root = tmp_path / "no-git"
+    (root / ".specify").mkdir(parents=True)
+    (root / "specs" / "888-test-feature").mkdir(parents=True)
+    (root / "specs" / "888-test-feature" / "spec.md").write_text("# X\n")
+    with pytest.raises(matriarch.MatriarchError) as exc:
+        matriarch.register_lane("888-test-feature", repo_root=root)
+    assert "LANE_REGISTRATION_HEAD_UNRESOLVED" in str(exc.value)
+
+
+def test_complete_rejects_forged_final_commit_sha(repo: Path):
+    """Regression for PR #58 (Copilot): a caller must not be able to
+    bypass LANE_NO_COMMITS by passing an arbitrary final_commit_sha."""
+    matriarch.register_lane("888-test-feature", repo_root=repo)
+    # No new commits since registration.
+    (repo / "specs" / "888-test-feature" / "review-code.md").write_text("ok\n")
+    forged = "deadbeef" * 5  # 40-char fake SHA
+    with pytest.raises(matriarch.MatriarchError) as exc:
+        matriarch.mark_lane_complete(
+            "888-test-feature", repo_root=repo, final_commit_sha=forged
+        )
+    assert "LANE_FINAL_SHA_MISMATCH" in str(exc.value)
+
+
 def test_complete_legacy_record_skips_commit_gate(repo: Path):
     """Legacy LaneRecords (pre-017) have registered_at_sha=None. The commit
     gate should be skipped with a noted warning, not crash."""

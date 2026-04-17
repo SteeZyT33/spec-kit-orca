@@ -36,6 +36,7 @@ import fcntl
 import json
 import os
 import platform
+import re
 import secrets
 import tempfile
 import time
@@ -52,6 +53,31 @@ SESSION_TTL_SECONDS: int = 300
 
 SESSIONS_DIRNAME: str = ".specify/orca/sessions"
 SESSION_LOCK_FILENAME: str = ".lock"
+
+# Session IDs are used verbatim in filesystem paths. Restrict to a
+# conservative filesystem-safe pattern so values like "../../evil" or
+# "/etc/passwd" cannot escape the sessions dir. Length cap keeps the
+# resulting filename well below any sane filesystem limit.
+_SAFE_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+
+
+def _validate_session_id(session_id: str) -> str:
+    """Return session_id if filesystem-safe; raise ValueError otherwise.
+
+    Rejects empty strings, path separators, leading dots that could
+    produce dotfiles or traversal segments, and anything outside the
+    allowed character class.
+    """
+    if not isinstance(session_id, str) or not _SAFE_SESSION_ID_RE.fullmatch(session_id):
+        raise ValueError(
+            f"Invalid session_id {session_id!r}: must match "
+            f"^[A-Za-z0-9._-]{{1,128}}$ and may not traverse paths."
+        )
+    if session_id in {".", ".."} or session_id.startswith("."):
+        raise ValueError(
+            f"Invalid session_id {session_id!r}: may not start with '.'"
+        )
+    return session_id
 
 
 @dataclass
@@ -129,14 +155,28 @@ class Session:
         )
 
     def is_stale(self, ttl_seconds: int = SESSION_TTL_SECONDS, now: datetime | None = None) -> bool:
-        """True if last_heartbeat is older than ttl_seconds."""
+        """True if last_heartbeat is older than ttl_seconds.
+
+        Defensive about the two ways a timestamp can be unusable:
+          - ``fromisoformat`` raises ``ValueError`` on garbage input.
+          - ``fromisoformat`` returns an offset-naive datetime when the
+            input has no timezone. Subtracting that from our aware
+            ``now`` would raise ``TypeError``. Treat both as stale so a
+            single bad file can't crash ``_reap_stale_unlocked`` /
+            ``list_active_sessions``.
+        """
         if now is None:
             now = datetime.now(timezone.utc)
         try:
             last = datetime.fromisoformat(self.last_heartbeat)
-        except ValueError:
-            return True  # unparseable timestamp → treat as stale
-        delta = (now - last).total_seconds()
+        except (ValueError, TypeError):
+            return True  # unparseable timestamp -> treat as stale
+        if last.tzinfo is None or last.utcoffset() is None:
+            return True  # offset-naive timestamp -> treat as stale
+        try:
+            delta = (now - last).total_seconds()
+        except TypeError:
+            return True  # mismatched datetime kinds -> treat as stale
         return delta > ttl_seconds
 
 
@@ -199,7 +239,29 @@ def _atomic_write(path: Path, payload: dict[str, Any]) -> None:
 
 
 def _session_path(repo_root: Path, session_id: str) -> Path:
-    return _sessions_dir(repo_root) / f"{session_id}.json"
+    """Resolve the on-disk path for a session file.
+
+    Validates ``session_id`` against a filesystem-safe pattern before
+    interpolating it into the filename so callers cannot escape
+    ``.specify/orca/sessions`` with values like ``../../evil``.
+    """
+    safe_id = _validate_session_id(session_id)
+    candidate = _sessions_dir(repo_root) / f"{safe_id}.json"
+    # Defense in depth: even after the regex check, make sure the
+    # resolved path is still inside the sessions directory. The parent
+    # dir may not exist yet, so resolve the parent via its own resolve()
+    # and then join the (validated) filename.
+    sessions_root = _sessions_dir(repo_root)
+    sessions_root.mkdir(parents=True, exist_ok=True)
+    resolved = candidate.resolve()
+    try:
+        resolved.relative_to(sessions_root.resolve())
+    except ValueError as exc:
+        raise ValueError(
+            f"Resolved session path {resolved} escapes sessions dir "
+            f"{sessions_root.resolve()}"
+        ) from exc
+    return candidate
 
 
 def _read_session_file(path: Path) -> Session | None:
@@ -216,8 +278,14 @@ def _read_session_file(path: Path) -> Session | None:
 
 
 def _generate_session_id(agent: str) -> str:
-    """Deterministic-ish ID: <agent>-<8 hex chars>. Collisions rejected by create."""
-    return f"{agent}-{secrets.token_hex(4)}"
+    """Deterministic-ish ID: <agent>-<8 hex chars>. Collisions rejected by create.
+
+    The agent name is sanitized to keep the generated id within the
+    filesystem-safe character class. Agent names with unsafe characters
+    are collapsed to ``agent``.
+    """
+    safe_agent = agent if re.fullmatch(r"[A-Za-z0-9._-]{1,64}", agent or "") else "agent"
+    return f"{safe_agent}-{secrets.token_hex(4)}"
 
 
 def _reap_stale_unlocked(repo_root: Path, ttl_seconds: int = SESSION_TTL_SECONDS) -> list[str]:

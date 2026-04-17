@@ -5,10 +5,12 @@
 
 ## Summary
 
-Add a session-presence primitive (`src/speckit_orca/session.py`) and
-five completion gates to `matriarch.py`. The session layer is new code
-with no existing contract; the matriarch changes extend existing
-operations with rejection codes.
+Add a session-presence primitive (`src/speckit_orca/session.py`) plus
+four completion gates (`LANE_ALREADY_COMPLETE`, `LANE_WORKTREE_ESCAPED`,
+`LANE_NO_COMMITS`, `LANE_REVIEW_MISSING`) and one registration-time
+rejection (`LANE_SCOPE_BUSY`) in `matriarch.py`. The session layer is
+new code with no existing contract; the matriarch changes extend
+existing operations with rejection codes.
 
 ## Technical Context
 
@@ -72,8 +74,9 @@ Status: implemented in this branch. Covers:
 - `tests/test_session.py`: start/heartbeat/end roundtrip, stale reap,
   corrupt file reap, scope overlap, concurrent lock contention,
   session_scope context manager
-- `tests/test_matriarch_gates.py`: each of the 5 error codes,
-  legacy-compat path (no registered_at_sha), happy-path complete
+- `tests/test_matriarch_gates.py`: the four completion gates plus
+  `LANE_SCOPE_BUSY` registration rejection, legacy-compat path (no
+  registered_at_sha), happy-path complete
 
 ### Phase 5: Docs + commit
 

@@ -25,7 +25,8 @@ STATUS_PRECEDENCE = {
     "review_ready": 2,
     "pr_ready": 3,
     "blocked": 4,
-    "archived": 5,
+    "completed": 5,
+    "archived": 6,
 }
 EVENT_TYPES = {
     "instruction",
@@ -573,8 +574,12 @@ def _derive_effective_state(record: LaneRecord, flow_summary: dict[str, Any]) ->
     hard_blockers = [
         item for item in record.dependencies if item.get("strength") == "hard" and item.get("state") == "active"
     ]
+    # Terminal lifecycle states short-circuit the derivation so a
+    # completed/archived lane never regresses to active/review_ready.
     if record.lifecycle_state == "archived":
         return "archived", record.status_reason or "Lane archived."
+    if record.lifecycle_state == "completed":
+        return "completed", record.status_reason or "Lane completed."
     if hard_blockers:
         return "blocked", "Hard dependencies remain unsatisfied."
 
@@ -605,12 +610,56 @@ def _write_lane(paths: MatriarchPaths, record: LaneRecord) -> None:
 
 
 def _current_worktree_path(paths: MatriarchPaths) -> str | None:
+    """Resolve the current worktree top-level.
+
+    Previous behaviour returned ``Path.cwd()`` when the cwd was under
+    ``paths.repo_root``. That meant running ``register_lane`` from a
+    subdirectory (e.g. ``specs/017-.../``) recorded the subdirectory as
+    the worktree and tripped the WORKTREE_ESCAPED gate, even though the
+    worktree itself was the repo root.
+
+    New behaviour: if the cwd is inside ``paths.repo_root``, ask git
+    for the worktree top-level (``git rev-parse --show-toplevel``) and
+    resolve to that when it lands at or under ``paths.repo_root``. If
+    git can't answer, fall back to ``paths.repo_root`` so the managed
+    gate still passes. If cwd is outside ``paths.repo_root``, behave
+    like before and return the configured repo root.
+    """
+    repo_root = paths.repo_root.resolve()
     current = Path.cwd().resolve()
     try:
-        current.relative_to(paths.repo_root.resolve())
+        current.relative_to(repo_root)
+        inside_repo = True
     except ValueError:
-        return str(paths.repo_root.resolve())
-    return str(current.resolve())
+        inside_repo = False
+    if not inside_repo:
+        return str(repo_root)
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            check=False,
+            capture_output=True,
+            text=True,
+            cwd=str(current),
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        result = None
+    if result is not None and result.returncode == 0:
+        top = result.stdout.strip()
+        if top:
+            top_path = Path(top).resolve()
+            # Only trust git's answer if it's inside the configured
+            # repo root. Otherwise a nested git repo or parent repo
+            # would pull the worktree out from under us.
+            if top_path == repo_root:
+                return str(top_path)
+            try:
+                top_path.relative_to(repo_root)
+                return str(top_path)
+            except ValueError:
+                pass
+    return str(repo_root)
 
 
 def _merged_base_ref(paths: MatriarchPaths) -> str | None:
@@ -943,7 +992,20 @@ def register_lane(
         pass  # session module missing — skip check
 
     # Capture the registration SHA for the commit-gate on completion.
-    registered_sha = _current_head_sha(paths)
+    # Resolve from the lane's worktree if one was supplied, otherwise
+    # fall back to the repo root. Failure to resolve HEAD is fatal:
+    # letting registered_at_sha persist as None would later be
+    # indistinguishable from a genuine pre-017 legacy record and cause
+    # mark_lane_complete to silently skip the commit-diff gate.
+    sha_cwd: Path | str = Path(current_path) if current_path else paths.repo_root
+    registered_sha = _current_head_sha(paths, cwd=sha_cwd)
+    if registered_sha is None:
+        raise MatriarchError(
+            "LANE_REGISTRATION_HEAD_UNRESOLVED: unable to resolve git HEAD "
+            f"for lane registration at {str(sha_cwd)!r}. Registration "
+            "requires a valid repository HEAD so completion can enforce "
+            "the commit-diff gate."
+        )
     mailbox_root = paths.mailbox_root(lane_id)
     mailbox_root.mkdir(parents=True, exist_ok=True)
     paths.reports_path(lane_id).parent.mkdir(parents=True, exist_ok=True)
@@ -1162,14 +1224,21 @@ def _is_worktree_under_managed_root(
         return False
 
 
-def _current_head_sha(paths: MatriarchPaths) -> str | None:
-    """Return the current HEAD commit SHA, or None if git lookup fails."""
-    import subprocess
+def _current_head_sha(
+    paths: MatriarchPaths, *, cwd: Path | str | None = None
+) -> str | None:
+    """Return the current HEAD commit SHA, or None if git lookup fails.
 
+    ``cwd`` optionally overrides the directory the git command runs in.
+    For worktree-managed lanes, ``mark_lane_complete`` passes the
+    lane's worktree so we read that worktree's HEAD rather than the
+    main checkout's HEAD.
+    """
+    run_cwd = cwd if cwd is not None else paths.repo_root
     try:
         result = subprocess.run(
             ["git", "rev-parse", "HEAD"],
-            cwd=paths.repo_root,
+            cwd=str(run_cwd),
             capture_output=True,
             text=True,
             check=False,
@@ -1221,7 +1290,31 @@ def mark_lane_complete(
         )
 
     # Gate 3: commits since registration?
-    current_sha = final_commit_sha or _current_head_sha(paths)
+    # Resolve HEAD from the lane's own worktree so managed worktrees
+    # are diffed against the correct checkout. If the caller supplied
+    # final_commit_sha explicitly, verify it matches a head we can
+    # resolve so a caller cannot fabricate a SHA to bypass the gate.
+    git_cwd: Path | str
+    if record.worktree_path:
+        git_cwd = Path(record.worktree_path)
+    else:
+        git_cwd = paths.repo_root
+    resolved_head = _current_head_sha(paths, cwd=git_cwd)
+    if final_commit_sha is not None:
+        if resolved_head is None:
+            raise MatriarchError(
+                f"LANE_NO_COMMITS: could not resolve HEAD SHA for worktree "
+                f"{str(git_cwd)!r} to validate caller-supplied final_commit_sha"
+            )
+        if final_commit_sha != resolved_head:
+            raise MatriarchError(
+                f"LANE_FINAL_SHA_MISMATCH: caller supplied final_commit_sha "
+                f"{final_commit_sha[:8]!r} does not match resolved HEAD "
+                f"{resolved_head[:8]!r} for worktree {str(git_cwd)!r}"
+            )
+        current_sha = final_commit_sha
+    else:
+        current_sha = resolved_head
     if record.registered_at_sha is None:
         # Legacy record: degrade gracefully — skip gate, append note.
         _record_warning(
@@ -1612,6 +1705,7 @@ def overall_status(*, repo_root: Path | str | None = None) -> dict[str, Any]:
         "blocked": 0,
         "review_ready": 0,
         "pr_ready": 0,
+        "completed": 0,
         "archived": 0,
     }
     for lane in lanes:

@@ -87,6 +87,95 @@ def test_session_is_stale_with_garbage_timestamp():
     assert s.is_stale()
 
 
+def test_session_is_stale_with_naive_iso_timestamp():
+    """Regression for PR #58: a naive ISO string (no tz) parses via
+    ``fromisoformat`` but raises ``TypeError`` when subtracted from an
+    aware ``now``. The old code only caught ``ValueError``, which let
+    the TypeError propagate and crashed ``_reap_stale_unlocked``. The
+    hardened ``is_stale`` now treats naive timestamps as stale."""
+    s = Session(
+        session_id="x",
+        agent="claude",
+        started="2026-04-16T10:15:00",
+        last_heartbeat="2026-04-16T10:15:00",  # naive, no timezone
+    )
+    assert s.is_stale()
+
+
+def test_session_is_stale_with_naive_reap_does_not_crash(tmp_path: Path):
+    """Exercise the crash path end-to-end: drop a session file with a
+    naive timestamp and confirm ``list_active_sessions`` reaps it
+    without raising."""
+    sessions_dir = tmp_path / SESSIONS_DIRNAME
+    sessions_dir.mkdir(parents=True)
+    path = sessions_dir / "legacy.json"
+    path.write_text(json.dumps({
+        "session_id": "legacy",
+        "agent": "claude",
+        "started": "2026-04-16T10:15:00",
+        "last_heartbeat": "2026-04-16T10:15:00",
+        "scope": {},
+        "pid": 1,
+        "host": "h",
+    }))
+    # Must not raise TypeError
+    active = list_active_sessions(repo_root=tmp_path)
+    assert active == []
+    assert not path.exists()
+
+
+# ─── session_id validation (path-traversal guard, PR #58) ────────────────
+
+
+def test_start_session_rejects_path_traversal_id(tmp_path: Path):
+    """session_id is used verbatim in the filename; values like
+    ``../../evil`` must be rejected before touching the filesystem."""
+    with pytest.raises(ValueError):
+        start_session(
+            agent="claude",
+            repo_root=tmp_path,
+            session_id="../../evil",
+        )
+
+
+def test_start_session_rejects_separator_id(tmp_path: Path):
+    with pytest.raises(ValueError):
+        start_session(
+            agent="claude", repo_root=tmp_path, session_id="foo/bar"
+        )
+
+
+def test_start_session_rejects_dotfile_id(tmp_path: Path):
+    with pytest.raises(ValueError):
+        start_session(
+            agent="claude", repo_root=tmp_path, session_id=".hidden"
+        )
+
+
+def test_heartbeat_rejects_path_traversal_id(tmp_path: Path):
+    (tmp_path / SESSIONS_DIRNAME).mkdir(parents=True)
+    with pytest.raises(ValueError):
+        heartbeat("../../evil", repo_root=tmp_path)
+
+
+def test_end_session_rejects_path_traversal_id(tmp_path: Path):
+    (tmp_path / SESSIONS_DIRNAME).mkdir(parents=True)
+    with pytest.raises(ValueError):
+        end_session("../../evil", repo_root=tmp_path)
+
+
+def test_end_session_rejects_does_not_delete_outside_dir(tmp_path: Path):
+    """Integration check: an attacker-controlled id that would escape
+    the sessions dir must not remove the target file."""
+    (tmp_path / SESSIONS_DIRNAME).mkdir(parents=True)
+    target = tmp_path / "outside.json"
+    target.write_text("{}")
+    # Even relative traversal segments must be rejected.
+    with pytest.raises(ValueError):
+        end_session("../outside", repo_root=tmp_path)
+    assert target.exists()
+
+
 # ─── start / heartbeat / end roundtrip ───────────────────────────────────
 
 
