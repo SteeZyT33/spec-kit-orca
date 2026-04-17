@@ -802,6 +802,30 @@ class TestCommitFlow:
 
 
 class TestCli:
+    def test_default_scan_enables_h4_and_h5(self, tmp_path: Path) -> None:
+        """Regression (codex finding #3): the default CLI scan must apply
+        H4/H5 without requiring --heuristics. The v1.1 docs promise
+        `scan` uses H1-H6 out of the box; the default constant was left
+        at HEURISTICS_MVP in the first pass.
+        """
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _init_git(repo)
+        _write(repo / "CODEOWNERS", "/src/auth/ @alice\n")
+        _write(repo / "src" / "auth" / "__init__.py")
+        _write(repo / "src" / "auth" / "middleware.py")
+        _write(repo / "tests" / "test_auth.py", "# tests\n")
+        _commit_all(repo, "init")
+        run_dir = onboard.scan(repo_root=repo, run_name="initial")
+        m = onboard.read_manifest(run_dir)
+        # H4 and H5 both land signals on the auth candidate.
+        auth = next(
+            (c for c in m.candidates if c.proposed_slug == "auth"), None,
+        )
+        assert auth is not None, [c.proposed_slug for c in m.candidates]
+        assert any(s.startswith("H4:owner:") for s in auth.signals), auth.signals
+        assert any(s.startswith("H5:") for s in auth.signals), auth.signals
+
     def test_scan_writes_manifest_and_triage(self, tmp_path: Path, capsys) -> None:
         repo = tmp_path / "repo"
         repo.mkdir()
@@ -1187,6 +1211,28 @@ class TestHeuristicH5TestCoverage:
         assert any("H5:no-tests" in s for s in c.signals)
         assert c.score == 0.5
 
+    def test_two_matches_classifies_as_fragmented(self, tmp_path: Path) -> None:
+        """Regression (codex finding #4): 1 dedicated file + 1 additional
+        reference = 2 total matches must be fragmented (+0.05), not
+        cohesive (+0.15). Multi-file coverage is the fragmentation
+        signal regardless of whether one of them is name-matched.
+        """
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _write(repo / "src" / "auth" / "middleware.py")
+        _write(repo / "tests" / "test_auth.py", "# dedicated\n")
+        # A second test file that also imports the auth source path.
+        _write(
+            repo / "tests" / "test_login.py",
+            "from src.auth.middleware import thing\n",
+        )
+        cands = [_h1_candidate("auth", ["src/auth/middleware.py"], score=0.5)]
+        out = onboard.heuristic_h5_test_coverage(repo, cands)
+        c = out[0]
+        assert any("H5:fragmented" in s for s in c.signals), c.signals
+        # Fragmented bump = +0.05
+        assert abs(c.score - 0.55) < 1e-6
+
     def test_js_tsx_tests_directory_conv(self, tmp_path: Path) -> None:
         repo = tmp_path / "repo"
         repo.mkdir()
@@ -1370,6 +1416,87 @@ class TestRescan:
         # Just verify rescan didn't crash and didn't resurrect legacy as new.
         new_slugs = {c.proposed_slug for c in m_new.candidates}
         assert "legacy" not in new_slugs
+
+    def test_rescan_metadata_survives_commit_rewrite(
+        self, tmp_path: Path,
+    ) -> None:
+        """Regression (codex finding #1): rescan_new/rescan_changed must
+        persist across every commit_run() manifest rewrite. A rescan that
+        then runs through commit must still report the original summary
+        when the manifest is re-read afterwards.
+        """
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _write(repo / "src" / "auth" / "__init__.py")
+        _write(repo / "src" / "auth" / "middleware.py")
+        _prepare_committed_run(repo, run_name="initial")
+        _write(repo / "src" / "metrics" / "__init__.py")
+        _write(repo / "src" / "metrics" / "collector.py")
+        new_run = onboard.rescan(
+            repo_root=repo, from_run="initial", new_run="rescan-1",
+        )
+        m_before = onboard.read_manifest(new_run)
+        assert m_before.rescan_from == "initial"
+        before_new = m_before.rescan_new
+        before_changed = m_before.rescan_changed
+
+        # Now simulate a commit pass — triage reject everything so no
+        # ARs are written but the manifest is rewritten.
+        triage = new_run / "triage.md"
+        triage.write_text(
+            triage.read_text().replace("- status: pending", "- status: reject")
+        )
+        onboard.commit_run(new_run, dry_run=False)
+        m_after = onboard.read_manifest(new_run)
+        assert m_after.rescan_from == "initial"
+        assert m_after.rescan_new == before_new
+        assert m_after.rescan_changed == before_changed
+
+    def test_rescan_directory_ar_covers_file_candidate(
+        self, tmp_path: Path,
+    ) -> None:
+        """Regression (codex finding #2): an AR recorded at the directory
+        granularity (`src/auth/`) must cover a fresh candidate path
+        `src/auth/middleware.py`; overlap must be directory-prefix, not
+        exact-string.
+        """
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        # Create a committed AR whose Location is a directory (with
+        # trailing slash).
+        adoption.create_record(
+            repo_root=repo,
+            title="Auth Area",
+            summary="Covers the whole auth directory tree.",
+            location=["src/auth/"],
+            key_behaviors=["Handles sessions"],
+            baseline_commit=None,
+        )
+        # A fresh candidate at `src/auth/middleware.py` must classify
+        # as covered, not `new`.
+        _write(repo / "src" / "auth" / "__init__.py")
+        _write(repo / "src" / "auth" / "middleware.py")
+        # Build a minimal prior run so rescan has something to read.
+        # Shortcut: reuse scan then mark candidates committed via a
+        # manifest edit.
+        prior_dir = onboard.scan(repo_root=repo, run_name="initial")
+        m = onboard.read_manifest(prior_dir)
+        # Pretend the auth candidate was already committed.
+        for c in m.candidates:
+            if c.proposed_slug == "auth":
+                m.committed.append({
+                    "candidate_id": c.id,
+                    "ar_id": "AR-001",
+                    "ar_path": ".specify/orca/adopted/AR-001-auth.md",
+                })
+        onboard.write_manifest(prior_dir, m)
+        new_run = onboard.rescan(
+            repo_root=repo, from_run="initial", new_run="rescan-1",
+        )
+        m_new = onboard.read_manifest(new_run)
+        slugs = {c.proposed_slug for c in m_new.candidates}
+        # The auth candidate must NOT resurface as new.
+        assert "auth" not in slugs
 
     def test_rescan_plus_commit_additive(self, tmp_path: Path) -> None:
         """Rescan + commit must produce fresh AR ids without mutating

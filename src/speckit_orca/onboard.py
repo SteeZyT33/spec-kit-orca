@@ -165,6 +165,14 @@ class OnboardingManifest:
     committed: list[dict[str, Any]] = field(default_factory=list)
     rejected: list[dict[str, Any]] = field(default_factory=list)
     failed: list[dict[str, Any]] = field(default_factory=list)
+    # v1.1 — rescan metadata. `None` (never a rescan) or recorded once
+    # at rescan time. Durable across manifest rewrites so commit flow
+    # on a rescan run preserves `N new, M changed, K stale` context.
+    rescan_from: str | None = None
+    rescan_new: int | None = None
+    rescan_changed: int | None = None
+    rescan_skipped_covered: int | None = None
+    rescan_stale: list[dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.phase not in VALID_PHASES:
@@ -276,6 +284,18 @@ def _emit_yaml(manifest: OnboardingManifest) -> str:
     lines.extend(_emit_list("committed", manifest.committed, 0))
     lines.extend(_emit_list("rejected", manifest.rejected, 0))
     lines.extend(_emit_list("failed", manifest.failed, 0))
+    # v1.1 — rescan metadata, only emitted when populated so v1.0 runs
+    # round-trip cleanly without extra keys.
+    if manifest.rescan_from is not None:
+        lines.append(f"rescan_from: {_yaml_scalar(manifest.rescan_from)}")
+    if manifest.rescan_new is not None:
+        lines.append(f"rescan_new: {manifest.rescan_new}")
+    if manifest.rescan_changed is not None:
+        lines.append(f"rescan_changed: {manifest.rescan_changed}")
+    if manifest.rescan_skipped_covered is not None:
+        lines.append(f"rescan_skipped_covered: {manifest.rescan_skipped_covered}")
+    if manifest.rescan_stale:
+        lines.extend(_emit_list("rescan_stale", manifest.rescan_stale, 0))
     return "\n".join(lines) + "\n"
 
 
@@ -531,6 +551,9 @@ def read_manifest(run_dir: Path) -> OnboardingManifest:
             raise OnboardError("manifest missing required 'run_id' field")
         if "created" not in raw:
             raise OnboardError("manifest missing required 'created' field")
+        rescan_new = raw.get("rescan_new")
+        rescan_changed = raw.get("rescan_changed")
+        rescan_skipped = raw.get("rescan_skipped_covered")
         return OnboardingManifest(
             run_id=raw["run_id"],
             created=raw["created"],
@@ -543,6 +566,13 @@ def read_manifest(run_dir: Path) -> OnboardingManifest:
             committed=list(raw.get("committed", []) or []),
             rejected=list(raw.get("rejected", []) or []),
             failed=list(raw.get("failed", []) or []),
+            rescan_from=raw.get("rescan_from"),
+            rescan_new=int(rescan_new) if rescan_new is not None else None,
+            rescan_changed=int(rescan_changed) if rescan_changed is not None else None,
+            rescan_skipped_covered=(
+                int(rescan_skipped) if rescan_skipped is not None else None
+            ),
+            rescan_stale=list(raw.get("rescan_stale", []) or []),
         )
     except OnboardError:
         raise
@@ -1331,31 +1361,22 @@ def heuristic_h5_test_coverage(
         new_signals = list(c.signals)
         new_score = c.score
         if not matches:
+            # FR-105: absent coverage → annotation only, no bump.
             new_signals.append("H5:no-tests")
         elif len(matches) == 1:
+            # FR-105: exactly one dedicated test file → cohesive, +0.15.
             test_name = matches[0].name
             new_signals.append(f"H5:tests:{test_name}")
             new_score = min(1.0, round(new_score + H5_COHESIVE_BUMP, 4))
         else:
-            # Heuristic: a dedicated name-matched test file in a
-            # repo-level `tests/` dir counts as cohesive even if a
-            # few shared imports also pull in the candidate from
-            # other test files. If NO name-matched file exists and
-            # 2+ test files reference the source paths, call it
-            # fragmented.
-            slug_key = c.proposed_slug.replace("-", "_")
-            dedicated = [
-                m for m in matches
-                if m.name == f"test_{slug_key}.py"
-                or m.name.startswith(f"{slug_key}.test.")
-                or m.name.startswith(f"{slug_key}.spec.")
-            ]
-            if len(dedicated) == 1 and len(matches) <= 2:
-                new_signals.append(f"H5:tests:{dedicated[0].name}")
-                new_score = min(1.0, round(new_score + H5_COHESIVE_BUMP, 4))
-            else:
-                new_signals.append(f"H5:fragmented:{len(matches)}")
-                new_score = min(1.0, round(new_score + H5_FRAGMENTED_BUMP, 4))
+            # FR-105: 2+ matches → fragmented, +0.05. Regardless of
+            # whether one of them is name-matched; the presence of
+            # multiple test files that all reference the candidate's
+            # source paths is the fragmentation signal. An operator
+            # who wants the stronger cohesive bump can consolidate
+            # their tests into a single module.
+            new_signals.append(f"H5:fragmented:{len(matches)}")
+            new_score = min(1.0, round(new_score + H5_FRAGMENTED_BUMP, 4))
         out.append(_clone_candidate(c, signals=new_signals, score=new_score))
     return out
 
@@ -1516,7 +1537,7 @@ def merge_candidates(
 
 def discover(
     repo_root: Path,
-    heuristics: Iterable[str] = HEURISTICS_MVP,
+    heuristics: Iterable[str] = HEURISTICS_V1_1,
     score_threshold: float = DEFAULT_SCORE_THRESHOLD,
 ) -> list[CandidateRecord]:
     """Run the enabled heuristics, merge, filter, sort."""
@@ -1846,7 +1867,7 @@ def scan(
     repo_root: Path,
     *,
     run_name: str | None = None,
-    heuristics: Iterable[str] = HEURISTICS_MVP,
+    heuristics: Iterable[str] = HEURISTICS_V1_1,
     score_threshold: float = DEFAULT_SCORE_THRESHOLD,
 ) -> Path:
     """Phase 1+2 combined: discover candidates, write manifest + triage + drafts."""
@@ -2050,79 +2071,126 @@ def commit_run(
 # run directory is byte-identical before/after.
 
 
-def _load_ar_coverage_index(repo_root: Path) -> dict[str, str]:
-    """Return {path: AR-id} by walking committed ARs and reading Location bullets.
+def _load_ar_coverage_index(repo_root: Path) -> list[tuple[str, str]]:
+    """Return [(location, AR-id)] by walking committed ARs.
 
-    015's `adoption.list_records` parses each AR file and returns a
-    structured list; we index the Location entries back to AR id so
-    rescan can classify "this candidate's path overlaps AR-005".
-    Missing / unreadable records are ignored — we never raise here,
-    which matches the "additive-only" contract.
+    Keeps the raw AR Location strings so `_paths_overlap` can apply
+    directory-prefix matching. A Location of `src/auth/` (trailing
+    slash or not) is treated as covering any candidate path that
+    begins with `src/auth/`. Exact-match semantics alone would
+    misclassify a candidate `src/auth/middleware.py` as `new` when
+    the AR happens to list the directory itself.
     """
-    index: dict[str, str] = {}
+    entries: list[tuple[str, str]] = []
     try:
         records = adoption.list_records(repo_root=repo_root)
     except Exception:
-        return {}
+        return []
     for r in records:
         for loc in getattr(r, "location", []) or []:
             norm = str(loc).replace("\\", "/").strip("/")
             if norm:
-                # First AR to claim a path wins the index slot. Later
-                # ARs covering the same path is a data-model oddity
-                # worth surfacing — but 017 does not police it.
-                index.setdefault(norm, r.record_id)
-    return index
+                entries.append((norm, r.record_id))
+    return entries
+
+
+def _path_covers(covered: str, candidate: str) -> bool:
+    """Return True when AR Location `covered` includes candidate path.
+
+    Matches: exact equality, or `covered` is a directory prefix of
+    `candidate` (i.e. `candidate.startswith(covered + "/")`), or
+    `candidate` is the directory and `covered` is a file inside it
+    (reverse direction — operator may have recorded the concrete
+    file while candidate discovery rolls up to the directory).
+    """
+    if covered == candidate:
+        return True
+    if candidate.startswith(covered + "/"):
+        return True
+    if covered.startswith(candidate + "/"):
+        return True
+    return False
 
 
 def _paths_overlap(
-    a: list[str], b_index: dict[str, str],
+    a: list[str], coverage: list[tuple[str, str]],
 ) -> tuple[bool, str | None]:
-    """Return (overlaps, first_ar_id) — True if any path in `a` is a
-    key in b_index.
+    """Return (overlaps, first_ar_id) — True if any candidate path
+    overlaps any AR coverage entry under _path_covers semantics.
     """
     for p in a:
         norm = p.replace("\\", "/").strip("/")
-        if norm in b_index:
-            return True, b_index[norm]
+        for covered_path, ar_id in coverage:
+            if _path_covers(covered_path, norm):
+                return True, ar_id
     return False, None
+
+
+def _path_is_covered(path: str, coverage: list[tuple[str, str]]) -> bool:
+    norm = path.replace("\\", "/").strip("/")
+    for covered_path, _ in coverage:
+        if _path_covers(covered_path, norm):
+            return True
+    return False
 
 
 def _classify_rescan_candidate(
     c: CandidateRecord,
-    prior_candidates_by_slug: dict[str, CandidateRecord],
-    ar_index: dict[str, str],
+    prior_candidates: list[CandidateRecord],
+    coverage: list[tuple[str, str]],
 ) -> tuple[str, str | None]:
     """Classify a candidate as 'skip' | 'new' | 'changed'.
 
-    - 'skip': every path is already covered by an existing AR AND the
-      slug matches a prior committed candidate; nothing new to
-      surface.
-    - 'changed': overlaps an existing AR OR matches a prior candidate
-      whose score differs by >= RESCAN_SCORE_DELTA. Returns the AR id
-      when one is found so the new manifest can cite it.
+    - 'skip': every path is already covered by an existing AR.
+      Nothing new to surface.
+    - 'changed': partial path overlap with an AR, or matches a prior
+      candidate whose score differs by >= RESCAN_SCORE_DELTA, or
+      shares a directory-prefix with a prior candidate with different
+      paths. Returns the AR id when one is found so the new manifest
+      can cite it.
     - 'new': no overlap with prior artifacts.
+
+    Prior-candidate matching looks for shared slug AND shared
+    directory prefix (depth >= 2) to distinguish `src/auth` from
+    `packages/auth`.
     """
-    overlaps, ar_id = _paths_overlap(c.paths, ar_index)
-    prior = prior_candidates_by_slug.get(c.proposed_slug)
+    overlaps, ar_id = _paths_overlap(c.paths, coverage)
+
+    # Find prior candidates that share slug AND a >=depth-2 directory prefix.
+    c_prefixes = set()
+    for p in c.paths:
+        for pref in _path_prefixes(p):
+            if "/" in pref:
+                c_prefixes.add(pref)
+    prior_match: CandidateRecord | None = None
+    for prior in prior_candidates:
+        if prior.proposed_slug != c.proposed_slug:
+            continue
+        prior_prefixes = set()
+        for p in prior.paths:
+            for pref in _path_prefixes(p):
+                if "/" in pref:
+                    prior_prefixes.add(pref)
+        if c_prefixes & prior_prefixes:
+            prior_match = prior
+            break
 
     if overlaps:
         # Check whether EVERY path is already covered. If so, skip.
         all_covered = all(
-            p.replace("\\", "/").strip("/") in ar_index
-            for p in c.paths
+            _path_is_covered(p, coverage) for p in c.paths
         )
         if all_covered:
             return "skip", ar_id
         return "changed", ar_id
 
     # No AR overlap — check prior candidate for score drift
-    if prior is not None:
-        if abs(prior.score - c.score) >= RESCAN_SCORE_DELTA:
+    if prior_match is not None:
+        if abs(prior_match.score - c.score) >= RESCAN_SCORE_DELTA:
             return "changed", None
-        # Same-slug, same-ish score, no AR coverage — call it new
-        # (prior run didn't commit it). Operator still sees it in the
-        # new run's triage.
+        # Same slug + prefix, same-ish score, no AR coverage — call
+        # it `new` (prior run didn't commit it, so it remains a
+        # surface the operator should still triage).
         return "new", None
 
     return "new", None
@@ -2169,9 +2237,7 @@ def rescan(
     prior_hashes = _hash_directory(prior_dir)
 
     prior_manifest = read_manifest(prior_dir)
-    prior_candidates_by_slug: dict[str, CandidateRecord] = {
-        c.proposed_slug: c for c in prior_manifest.candidates
-    }
+    prior_candidates: list[CandidateRecord] = list(prior_manifest.candidates)
 
     # Auto-generate a new run name if not supplied.
     if new_run is None:
@@ -2194,7 +2260,7 @@ def rescan(
     # manifest) — the registry is the source of truth; a manifest can go
     # stale if the operator supersedes or retires via 015 after the prior
     # run.
-    ar_index = _load_ar_coverage_index(repo_root)
+    coverage = _load_ar_coverage_index(repo_root)
 
     # Run discovery against current repo HEAD.
     fresh = discover(
@@ -2209,7 +2275,7 @@ def rescan(
     counter = 1
     for c in fresh:
         verdict, ar_id = _classify_rescan_candidate(
-            c, prior_candidates_by_slug, ar_index,
+            c, prior_candidates, coverage,
         )
         if verdict == "skip":
             skipped_count += 1
@@ -2235,28 +2301,50 @@ def rescan(
             changed_cands.append(renamed)
         counter += 1
 
-    # Stale: prior candidates whose slug isn't in the fresh list AND
-    # isn't already covered by an AR either (covered-by-AR means the
-    # operator committed it, so it's not stale — it's absorbed).
-    fresh_slugs = {c.proposed_slug for c in fresh}
-    committed_slugs = {
-        c.proposed_slug for c in prior_manifest.candidates
-        if any(
-            entry.get("candidate_id") == c.id
-            for entry in prior_manifest.committed
-            if isinstance(entry, dict)
-        )
+    # Stale: prior candidates that (a) are NOT rediscoverable by slug+
+    # prefix match in the fresh list AND (b) are NOT already absorbed
+    # as an AR (covered by the committed registry). Keying on slug
+    # alone would mishandle same-slug-different-directory candidates
+    # (e.g. `src/auth` and `packages/auth`): one surviving sibling
+    # must not mask the deletion of the other.
+    committed_candidate_ids = {
+        entry.get("candidate_id")
+        for entry in prior_manifest.committed
+        if isinstance(entry, dict)
     }
     stale: list[dict[str, Any]] = []
-    for c in prior_manifest.candidates:
-        if c.proposed_slug in fresh_slugs:
+    for prior in prior_manifest.candidates:
+        if prior.id in committed_candidate_ids:
+            # It shipped as an AR. Not stale — absorbed into the registry.
             continue
-        if c.proposed_slug in committed_slugs:
-            # It shipped as an AR — not stale, absorbed.
+        # Still-discoverable check: same slug AND shared directory
+        # prefix (depth >= 2) with some fresh candidate.
+        prior_prefixes = set()
+        for p in prior.paths:
+            for pref in _path_prefixes(p):
+                if "/" in pref:
+                    prior_prefixes.add(pref)
+        still_discoverable = False
+        for fc in fresh:
+            if fc.proposed_slug != prior.proposed_slug:
+                continue
+            fc_prefixes = set()
+            for p in fc.paths:
+                for pref in _path_prefixes(p):
+                    if "/" in pref:
+                        fc_prefixes.add(pref)
+            if prior_prefixes & fc_prefixes:
+                still_discoverable = True
+                break
+        if still_discoverable:
+            continue
+        # Still covered by an AR (operator committed under a different
+        # slug, say)? Skip — not stale, absorbed.
+        if any(_path_is_covered(p, coverage) for p in prior.paths):
             continue
         stale.append({
-            "candidate_id": c.id,
-            "slug": c.proposed_slug,
+            "candidate_id": prior.id,
+            "slug": prior.proposed_slug,
             "reason": "not-rediscovered",
         })
 
@@ -2271,20 +2359,16 @@ def rescan(
         score_threshold=score_threshold,
         candidates=all_candidates,
     )
-    # Stash the rescan summary in the manifest as a synthetic committed-
-    # style entry under a separate section by monkey-attaching it; the
-    # YAML emitter doesn't know about it, so we piggyback by embedding
-    # it in the manifest's `failed` audit list under a distinct key.
-    # Cleaner: add a dedicated key on the dataclass. We attach it and
-    # let `_emit_yaml` serialize the new top-level key.
-    setattr(manifest, "rescan_new", len(new_cands))
-    setattr(manifest, "rescan_changed", len(changed_cands))
-    setattr(manifest, "rescan_stale", stale)
-    setattr(manifest, "rescan_skipped_covered", skipped_count)
-    setattr(manifest, "rescan_from", from_run)
+    # v1.1 — persist rescan metadata on the dataclass fields so it
+    # survives every subsequent write_manifest() call in commit_run.
+    manifest.rescan_from = from_run
+    manifest.rescan_new = len(new_cands)
+    manifest.rescan_changed = len(changed_cands)
+    manifest.rescan_stale = stale
+    manifest.rescan_skipped_covered = skipped_count
 
     write_drafts(new_dir, all_candidates)
-    _write_rescan_manifest(new_dir, manifest)
+    write_manifest(new_dir, manifest)
     _atomic_write(new_dir / "triage.md", render_triage(manifest))
 
     # Belt-and-braces: assert the prior run is byte-identical.
@@ -2311,41 +2395,6 @@ def _hash_directory(root: Path) -> dict[str, str]:
     return out
 
 
-def _write_rescan_manifest(new_dir: Path, manifest: OnboardingManifest) -> Path:
-    """Emit the standard manifest plus the rescan_* extension keys.
-
-    The v1.0 YAML subset serializer handles the base manifest; the
-    rescan-specific keys are appended as a separate top-level block so
-    the parser's round-trip remains stable for both v1.0 and v1.1 runs.
-    """
-    path = new_dir / "manifest.yaml"
-    base_text = _emit_yaml(manifest)
-    # Append rescan metadata as top-level keys the v1.0 parser tolerates
-    # (_parse_yaml skips unknown top-level keys after reading required
-    # fields into the dataclass).
-    extra = []
-    rescan_from = getattr(manifest, "rescan_from", None)
-    if rescan_from is not None:
-        extra.append(f"rescan_from: {_yaml_scalar(rescan_from)}")
-    rescan_new = getattr(manifest, "rescan_new", None)
-    if rescan_new is not None:
-        extra.append(f"rescan_new: {rescan_new}")
-    rescan_changed = getattr(manifest, "rescan_changed", None)
-    if rescan_changed is not None:
-        extra.append(f"rescan_changed: {rescan_changed}")
-    rescan_skipped = getattr(manifest, "rescan_skipped_covered", None)
-    if rescan_skipped is not None:
-        extra.append(f"rescan_skipped_covered: {rescan_skipped}")
-    stale = getattr(manifest, "rescan_stale", None)
-    if stale is not None:
-        extra.extend(_emit_list("rescan_stale", stale, 0))
-    final = base_text
-    if extra:
-        final = base_text + "\n".join(extra) + "\n"
-    _atomic_write(path, final)
-    return path
-
-
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -2363,8 +2412,8 @@ def _build_parser() -> argparse.ArgumentParser:
     scan_p = sub.add_parser("scan", help="Phase 1+2: discover + propose drafts")
     scan_p.add_argument("--run", default=None, help="Run name (default: YYYY-MM-DD-initial)")
     scan_p.add_argument(
-        "--heuristics", default=",".join(HEURISTICS_MVP),
-        help="Comma-separated list of heuristic ids (MVP: H1,H2,H3,H6)",
+        "--heuristics", default=",".join(HEURISTICS_V1_1),
+        help="Comma-separated list of heuristic ids (v1.1: H1,H2,H3,H4,H5,H6)",
     )
     scan_p.add_argument("--score-threshold", type=float, default=DEFAULT_SCORE_THRESHOLD,
                         help=f"Drop candidates below this score (default {DEFAULT_SCORE_THRESHOLD})")
@@ -2462,28 +2511,9 @@ def cli_main(argv: list[str] | None = None) -> int:
                 score_threshold=args.score_threshold,
             )
             m = read_manifest(new_dir)
-            new_count = getattr(m, "rescan_new", None)
-            changed_count = getattr(m, "rescan_changed", None)
-            stale_count = getattr(m, "rescan_stale", None)
-            # Fall back to parsing the raw manifest if the attributes
-            # didn't survive the round trip (the v1.0 dataclass doesn't
-            # declare them; they exist only on the in-memory instance
-            # produced by `rescan`). Re-load from the YAML source for
-            # correctness after a fresh `read_manifest`.
-            if new_count is None or changed_count is None:
-                # Parse the manifest file directly for the extension keys.
-                raw = _parse_yaml((new_dir / "manifest.yaml").read_text(encoding="utf-8"))
-                new_count = raw.get("rescan_new", len([c for c in m.candidates]))
-                changed_count = raw.get("rescan_changed", 0)
-                stale_count = raw.get("rescan_stale", []) or []
-            n_new = int(new_count) if not isinstance(new_count, list) else len(new_count)
-            n_changed = int(changed_count) if not isinstance(changed_count, list) else len(changed_count)
-            if isinstance(stale_count, list):
-                n_stale = len(stale_count)
-            elif stale_count is None:
-                n_stale = 0
-            else:
-                n_stale = int(stale_count)
+            n_new = m.rescan_new or 0
+            n_changed = m.rescan_changed or 0
+            n_stale = len(m.rescan_stale or [])
             print(f"rescan: wrote {new_dir}")
             print(f"rescan: {_format_rescan_summary(n_new, n_changed, n_stale)}")
             print(f"rescan: edit {new_dir / 'triage.md'} then run commit")
