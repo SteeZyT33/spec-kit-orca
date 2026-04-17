@@ -424,8 +424,10 @@ doesn't promise "now matriarch is stable." It surfaces what's there.
 
 016-multi-sdd-layer is the in-flight spec for Orca being usable
 across multiple spec-development frameworks (spec-kit, OpenSpec,
-spec-kitty, etc.). Its shape is still being defined — the directory
-exists but there's no brainstorm.md yet.
+spec-kitty, etc.). 016's brainstorm.md landed in this same PR; its
+plan and contracts are still open. This doc assumes 016's
+brainstorm-level direction and will align to its plan/contracts as
+they land.
 
 The TUI's posture toward 016: **render against the Orca abstraction
 layer, not the raw SDD files.** Concretely:

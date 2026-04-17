@@ -24,9 +24,10 @@
   advisory-lock + overview regeneration machinery are the
   narrow API 017 must compose against, NOT bypass.
 - `commands/adopt.md` — the operator-facing flow 017 extends.
-- 016-multi-sdd-layer (empty directory, not yet brainstormed) —
-  possible future spec for reading non-spec-kit SDD formats.
-  017 must not presume 016 ships; see section on 016 relationship.
+- 016-multi-sdd-layer (brainstorm.md landed in this same PR):
+  the in-flight spec for reading non-spec-kit SDD formats. 017
+  must not presume 016 ships on any particular timeline; see
+  section on 016 relationship.
 
 ---
 
@@ -279,7 +280,7 @@ filtering.
 
 After H1–H6 produce a candidate list, run a single LLM call with:
 
-```
+```text
 "Here's a list of 47 candidate features with their paths and
 signals. Review for: duplicates (A and B are the same feature),
 misses (we missed a feature at path X), mislabels (A is really
@@ -380,7 +381,7 @@ Two candidates. I lean hard toward markdown + CLI hybrid.
 
 ### Option A — CLI loop
 
-```
+```bash
 $ orca adopt review
 [1/47] C-001: Auth Middleware
   paths: src/auth/middleware.py, src/auth/sessions.py
@@ -544,7 +545,8 @@ flock is cheap on local FS, and 47 ARs is not a stress case.
 
 ## Relationship to 016 multi-SDD layer
 
-016 is a placeholder directory today. The open question: should 017
+016 has its own brainstorm as of this PR, but its plan and
+contracts are still open. The open question for 017: should it
 scan for any spec-driven-development format (OpenSpec, spec-kitty,
 raw spec-kit), or only spec-kit?
 
@@ -581,7 +583,7 @@ OpenSpec / spec-kitty / any non-spec-kit format is firmly 016.
 
 Re-scanning after new code lands. Shape:
 
-```
+```bash
 $ orca adopt rescan
 Last run: 2026-04-16-initial (baseline abc1234)
 New commits since: 42 commits across 18 files
@@ -839,10 +841,11 @@ via LLM is the next iteration, not v1.
     run (there's nothing to lose — nothing exists yet). On re-scan
     where a run directory exists, require `--force` or
     `--new-run=<name>`.
-11. **Interaction with 018 Orca TUI** (also empty placeholder) — if
-    018 ships a TUI, does it expose the triage step? Probably yes,
-    later. Not an MVP question. Flag for cross-spec alignment but
-    don't design around it.
+11. **Interaction with 018 Orca TUI** (brainstorm.md landed in
+    this same PR, plan still open): if 018 ships a TUI, does it
+    expose the triage step? Probably yes, later. Not an MVP
+    question. Flag for cross-spec alignment but don't design
+    around it.
 12. **Discovery on huge monorepos — perf?** 50k files, H1 is fine;
     H2 parses every Python/TS/Go file for entry points, could be
     slow. MVP: single-threaded, acceptable up to ~5k source files.
