@@ -24,9 +24,10 @@
   advisory-lock + overview regeneration machinery are the
   narrow API 017 must compose against, NOT bypass.
 - `commands/adopt.md` — the operator-facing flow 017 extends.
-- 016-multi-sdd-layer (empty directory, not yet brainstormed) —
-  possible future spec for reading non-spec-kit SDD formats.
-  017 must not presume 016 ships; see section on 016 relationship.
+- 016-multi-sdd-layer (brainstorm.md landed in this same PR):
+  the in-flight spec for reading non-spec-kit SDD formats. 017
+  must not presume 016 ships on any particular timeline; see
+  section on 016 relationship.
 
 ---
 
@@ -103,8 +104,10 @@ records.
 For each candidate, generate a **draft AR record**. The draft has
 the same shape as a real AR (title, summary, location, key
 behaviors) but lives under a scratch directory (not the real
-registry), carries a `Status: draft` marker the 015 parser rejects,
-and is clearly labeled as "not yet committed". Proposal uses the
+registry), omits the `Status:` field entirely (015's parser only
+accepts `adopted | superseded | retired`, so drafts stay
+off-registry rather than introducing a new status value), and is
+clearly labeled as "not yet committed". Proposal uses the
 discovery signals plus code introspection (maybe LLM-aided) to
 populate the fields. The operator sees real markdown they can edit,
 not a form.
@@ -380,8 +383,8 @@ Two candidates. I lean hard toward markdown + CLI hybrid.
 
 ### Option A — CLI loop
 
-```text
-$ orca adopt review
+```bash
+$ uv run python -m speckit_orca adopt review
 [1/47] C-001: Auth Middleware
   paths: src/auth/middleware.py, src/auth/sessions.py
   signals: H1 (directory), H2 (entry point)
@@ -430,7 +433,7 @@ verbs, and commits accordingly.
 glance. Edit via normal file editing (any editor). Matches how
 operators already work with markdown in Orca. **Cons**: parser
 must be robust — fuzzy checkbox syntax, strikethrough conventions.
-Can be mis-edited into invalid state.
+It can be mis-edited into an invalid state.
 
 ### Recommendation
 
@@ -457,8 +460,12 @@ accepted draft. Rejected / merged / pending candidates are skipped.
 
 ## Command surface
 
-Extend `speckit.orca.adopt` with new subcommands. Do NOT rename or
-reshape the 015 surface — it's stable.
+Extend the existing `orca adopt` CLI surface (registered as the
+`speckit.orca.adopt` slash command in `extension.yml`) with new
+subcommands. Do NOT rename or reshape the 015 surface; it is
+stable. Throughout this spec, `orca adopt <sub>` refers to the CLI
+invocation, and the slash-command namespace stays
+`speckit.orca.adopt`.
 
 ### 017 commands
 
@@ -544,7 +551,8 @@ flock is cheap on local FS, and 47 ARs is not a stress case.
 
 ## Relationship to 016 multi-SDD layer
 
-016 is a placeholder directory today. The open question: should 017
+016 has its own brainstorm as of this PR, but its plan and
+contracts are still open. The open question for 017: should it
 scan for any spec-driven-development format (OpenSpec, spec-kitty,
 raw spec-kit), or only spec-kit?
 
@@ -581,7 +589,7 @@ OpenSpec / spec-kitty / any non-spec-kit format is firmly 016.
 
 Re-scanning after new code lands. Shape:
 
-```text
+```bash
 $ orca adopt rescan
 Last run: 2026-04-16-initial (baseline abc1234)
 New commits since: 42 commits across 18 files
@@ -790,8 +798,13 @@ via LLM is the next iteration, not v1.
 
 1. **Manifest format — YAML vs JSON?** YAML is human-editable,
    comfortable for operators, matches `extension.yml`. JSON is
-   stricter and tool-friendly. Lean YAML. Cost: yaml parser
-   dependency (probably `pyyaml`, already in spec-kit-orca).
+   stricter and tool-friendly. Lean YAML. Cost: spec-kit-orca's
+   `pyproject.toml` currently declares zero runtime dependencies,
+   and today's YAML-ish files (`extension.yml`,
+   `scripts/bash/crossreview-backend.py`) are hand-parsed. 017
+   should either keep hand-parsing a narrow YAML subset or add
+   `pyyaml` as the first explicit runtime dependency. Call this
+   out rather than assuming the dep is free.
 2. **Where do drafts live — per-run drafts/ or a shared
    `.specify/orca/drafts/`?** Per-run is cleaner and preserves
    history. Shared is more like a Kanban "in progress" folder. Lean
@@ -839,10 +852,11 @@ via LLM is the next iteration, not v1.
     run (there's nothing to lose — nothing exists yet). On re-scan
     where a run directory exists, require `--force` or
     `--new-run=<name>`.
-11. **Interaction with 018 Orca TUI** (also empty placeholder) — if
-    018 ships a TUI, does it expose the triage step? Probably yes,
-    later. Not an MVP question. Flag for cross-spec alignment but
-    don't design around it.
+11. **Interaction with 018 Orca TUI** (brainstorm.md landed in
+    this same PR, plan still open): if 018 ships a TUI, does it
+    expose the triage step? Probably yes, later. Not an MVP
+    question. Flag for cross-spec alignment but don't design
+    around it.
 12. **Discovery on huge monorepos — perf?** 50k files, H1 is fine;
     H2 parses every Python/TS/Go file for entry points, could be
     slow. MVP: single-threaded, acceptable up to ~5k source files.
