@@ -132,7 +132,7 @@ produce a `NormalizedArtifacts` instance when called.
   (matching current `_read_text_if_exists` behavior); uncaught
   exceptions propagate. Phase 1 does not introduce new error paths.
 
-### Requirements *(mandatory)*
+## Requirements *(mandatory)*
 
 ### Functional Requirements
 
@@ -204,7 +204,7 @@ produce a `NormalizedArtifacts` instance when called.
   implementation. The adapter does not add new exception types or new
   failure modes.
 
-### Key Entities *(include if feature involves data)*
+## Key Entities *(include if feature involves data)*
 
 - **SddAdapter**: Abstract base class in `src/speckit_orca/sdd_adapter.py`
   describing the read-side contract for an SDD format. Phase 1 defines

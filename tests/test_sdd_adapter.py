@@ -86,6 +86,7 @@ class TestNormalizedArtifacts:
             "feature_id",
             "feature_dir",
             "artifacts",
+            "filenames",
             "tasks",
             "task_summary_data",
             "review_evidence",

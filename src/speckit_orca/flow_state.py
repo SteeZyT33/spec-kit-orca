@@ -8,16 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .sdd_adapter import (
-    SPEC_KIT_BRAINSTORM_FILENAME as _BRAINSTORM_FILE,
-    SPEC_KIT_PLAN_FILENAME as _PLAN_FILE,
-    SPEC_KIT_REVIEW_CODE_FILENAME as _REVIEW_CODE_FILE,
-    SPEC_KIT_REVIEW_PR_FILENAME as _REVIEW_PR_FILE,
-    SPEC_KIT_REVIEW_SPEC_FILENAME as _REVIEW_SPEC_FILE,
-    SPEC_KIT_SPEC_FILENAME as _SPEC_FILE,
-    SPEC_KIT_TASKS_FILENAME as _TASKS_FILE,
-    SpecKitAdapter,
-)
+from .sdd_adapter import SpecKitAdapter
 
 STAGE_ORDER = [
     "brainstorm",
@@ -159,6 +150,11 @@ class FeatureEvidence:
     review_evidence: ReviewEvidence
     linked_brainstorms: list[Path]
     worktree_lanes: list[WorktreeLane]
+    # Adapter-supplied map of semantic artifact keys to the filename
+    # the active SDD format uses for that artifact. flow-state consumes
+    # filenames through this map so it never hardcodes spec-kit
+    # literals; future adapters supply their own values.
+    filenames: dict[str, str] = field(default_factory=dict)
     ambiguities: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
@@ -402,8 +398,16 @@ def collect_feature_evidence(
 
     feature_path = Path(feature_dir).resolve()
     repo_override = Path(repo_root).resolve() if repo_root is not None else None
+    # Ask the adapter to resolve the canonical feature_id from the path.
+    # Falls back to the directory basename when the adapter can't anchor
+    # the path (e.g., a detached fixture path with no repo marker) so
+    # spec-kit parity holds for cases where `id_for_path` returns None.
+    feature_id = (
+        _SPEC_KIT_ADAPTER.id_for_path(feature_path, repo_root=repo_override)
+        or feature_path.name
+    )
     handle = FeatureHandle(
-        feature_id=feature_path.name,
+        feature_id=feature_id,
         display_name=feature_path.name,
         root_path=feature_path,
         adapter_name=_SPEC_KIT_ADAPTER.name,
@@ -416,6 +420,9 @@ def collect_feature_evidence(
 
 def _review_milestones(evidence: FeatureEvidence) -> list[ReviewMilestone]:
     rev = evidence.review_evidence
+    review_spec_name = evidence.filenames["review-spec"]
+    review_code_name = evidence.filenames["review-code"]
+    review_pr_name = evidence.filenames["review-pr"]
     milestones: list[ReviewMilestone] = []
 
     # review-spec
@@ -424,12 +431,12 @@ def _review_milestones(evidence: FeatureEvidence) -> list[ReviewMilestone]:
     elif rev.review_spec.stale_against_clarify:
         milestones.append(ReviewMilestone(
             "review-spec", "stale",
-            notes=[f"{_REVIEW_SPEC_FILE} is stale against a newer clarify session"],
+            notes=[f"{review_spec_name} is stale against a newer clarify session"],
         ))
     elif rev.review_spec.verdict == "ready" and rev.review_spec.has_cross_pass:
         milestones.append(ReviewMilestone(
             "review-spec", "present",
-            evidence_sources=[str(evidence.feature_dir / _REVIEW_SPEC_FILE)],
+            evidence_sources=[str(evidence.feature_dir / review_spec_name)],
         ))
     elif rev.review_spec.verdict == "needs-revision":
         milestones.append(ReviewMilestone("review-spec", "needs-revision"))
@@ -438,7 +445,7 @@ def _review_milestones(evidence: FeatureEvidence) -> list[ReviewMilestone]:
     else:
         milestones.append(ReviewMilestone(
             "review-spec", "invalid",
-            notes=[f"{_REVIEW_SPEC_FILE} exists but has no recognized verdict"],
+            notes=[f"{review_spec_name} exists but has no recognized verdict"],
         ))
 
     # review-code
@@ -452,7 +459,7 @@ def _review_milestones(evidence: FeatureEvidence) -> list[ReviewMilestone]:
     ):
         milestones.append(ReviewMilestone(
             "review-code", "overall_complete",
-            evidence_sources=[str(evidence.feature_dir / _REVIEW_CODE_FILE)],
+            evidence_sources=[str(evidence.feature_dir / review_code_name)],
         ))
     elif rev.review_code.phases_found:
         milestones.append(ReviewMilestone(
@@ -462,7 +469,7 @@ def _review_milestones(evidence: FeatureEvidence) -> list[ReviewMilestone]:
     else:
         milestones.append(ReviewMilestone(
             "review-code", "invalid",
-            notes=[f"{_REVIEW_CODE_FILE} exists but has no recognized phase structure"],
+            notes=[f"{review_code_name} exists but has no recognized phase structure"],
         ))
 
     # review-pr
@@ -471,7 +478,7 @@ def _review_milestones(evidence: FeatureEvidence) -> list[ReviewMilestone]:
     elif rev.review_pr.verdict == "merged" and rev.review_pr.has_retro_note:
         milestones.append(ReviewMilestone(
             "review-pr", "complete",
-            evidence_sources=[str(evidence.feature_dir / _REVIEW_PR_FILE)],
+            evidence_sources=[str(evidence.feature_dir / review_pr_name)],
         ))
     elif rev.review_pr.verdict == "pending-merge" and rev.review_pr.has_retro_note:
         milestones.append(ReviewMilestone("review-pr", "in_progress"))
@@ -480,7 +487,7 @@ def _review_milestones(evidence: FeatureEvidence) -> list[ReviewMilestone]:
     else:
         milestones.append(ReviewMilestone(
             "review-pr", "invalid",
-            notes=[f"{_REVIEW_PR_FILE} exists but has no recognized verdict"],
+            notes=[f"{review_pr_name} exists but has no recognized verdict"],
         ))
 
     return milestones
@@ -488,10 +495,10 @@ def _review_milestones(evidence: FeatureEvidence) -> list[ReviewMilestone]:
 
 def _stage_milestones(evidence: FeatureEvidence, reviews: list[ReviewMilestone]) -> list[FlowMilestone]:
     review_map = {item.review_type: item for item in reviews}
-    tasks_path = evidence.artifacts[_TASKS_FILE]
-    spec_path = evidence.artifacts[_SPEC_FILE]
-    plan_path = evidence.artifacts[_PLAN_FILE]
-    brainstorm_path = evidence.artifacts[_BRAINSTORM_FILE]
+    tasks_path = evidence.artifacts[evidence.filenames["tasks"]]
+    spec_path = evidence.artifacts[evidence.filenames["spec"]]
+    plan_path = evidence.artifacts[evidence.filenames["plan"]]
+    brainstorm_path = evidence.artifacts[evidence.filenames["brainstorm"]]
     milestones: list[FlowMilestone] = []
 
     brainstorm_sources = [str(brainstorm_path)] if brainstorm_path.exists() else []
@@ -540,7 +547,9 @@ def _stage_milestones(evidence: FeatureEvidence, reviews: list[ReviewMilestone])
         implement_sources.append(str(tasks_path))
     elif evidence.review_evidence.review_code.exists:
         implement_status = "complete"
-        implement_sources.append(str(evidence.feature_dir / _REVIEW_CODE_FILE))
+        implement_sources.append(
+            str(evidence.feature_dir / evidence.filenames["review-code"])
+        )
     milestones.append(FlowMilestone("implement", implement_status, implement_sources))
 
     for review_name in REVIEW_ARTIFACT_NAMES:
@@ -592,12 +601,16 @@ def _completed_stage(milestones: list[FlowMilestone]) -> str | None:
     return max(completed, key=STAGE_ORDER.index)
 
 
-def _has_material_conflict(ambiguities: list[str]) -> bool:
+def _has_material_conflict(
+    ambiguities: list[str], filenames: dict[str, str]
+) -> bool:
+    review_code_name = filenames["review-code"]
+    tasks_name = filenames["tasks"]
     conflict_markers = (
         "without specification evidence",
         "without planning evidence",
         "without task breakdown evidence",
-        f"{_REVIEW_CODE_FILE} exists without {_TASKS_FILE}",
+        f"{review_code_name} exists without {tasks_name}",
     )
     return any(any(marker in ambiguity for marker in conflict_markers) for ambiguity in ambiguities)
 
@@ -607,17 +620,20 @@ def _next_step(milestones: list[FlowMilestone], ambiguities: list[str], evidence
         return None
 
     status_map = {item.stage: item.status for item in milestones}
+    spec_name = evidence.filenames["spec"]
+    plan_name = evidence.filenames["plan"]
+    tasks_name = evidence.filenames["tasks"]
 
     if status_map["specify"] != "complete":
-        return f"Create or refine {_SPEC_FILE} before advancing the feature."
+        return f"Create or refine {spec_name} before advancing the feature."
     if status_map["plan"] != "complete":
-        return f"Generate {_PLAN_FILE} to lock architecture and implementation shape."
+        return f"Generate {plan_name} to lock architecture and implementation shape."
     if status_map["tasks"] != "complete":
-        return f"Generate {_TASKS_FILE} so implementation can proceed from a durable task plan."
+        return f"Generate {tasks_name} so implementation can proceed from a durable task plan."
     if status_map["assign"] != "complete" and status_map["implement"] != "complete":
         return "Run /speckit.orca.assign if this feature needs multi-agent coordination, or proceed directly to implementation."
     if status_map["implement"] != "complete":
-        return f"Implement the next incomplete task and keep {_TASKS_FILE} current."
+        return f"Implement the next incomplete task and keep {tasks_name} current."
     review_spec_status = status_map.get("review-spec", "missing")
     if review_spec_status in {"missing", "stale", "needs-revision"}:
         return "Run /speckit.orca.review-spec for an adversarial cross-pass review of the spec."
@@ -1003,7 +1019,7 @@ def compute_flow_state(
     milestones = _stage_milestones(evidence, reviews)
     ambiguities = _derive_ambiguities(evidence, milestones, reviews)
     current_stage = _completed_stage(milestones)
-    if _has_material_conflict(ambiguities):
+    if _has_material_conflict(ambiguities, evidence.filenames):
         current_stage = None
     next_step = _next_step(milestones, ambiguities, evidence)
     yolo_runs = list_yolo_runs_for_feature(evidence.repo_root, evidence.feature_id)

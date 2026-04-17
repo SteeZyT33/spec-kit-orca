@@ -82,6 +82,14 @@ class NormalizedArtifacts:
     can return the existing spec-kit ReviewEvidence object without
     forcing an immediate shape change. Later phases can tighten the
     type as the refactor stabilizes.
+
+    `filenames` maps adapter-agnostic semantic keys (e.g. ``"spec"``,
+    ``"tasks"``, ``"review-code"``) to the display/path filename the
+    adapter uses for that artifact. Callers that need to render a
+    filename in operator guidance or build a path under ``feature_dir``
+    should resolve through this map instead of hardcoding spec-kit
+    literals, so a future non-spec-kit adapter can supply different
+    filenames without touching flow-state code.
     """
 
     feature_id: str
@@ -92,6 +100,7 @@ class NormalizedArtifacts:
     review_evidence: Any
     linked_brainstorms: list[Path]
     worktree_lanes: list[Any]
+    filenames: dict[str, str] = field(default_factory=dict)
     ambiguities: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
@@ -164,6 +173,21 @@ _SPEC_KIT_ARTIFACT_NAMES: tuple[str, ...] = (
     SPEC_KIT_REVIEW_CODE_FILENAME,
     SPEC_KIT_REVIEW_PR_FILENAME,
 )
+
+# Adapter-agnostic semantic keys used across NormalizedArtifacts.filenames
+# and FeatureEvidence.filenames. flow_state looks up artifacts through
+# these keys so it never encodes spec-kit-specific filenames. New
+# adapters (OpenSpec, BMAD, Taskmaster) must supply the same key set with
+# their own filename values.
+_SPEC_KIT_FILENAMES: dict[str, str] = {
+    "brainstorm": SPEC_KIT_BRAINSTORM_FILENAME,
+    "spec": SPEC_KIT_SPEC_FILENAME,
+    "plan": SPEC_KIT_PLAN_FILENAME,
+    "tasks": SPEC_KIT_TASKS_FILENAME,
+    "review-spec": SPEC_KIT_REVIEW_SPEC_FILENAME,
+    "review-code": SPEC_KIT_REVIEW_CODE_FILENAME,
+    "review-pr": SPEC_KIT_REVIEW_PR_FILENAME,
+}
 
 _SPEC_KIT_TASK_LINE_RE = re.compile(
     r"^- \[(?P<mark>[ xX])\] (?P<task>T\d+)\b(?P<body>.*)$"
@@ -298,6 +322,7 @@ class SpecKitAdapter(SddAdapter):
             feature_id=handle.feature_id,
             feature_dir=feature_path,
             artifacts=artifacts,
+            filenames=dict(_SPEC_KIT_FILENAMES),
             tasks=tasks,
             task_summary_data=task_summary_data,
             review_evidence=review_evidence,
@@ -801,6 +826,7 @@ class SpecKitAdapter(SddAdapter):
             feature_dir=normalized.feature_dir,
             repo_root=resolved_repo,
             artifacts=dict(normalized.artifacts),
+            filenames=dict(normalized.filenames),
             task_summary=task_summary,
             review_evidence=normalized.review_evidence,
             linked_brainstorms=list(normalized.linked_brainstorms),
