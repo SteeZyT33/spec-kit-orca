@@ -106,6 +106,11 @@ class FlowMilestone:
     status: str
     evidence_sources: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    # 019 Sub-phase B: propagate `StageProgress.kind` through.
+    # Empty string sentinel preserves positional construction compatibility
+    # for Phase 1 test fixtures. Every production build site now supplies
+    # a real v1 stage-kind drawn from `SpecKitAdapter._STAGE_KIND_MAP`.
+    kind: str = ""
 
 
 @dataclass
@@ -695,6 +700,11 @@ def _stage_milestones(evidence: FeatureEvidence, reviews: list[ReviewMilestone])
         evidence.filenames["review_code"],
         evidence.feature_dir / evidence.filenames["review_code"],
     )
+    # 019 Sub-phase B: propagate the spec-kit stage-kind map into the
+    # FlowMilestone `kind` field so downstream consumers (and the parity
+    # snapshots) see the v1 vocabulary. The map lives on SpecKitAdapter;
+    # no new literals live here.
+    stage_kind = SpecKitAdapter._STAGE_KIND_MAP
     milestones: list[FlowMilestone] = []
 
     brainstorm_sources = [str(brainstorm_path)] if brainstorm_path.exists() else []
@@ -704,6 +714,7 @@ def _stage_milestones(evidence: FeatureEvidence, reviews: list[ReviewMilestone])
             stage="brainstorm",
             status="complete" if brainstorm_sources else "incomplete",
             evidence_sources=brainstorm_sources,
+            kind=stage_kind["brainstorm"],
         )
     )
 
@@ -712,6 +723,7 @@ def _stage_milestones(evidence: FeatureEvidence, reviews: list[ReviewMilestone])
             stage="specify",
             status="complete" if spec_path.exists() else "incomplete",
             evidence_sources=[str(spec_path)] if spec_path.exists() else [],
+            kind=stage_kind["specify"],
         )
     )
     milestones.append(
@@ -719,6 +731,7 @@ def _stage_milestones(evidence: FeatureEvidence, reviews: list[ReviewMilestone])
             stage="plan",
             status="complete" if plan_path.exists() else "incomplete",
             evidence_sources=[str(plan_path)] if plan_path.exists() else [],
+            kind=stage_kind["plan"],
         )
     )
     milestones.append(
@@ -726,6 +739,7 @@ def _stage_milestones(evidence: FeatureEvidence, reviews: list[ReviewMilestone])
             stage="tasks",
             status="complete" if tasks_path.exists() else "incomplete",
             evidence_sources=[str(tasks_path)] if tasks_path.exists() else [],
+            kind=stage_kind["tasks"],
         )
     )
 
@@ -734,7 +748,11 @@ def _stage_milestones(evidence: FeatureEvidence, reviews: list[ReviewMilestone])
     if tasks_path.exists() and evidence.task_summary.assigned > 0:
         assign_status = "complete"
         assign_sources.append(str(tasks_path))
-    milestones.append(FlowMilestone("assign", assign_status, assign_sources))
+    milestones.append(
+        FlowMilestone(
+            "assign", assign_status, assign_sources, kind=stage_kind["assign"]
+        )
+    )
 
     implement_status = "incomplete"
     implement_sources: list[str] = []
@@ -744,7 +762,14 @@ def _stage_milestones(evidence: FeatureEvidence, reviews: list[ReviewMilestone])
     elif evidence.review_evidence.review_code.exists:
         implement_status = "complete"
         implement_sources.append(str(review_code_path))
-    milestones.append(FlowMilestone("implement", implement_status, implement_sources))
+    milestones.append(
+        FlowMilestone(
+            "implement",
+            implement_status,
+            implement_sources,
+            kind=stage_kind["implement"],
+        )
+    )
 
     for review_name in REVIEW_ARTIFACT_NAMES:
         rm = review_map[review_name]
@@ -754,6 +779,7 @@ def _stage_milestones(evidence: FeatureEvidence, reviews: list[ReviewMilestone])
                 rm.status,
                 list(rm.evidence_sources),
                 list(rm.notes),
+                kind=stage_kind[review_name],
             )
         )
     return milestones

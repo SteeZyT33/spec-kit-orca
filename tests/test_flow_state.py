@@ -224,3 +224,55 @@ class TestSpecKitAdapterDeprecationWarning:
             w for w in caught if issubclass(w.category, DeprecationWarning)
         ]
         assert len(deprecations) == 1
+
+
+class TestFlowMilestoneKindPropagation:
+    """Sub-phase A follow-up: StageProgress.kind must reach FlowMilestone.
+
+    Sub-phase A added ``StageProgress.kind`` but did NOT wire it through
+    ``_stage_milestones``. Sub-phase B completes that propagation so
+    every FlowMilestone carries the v1 stage kind, and the parity
+    snapshots can flip to full byte equality.
+    """
+
+    def test_flow_milestone_dataclass_has_kind_field(self):
+        from dataclasses import fields
+
+        from speckit_orca.flow_state import FlowMilestone
+
+        names = {f.name for f in fields(FlowMilestone)}
+        assert "kind" in names
+
+    def test_compute_flow_state_milestones_carry_kind(self, tmp_path: Path):
+        from speckit_orca.flow_state import compute_flow_state
+
+        feature_dir = tmp_path / "specs" / "070-kind"
+        _write(feature_dir / "spec.md", "# Spec\n")
+        _write(feature_dir / "plan.md", "# Plan\n")
+        _write(feature_dir / "tasks.md", "# Tasks\n")
+        (tmp_path / ".specify").mkdir(exist_ok=True)
+
+        result = compute_flow_state(feature_dir, repo_root=tmp_path)
+
+        expected_kinds = {
+            "brainstorm": "spec",
+            "specify": "spec",
+            "plan": "plan",
+            "tasks": "tasks",
+            "assign": "tasks",
+            "implement": "implementation",
+            "review-spec": "review_spec",
+            "review-code": "review_code",
+            "review-pr": "review_pr",
+        }
+
+        all_milestones = (
+            list(result.completed_milestones)
+            + list(result.incomplete_milestones)
+        )
+        assert all_milestones, "expected at least one milestone"
+        for m in all_milestones:
+            assert m.kind == expected_kinds[m.stage], (
+                f"milestone {m.stage} kind={m.kind!r}, "
+                f"expected {expected_kinds[m.stage]!r}"
+            )
