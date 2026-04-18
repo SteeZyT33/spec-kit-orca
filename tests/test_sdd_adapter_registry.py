@@ -205,8 +205,8 @@ class TestAdapterRegistryResetToDefaults:
         reg.reset_to_defaults()
         names = [a.name for a in reg.adapters()]
         assert "reset-test-stub" not in names
-        # Default sub-phase B state has exactly spec-kit.
-        assert names == ["spec-kit"]
+        # 019 T050: post-Sub-phase-C default is spec-kit then openspec.
+        assert names == ["spec-kit", "openspec"]
 
 
 class TestModuleLevelRegistry:

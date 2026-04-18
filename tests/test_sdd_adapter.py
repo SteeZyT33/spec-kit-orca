@@ -23,7 +23,13 @@ class TestFeatureHandle:
         from speckit_orca.sdd_adapter import FeatureHandle
 
         field_map = {f.name: f.type for f in fields(FeatureHandle)}
-        expected = {"feature_id", "display_name", "root_path", "adapter_name"}
+        expected = {
+            "feature_id",
+            "display_name",
+            "root_path",
+            "adapter_name",
+            "archived",  # 019 T042
+        }
         assert set(field_map.keys()) == expected
 
     def test_feature_handle_construction(self):

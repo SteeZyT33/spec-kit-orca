@@ -25,12 +25,18 @@ class FeatureHandle:
     The handle is what callers pass back to `load_feature` and
     `compute_stage`. Different adapters may encode different semantics
     in `feature_id`; callers should treat it as a stable key, not parse it.
+
+    ``archived`` is an adapter-populated flag (OpenSpec uses it for
+    handles surfaced via ``list_features(include_archived=True)``).
+    Spec-kit never sets it today; the default ``False`` keeps Phase 1
+    positional construction sites working unchanged (019 FR-008, T042).
     """
 
     feature_id: str
     display_name: str
     root_path: Path
     adapter_name: str
+    archived: bool = False
 
 
 @dataclass

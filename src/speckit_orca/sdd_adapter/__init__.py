@@ -34,6 +34,7 @@ from .base import (
     SddAdapter,
     StageProgress,
 )
+from .openspec import OpenSpecAdapter
 from .registry import AdapterRegistry, registry
 from .spec_kit import (
     SPEC_KIT_BRAINSTORM_FILENAME,
@@ -61,6 +62,8 @@ __all__ = [
     "NormalizedWorktreeLane",
     # Concrete spec-kit adapter (spec_kit)
     "SpecKitAdapter",
+    # Concrete OpenSpec adapter (openspec)
+    "OpenSpecAdapter",
     # Spec-kit filename constants (spec_kit)
     "SPEC_KIT_BRAINSTORM_FILENAME",
     "SPEC_KIT_SPEC_FILENAME",

@@ -106,10 +106,18 @@ class AdapterRegistry:
 def _default_adapters() -> tuple[SddAdapter, ...]:
     """The in-tree default adapter list.
 
-    Sub-phase B / C package-split: spec-kit only. T050 appends
-    ``OpenSpecAdapter``.
+    019 Sub-phase C T050: ``SpecKitAdapter`` first, ``OpenSpecAdapter``
+    second. Registration ORDER is load-bearing for ``resolve_for_path``
+    because it walks adapters in order and returns the first match; the
+    two adapters' path scopes (``specs/`` vs ``openspec/``) do not
+    overlap, so order is belt-and-suspenders.
     """
-    return (SpecKitAdapter(),)
+    # Local import to avoid a circular: openspec.py imports from .base
+    # which is fine, but keeping the import here keeps registry.py from
+    # pulling adapters at ABC-import time for callers that monkeypatch.
+    from .openspec import OpenSpecAdapter
+
+    return (SpecKitAdapter(), OpenSpecAdapter())
 
 
 # Module-level registry, built at import time and pre-populated with the
