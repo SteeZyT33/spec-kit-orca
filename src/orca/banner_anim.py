@@ -1,6 +1,6 @@
 """ORCA banner animation — the orca rising from waves.
 
-Runs at the start of `speckit-orca` installer output and the Kanban TUI.
+Runs at the start of `orca` installer output and the Kanban TUI.
 Three phases, ~1.8s total:
 
   1. Waves-only shift (orca still underwater).
@@ -13,9 +13,9 @@ back to a plain static print without delay.
 
 Usage::
 
-    python -m speckit_orca.banner_anim              # auto-detect
-    python -m speckit_orca.banner_anim --animate    # force animation
-    python -m speckit_orca.banner_anim --static     # force static
+    python -m orca.banner_anim              # auto-detect
+    python -m orca.banner_anim --animate    # force animation
+    python -m orca.banner_anim --static     # force static
 
 Exits 0 on success; 0 on Ctrl-C (terminal restored cleanly).
 """

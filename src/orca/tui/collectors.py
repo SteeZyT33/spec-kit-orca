@@ -7,7 +7,7 @@ without a terminal (spec FR-014).
 
 The collectors call through to:
 
-- `speckit_orca.flow_state.compute_flow_state`
+- `orca.flow_state.compute_flow_state`
 
 None of the collectors parse `spec.md` / `plan.md` / `tasks.md` directly;
 that is delegated to `flow_state` per spec FR-015.
@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from speckit_orca import flow_state as _flow_state
+from orca import flow_state as _flow_state
 
 logger = logging.getLogger(__name__)
 

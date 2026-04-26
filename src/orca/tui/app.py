@@ -7,7 +7,7 @@ Phase 1 scope (spec 018-orca-tui):
 - Keybindings: q (quit), r (refresh), 1-2 (focus pane).
 - Watchdog-preferred file watcher with 5s polling fallback.
 
-Entry point: `python -m speckit_orca.tui`.
+Entry point: `python -m orca.tui`.
 """
 
 from __future__ import annotations
@@ -23,14 +23,14 @@ from textual.containers import Grid
 from textual.reactive import reactive
 from textual.widgets import Footer, Static
 
-from speckit_orca.tui.collectors import CollectorResult, collect_all
-from speckit_orca.tui.drawer import (
+from orca.tui.collectors import CollectorResult, collect_all
+from orca.tui.drawer import (
     DetailDrawer,
     DrawerContent,
     build_review_drawer,
 )
-from speckit_orca.tui.panes import EventFeedPane, ReviewPane
-from speckit_orca.tui.watcher import Watcher
+from orca.tui.panes import EventFeedPane, ReviewPane
+from orca.tui.watcher import Watcher
 
 logger = logging.getLogger(__name__)
 
@@ -358,7 +358,7 @@ def _positive_float(value: str) -> float:
 
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="python -m speckit_orca.tui",
+        prog="python -m orca.tui",
         description="Orca TUI - read-only multi-pane view of review state.",
     )
     p.add_argument(

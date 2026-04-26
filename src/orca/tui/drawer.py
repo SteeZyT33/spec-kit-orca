@@ -23,7 +23,7 @@ from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
-from speckit_orca.tui.collectors import ReviewRow
+from orca.tui.collectors import ReviewRow
 
 logger = logging.getLogger(__name__)
 

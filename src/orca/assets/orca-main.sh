@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# speckit-orca
+# orca
 #
 # Install spec-kit + orchestration layer for one or more AI agents.
 #
-#   speckit-orca                    # Default: claude
-#   speckit-orca codex              # Set up current repo for a different agent
-#   speckit-orca --minimal claude   # No companion extensions
-#   speckit-orca --status           # Show current repo status
-#   speckit-orca --doctor           # Diagnose common install/config issues
-#   speckit-orca --list             # Show available agents
+#   orca                    # Default: claude
+#   orca codex              # Set up current repo for a different agent
+#   orca --minimal claude   # No companion extensions
+#   orca --status           # Show current repo status
+#   orca --doctor           # Diagnose common install/config issues
+#   orca --list             # Show available agents
 
 VERSION="2.0.2"
 ORCH_URL="https://github.com/SteeZyT33/spec-kit-orca/archive/refs/tags/v${VERSION}.zip"
 LOCAL_BIN="${HOME}/.local/bin"
-LOCAL_LINK="${LOCAL_BIN}/speckit-orca"
+LOCAL_LINK="${LOCAL_BIN}/orca"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -237,8 +237,8 @@ install_self() {
 
   ln -sfn "$self_path" "$LOCAL_LINK"
   ok "Installed launcher: $LOCAL_LINK -> $self_path"
-  if command -v speckit-orca >/dev/null 2>&1; then
-    ok "Available on PATH as: $(command -v speckit-orca)"
+  if command -v orca >/dev/null 2>&1; then
+    ok "Available on PATH as: $(command -v orca)"
   else
     warn "~/.local/bin is not active in this shell yet"
     echo "  Add to ~/.zshrc or ~/.shell.sh:"
@@ -346,7 +346,7 @@ read_orca_version() {
 
 show_status() {
   echo ""
-  echo -e "  ${BOLD}speckit-orca status${NC}"
+  echo -e "  ${BOLD}orca status${NC}"
   echo "  ─────────────────────"
   echo ""
   echo "  repo: $(pwd)"
@@ -394,7 +394,7 @@ show_status() {
 
 run_doctor() {
   echo ""
-  echo -e "  ${BOLD}speckit-orca doctor${NC}"
+  echo -e "  ${BOLD}orca doctor${NC}"
   echo "  ─────────────────────"
   echo ""
 
@@ -409,10 +409,10 @@ run_doctor() {
     problems=$((problems + 1))
   fi
 
-  if command -v speckit-orca >/dev/null 2>&1; then
-    ok "speckit-orca available on PATH"
+  if command -v orca >/dev/null 2>&1; then
+    ok "orca available on PATH"
   else
-    warn "speckit-orca not on PATH"
+    warn "orca not on PATH"
     echo '    Ensure ~/.local/bin is on PATH: export PATH="$HOME/.local/bin:$PATH"'
     problems=$((problems + 1))
   fi
@@ -421,7 +421,7 @@ run_doctor() {
     ok "Spec Kit project detected"
   else
     warn "Current directory is not initialized with Spec Kit"
-    echo "    Run: speckit-orca claude"
+    echo "    Run: orca claude"
     problems=$((problems + 1))
   fi
 
@@ -432,7 +432,7 @@ run_doctor() {
 
   if [[ -d ".specify" && ! -d ".specify/extensions/orca" ]]; then
     warn "Spec Kit project exists but Orca extension is not installed"
-    echo "    Run: speckit-orca claude --force"
+    echo "    Run: orca claude --force"
     problems=$((problems + 1))
   fi
 
@@ -473,25 +473,25 @@ while [[ $# -gt 0 ]]; do
       echo "Available agents: $KNOWN_AGENTS"
       exit 0 ;;
     --help|-h)
-      echo "Usage: speckit-orca [OPTIONS] [AGENT...]"
+      echo "Usage: orca [OPTIONS] [AGENT...]"
       echo ""
       echo "Install or refresh Orca in the current repo."
       echo "Install the CLI once with: uv tool install --force git+https://github.com/SteeZyT33/spec-kit-orca.git"
       echo ""
       echo "Examples:"
-      echo "  speckit-orca                     # claude (default)"
-      echo "  speckit-orca codex               # current repo for a different agent"
-      echo "  speckit-orca -claude             # short provider form also works"
-      echo "  speckit-orca --minimal claude    # no companion extensions"
-      echo "  speckit-orca --status            # repo status"
-      echo "  speckit-orca --doctor            # diagnose issues"
+      echo "  orca                     # claude (default)"
+      echo "  orca codex               # current repo for a different agent"
+      echo "  orca -claude             # short provider form also works"
+      echo "  orca --minimal claude    # no companion extensions"
+      echo "  orca --status            # repo status"
+      echo "  orca --doctor            # diagnose issues"
       echo ""
       echo "Options:"
       echo "  --status        Show current repo status"
       echo "  --doctor        Diagnose install and repo issues"
       echo "  --force         Refresh Orca in the current repo"
       echo "  --install-self  Symlink this launcher into ~/.local/bin"
-      echo "  --uninstall-self Remove ~/.local/bin/speckit-orca"
+      echo "  --uninstall-self Remove ~/.local/bin/orca"
       echo "  --minimal       Skip companion and adopted extensions"
       echo "  --all           Populate agent list with every known agent (only"
       echo "                  the primary/first is installed; extras are ignored"
@@ -518,7 +518,7 @@ if [[ ${#AGENTS[@]} -eq 0 ]]; then
 fi
 
 echo ""
-# Try animated banner via speckit_orca.banner_anim (stdlib Python module).
+# Try animated banner via orca.banner_anim (stdlib Python module).
 # Falls back to a static echo version if:
 #   - python3 is missing
 #   - the module can't be imported (extension not yet installed, etc.)
@@ -527,12 +527,12 @@ render_orca_banner() {
     return 1
   fi
   # Try the installed package first (uv tool install), then the extension copy
-  if python3 -c "import speckit_orca.banner_anim" 2>/dev/null; then
-    python3 -m speckit_orca.banner_anim && return 0
+  if python3 -c "import orca.banner_anim" 2>/dev/null; then
+    python3 -m orca.banner_anim && return 0
     return 1
   fi
-  if [[ -f ".specify/extensions/orca/src/speckit_orca/banner_anim.py" ]]; then
-    (cd .specify/extensions/orca && python3 -m speckit_orca.banner_anim) && return 0
+  if [[ -f ".specify/extensions/orca/src/orca/banner_anim.py" ]]; then
+    (cd .specify/extensions/orca && python3 -m orca.banner_anim) && return 0
   fi
   return 1
 }
@@ -694,7 +694,7 @@ skipped = 0
 
 for cmd_file in sorted(commands_dir.glob("*.md")):
     base = cmd_file.stem
-    skill_name = f"speckit-orca-{base}"
+    skill_name = f"orca-{base}"
     skill_dir = skills_dir / skill_name
     skill_file = skill_dir / "SKILL.md"
 
@@ -811,7 +811,7 @@ SCRIPT_DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
 TARGET="\$SCRIPT_DIR/${prefix}/.specify/extensions/orca/scripts/bash/${name}"
 if [[ ! -f "\$TARGET" ]]; then
   echo "orca: extension script missing — \$TARGET" >&2
-  echo "orca: run \`speckit-orca --force <harness>\` to reinstall" >&2
+  echo "orca: run \`orca --force <harness>\` to reinstall" >&2
   exit 1
 fi
 exec bash "\$TARGET" "\$@"

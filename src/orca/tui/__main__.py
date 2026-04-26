@@ -1,8 +1,8 @@
-"""Entry point for `python -m speckit_orca.tui`."""
+"""Entry point for `python -m orca.tui`."""
 
 from __future__ import annotations
 
-from speckit_orca.tui.app import main
+from orca.tui.app import main
 
 if __name__ == "__main__":
     raise SystemExit(main())

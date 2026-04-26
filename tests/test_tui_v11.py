@@ -33,8 +33,8 @@ def _make_feature(repo_root: Path, feature_id: str) -> Path:
 
 def test_drawer_content_review_previews_artifact(tmp_path: Path):
     """Review drawer previews the first 40 lines of the artifact when present."""
-    from speckit_orca.tui.collectors import ReviewRow
-    from speckit_orca.tui.drawer import build_review_drawer
+    from orca.tui.collectors import ReviewRow
+    from orca.tui.drawer import build_review_drawer
 
     (tmp_path / ".git").mkdir()
     feat = _make_feature(tmp_path, "022-needs-review")
@@ -54,8 +54,8 @@ def test_drawer_content_review_previews_artifact(tmp_path: Path):
 
 def test_drawer_content_review_missing_artifact(tmp_path: Path):
     """Review drawer renders placeholder when artifact file absent."""
-    from speckit_orca.tui.collectors import ReviewRow
-    from speckit_orca.tui.drawer import build_review_drawer
+    from orca.tui.collectors import ReviewRow
+    from orca.tui.drawer import build_review_drawer
 
     (tmp_path / ".git").mkdir()
     _make_feature(tmp_path, "022-needs-review")  # feature dir only, no review
@@ -81,8 +81,8 @@ def test_drawer_content_review_missing_artifact(tmp_path: Path):
 
 def test_enter_on_event_pane_is_noop(tmp_path: Path):
     """Enter on the event-feed pane does not open a drawer."""
-    from speckit_orca.tui import OrcaTUI
-    from speckit_orca.tui.drawer import DetailDrawer
+    from orca.tui import OrcaTUI
+    from orca.tui.drawer import DetailDrawer
 
     (tmp_path / ".git").mkdir()
 
@@ -104,7 +104,7 @@ def test_enter_on_event_pane_is_noop(tmp_path: Path):
 
 
 def test_theme_cycle_advances_on_t(tmp_path: Path):
-    from speckit_orca.tui import OrcaTUI
+    from orca.tui import OrcaTUI
 
     (tmp_path / ".git").mkdir()
 
@@ -123,7 +123,7 @@ def test_theme_cycle_advances_on_t(tmp_path: Path):
 
 
 def test_theme_cycle_wraps_around(tmp_path: Path):
-    from speckit_orca.tui import OrcaTUI
+    from orca.tui import OrcaTUI
 
     (tmp_path / ".git").mkdir()
 
@@ -145,7 +145,7 @@ def test_theme_cycle_wraps_around(tmp_path: Path):
 
 def test_theme_cycle_filters_unavailable(tmp_path: Path, monkeypatch):
     """Themes not in available_themes are dropped from the cycle at mount."""
-    from speckit_orca.tui import OrcaTUI, app as app_mod
+    from orca.tui import OrcaTUI, app as app_mod
 
     (tmp_path / ".git").mkdir()
 
@@ -167,7 +167,7 @@ def test_theme_cycle_filters_unavailable(tmp_path: Path, monkeypatch):
 
 def test_theme_persists_across_refresh(tmp_path: Path):
     """Theme selection survives a forced refresh."""
-    from speckit_orca.tui import OrcaTUI
+    from orca.tui import OrcaTUI
 
     (tmp_path / ".git").mkdir()
 
@@ -191,7 +191,7 @@ def test_theme_persists_across_refresh(tmp_path: Path):
 
 def test_theme_index_does_not_advance_on_setter_failure(tmp_path: Path, monkeypatch):
     """If theme setter raises, _theme_index must not advance (FR-109 stable)."""
-    from speckit_orca.tui import OrcaTUI
+    from orca.tui import OrcaTUI
 
     (tmp_path / ".git").mkdir()
 

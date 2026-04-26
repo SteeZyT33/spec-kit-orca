@@ -30,15 +30,15 @@ def _make_feature(repo_root: Path, feature_id: str, with_spec: bool = True) -> P
 
 
 def test_app_imports():
-    """RED/GREEN: `speckit_orca.tui` exposes `OrcaTUI` and `main`."""
-    from speckit_orca.tui import OrcaTUI, main
+    """RED/GREEN: `orca.tui` exposes `OrcaTUI` and `main`."""
+    from orca.tui import OrcaTUI, main
     assert OrcaTUI is not None
     assert callable(main)
 
 
 def test_app_constructs_without_repo_work():
     """Instantiating the app should not touch the filesystem."""
-    from speckit_orca.tui import OrcaTUI
+    from orca.tui import OrcaTUI
 
     app = OrcaTUI(repo_root=Path("/nonexistent/path/that/does/not/exist"))
     assert app.repo_root == Path("/nonexistent/path/that/does/not/exist")
@@ -56,7 +56,7 @@ def test_collect_reviews_skips_complete(tmp_path: Path):
     non-terminal status ({missing, not_started, stale, needs-revision,
     blocked, phases_partial, invalid, in_progress}).
     """
-    from speckit_orca.tui.collectors import collect_reviews
+    from orca.tui.collectors import collect_reviews
 
     (tmp_path / ".git").mkdir()
     # Feature with no review artifacts => pending reviews surface
@@ -67,13 +67,13 @@ def test_collect_reviews_skips_complete(tmp_path: Path):
 
 
 def test_collect_event_feed_empty(tmp_path: Path):
-    from speckit_orca.tui.collectors import collect_event_feed
+    from orca.tui.collectors import collect_event_feed
     (tmp_path / ".git").mkdir()
     assert collect_event_feed(tmp_path) == []
 
 
 def test_collect_all_returns_collector_result(tmp_path: Path):
-    from speckit_orca.tui.collectors import CollectorResult, collect_all
+    from orca.tui.collectors import CollectorResult, collect_all
 
     (tmp_path / ".git").mkdir()
     result = collect_all(tmp_path, polling_mode=True)
@@ -105,8 +105,8 @@ def test_watcher_falls_back_when_watchdog_missing(tmp_path, monkeypatch):
     # Force a fresh import of watcher module so the shim re-evaluates
     import importlib
     import sys
-    sys.modules.pop("speckit_orca.tui.watcher", None)
-    watcher_mod = importlib.import_module("speckit_orca.tui.watcher")
+    sys.modules.pop("orca.tui.watcher", None)
+    watcher_mod = importlib.import_module("orca.tui.watcher")
 
     (tmp_path / ".git").mkdir()
     events: list[str] = []
@@ -118,8 +118,8 @@ def test_watcher_falls_back_when_watchdog_missing(tmp_path, monkeypatch):
 def test_watcher_stops_cleanly(tmp_path):
     """watcher.stop() releases resources and is safe to call twice."""
     import sys
-    sys.modules.pop("speckit_orca.tui.watcher", None)
-    from speckit_orca.tui import watcher as watcher_mod
+    sys.modules.pop("orca.tui.watcher", None)
+    from orca.tui import watcher as watcher_mod
 
     (tmp_path / ".git").mkdir()
     w = watcher_mod.Watcher(tmp_path, on_change=lambda p: None)
@@ -130,8 +130,8 @@ def test_watcher_stops_cleanly(tmp_path):
 def test_watcher_detects_file_change(tmp_path):
     """With watchdog available, appending to a watched file triggers on_change."""
     import sys
-    sys.modules.pop("speckit_orca.tui.watcher", None)
-    from speckit_orca.tui import watcher as watcher_mod
+    sys.modules.pop("orca.tui.watcher", None)
+    from orca.tui import watcher as watcher_mod
 
     (tmp_path / ".git").mkdir()
     # Create a specs dir so there's something to watch
@@ -167,7 +167,7 @@ def test_watcher_detects_file_change(tmp_path):
 def test_app_mounts_panes(tmp_path: Path):
     """Pilot: surviving pane IDs exist on mount."""
     import asyncio
-    from speckit_orca.tui import OrcaTUI
+    from orca.tui import OrcaTUI
 
     (tmp_path / ".git").mkdir()
 
@@ -183,7 +183,7 @@ def test_app_mounts_panes(tmp_path: Path):
 def test_app_quits_on_q(tmp_path: Path):
     """Pilot: pressing q exits the app."""
     import asyncio
-    from speckit_orca.tui import OrcaTUI
+    from orca.tui import OrcaTUI
 
     (tmp_path / ".git").mkdir()
 
@@ -199,7 +199,7 @@ def test_app_quits_on_q(tmp_path: Path):
 def test_app_polling_mode_banner(tmp_path: Path):
     """When polling_mode is forced, header indicator surfaces."""
     import asyncio
-    from speckit_orca.tui import OrcaTUI
+    from orca.tui import OrcaTUI
 
     (tmp_path / ".git").mkdir()
 
@@ -221,7 +221,7 @@ def test_app_polling_mode_banner(tmp_path: Path):
 
 def test_main_parses_repo_root_flag(tmp_path: Path, monkeypatch):
     """`main(['--repo-root', path, '--no-run'])` parses without running the app."""
-    from speckit_orca.tui import main
+    from orca.tui import main
 
     (tmp_path / ".git").mkdir()
     rc = main(["--repo-root", str(tmp_path), "--no-run"])
@@ -229,7 +229,7 @@ def test_main_parses_repo_root_flag(tmp_path: Path, monkeypatch):
 
 
 def test_main_defaults_to_cwd(tmp_path: Path, monkeypatch):
-    from speckit_orca.tui import main
+    from orca.tui import main
 
     (tmp_path / ".git").mkdir()
     monkeypatch.chdir(tmp_path)
@@ -246,7 +246,7 @@ def test_git_branch_probe_times_out_gracefully(tmp_path: Path, monkeypatch):
     """A hung git subprocess must not block the UI; _git_branch returns None."""
     import subprocess as _subprocess
 
-    from speckit_orca.tui import app as app_mod
+    from orca.tui import app as app_mod
 
     def _raise_timeout(*_args, **_kwargs):
         raise _subprocess.TimeoutExpired(cmd="git", timeout=2.0)
@@ -257,7 +257,7 @@ def test_git_branch_probe_times_out_gracefully(tmp_path: Path, monkeypatch):
 
 def test_git_branch_probe_passes_timeout_argument(tmp_path: Path, monkeypatch):
     """The git probe must invoke subprocess.run with a positive `timeout`."""
-    from speckit_orca.tui import app as app_mod
+    from orca.tui import app as app_mod
 
     captured: dict[str, object] = {}
 
@@ -280,8 +280,8 @@ def test_do_refresh_isolates_pane_failures(tmp_path: Path):
     """One pane raising on update_rows must not prevent the others from refreshing."""
     import asyncio
 
-    from speckit_orca.tui import OrcaTUI
-    from speckit_orca.tui.panes import EventFeedPane, ReviewPane
+    from orca.tui import OrcaTUI
+    from orca.tui.panes import EventFeedPane, ReviewPane
 
     (tmp_path / ".git").mkdir()
 

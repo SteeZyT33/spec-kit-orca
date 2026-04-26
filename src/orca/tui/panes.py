@@ -10,7 +10,7 @@ from __future__ import annotations
 from textual.containers import Container
 from textual.widgets import DataTable, RichLog
 
-from speckit_orca.tui.collectors import (
+from orca.tui.collectors import (
     EventFeedEntry,
     ReviewRow,
 )

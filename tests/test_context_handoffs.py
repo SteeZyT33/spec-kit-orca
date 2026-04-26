@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from speckit_orca.context_handoffs import (
+from orca.context_handoffs import (
     HandoffRecord,
     _sort_candidates,
     create_handoff,
