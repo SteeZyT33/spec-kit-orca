@@ -191,7 +191,7 @@ Use Edit to remove the yolo collector function and any imports. Reference the sp
 
 - [ ] **Step 6: Remove yolo pane from tui/panes.py and tui/app.py**
 
-The TUI's 4-pane layout (per 018 spec) becomes a 2-pane layout: review queue + event feed. Lane and yolo panes are removed.
+T2 reduces the TUI from 4 panes to 3 (lane + review queue + event feed); yolo is removed here, lane is removed in T3, ending Phase 1 at 2 panes. Adjust grid layout accordingly (e.g., `1 3` vertical stack as an interim).
 
 Use Edit to:
 - Remove the yolo pane class from `panes.py`

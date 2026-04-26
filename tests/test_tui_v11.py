@@ -11,10 +11,7 @@ TDD discipline: every GREEN has a RED first. See specs/018-orca-tui/v1.1/.
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
-
-import pytest
 
 from speckit_orca import matriarch
 

@@ -7,11 +7,8 @@ Every GREEN has a RED first per repo TDD discipline.
 
 from __future__ import annotations
 
-import json
 import time
 from pathlib import Path
-
-import pytest
 
 from speckit_orca import matriarch
 
@@ -187,7 +184,6 @@ def test_watcher_falls_back_when_watchdog_missing(tmp_path, monkeypatch):
 
 def test_watcher_stops_cleanly(tmp_path):
     """watcher.stop() releases resources and is safe to call twice."""
-    import importlib
     import sys
     sys.modules.pop("speckit_orca.tui.watcher", None)
     from speckit_orca.tui import watcher as watcher_mod
@@ -200,7 +196,6 @@ def test_watcher_stops_cleanly(tmp_path):
 
 def test_watcher_detects_file_change(tmp_path):
     """With watchdog available, appending to a watched file triggers on_change."""
-    import importlib
     import sys
     sys.modules.pop("speckit_orca.tui.watcher", None)
     from speckit_orca.tui import watcher as watcher_mod
