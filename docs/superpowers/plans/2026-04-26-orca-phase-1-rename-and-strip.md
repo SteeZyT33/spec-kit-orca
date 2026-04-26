@@ -107,7 +107,7 @@ If unexpected modifications exist, stop and resolve before proceeding.
 - [ ] **Step 2: Verify all tests pass on current main**
 
 ```bash
-uv run pytest tests/ -x --tb=short 2>&1 | tail -30
+uv run python -m pytest tests/ -x --tb=short 2>&1 | tail -30
 ```
 
 Expected: all tests pass. If failures exist, document them as pre-existing and confirm they're unrelated to kill-list code before continuing.
@@ -115,7 +115,7 @@ Expected: all tests pass. If failures exist, document them as pre-existing and c
 - [ ] **Step 3: Snapshot the test count**
 
 ```bash
-uv run pytest tests/ --collect-only -q 2>&1 | tail -5
+uv run python -m pytest tests/ --collect-only -q 2>&1 | tail -5
 ```
 
 Record the test count. We'll compare at the end (it should drop by the number of stripped tests, not by anything else).
@@ -206,7 +206,7 @@ After edits this should return zero matches.
 - [ ] **Step 7: Run tests to verify yolo strip is consistent**
 
 ```bash
-uv run pytest tests/ -x --tb=short --ignore=tests/test_projection_snapshots.py --ignore=tests/test_sub_phase_d_total.py 2>&1 | tail -20
+uv run python -m pytest tests/ -x --tb=short --ignore=tests/test_projection_snapshots.py --ignore=tests/test_sub_phase_d_total.py 2>&1 | tail -20
 ```
 
 We ignore `test_projection_snapshots.py` and `test_sub_phase_d_total.py` because they exercise the ProjectionSnapshot module which is deleted in Task 7. Other tests should pass.
@@ -308,7 +308,7 @@ Use Edit to update docstrings — replace `"yolo, matriarch"` examples with `"fl
 - [ ] **Step 7: Run tests to verify matriarch strip is consistent**
 
 ```bash
-uv run pytest tests/ -x --tb=short --ignore=tests/test_projection_snapshots.py --ignore=tests/test_sub_phase_d_total.py 2>&1 | tail -20
+uv run python -m pytest tests/ -x --tb=short --ignore=tests/test_projection_snapshots.py --ignore=tests/test_sub_phase_d_total.py 2>&1 | tail -20
 ```
 
 Fix any remaining TUI test failures by removing matriarch-related assertions (`test_tui.py`, `test_tui_v11.py`).
@@ -368,7 +368,7 @@ After edits this should return zero matches in source code (test fixtures and hi
 - [ ] **Step 4: Run tests**
 
 ```bash
-uv run pytest tests/ -x --tb=short --ignore=tests/test_projection_snapshots.py --ignore=tests/test_sub_phase_d_total.py 2>&1 | tail -20
+uv run python -m pytest tests/ -x --tb=short --ignore=tests/test_projection_snapshots.py --ignore=tests/test_sub_phase_d_total.py 2>&1 | tail -20
 ```
 
 Expected: pass.
@@ -439,7 +439,7 @@ Use Edit to remove the `templates/capability-packs.example.json` entry from `[to
 - [ ] **Step 5: Run tests**
 
 ```bash
-uv run pytest tests/ -x --tb=short --ignore=tests/test_projection_snapshots.py --ignore=tests/test_sub_phase_d_total.py 2>&1 | tail -20
+uv run python -m pytest tests/ -x --tb=short --ignore=tests/test_projection_snapshots.py --ignore=tests/test_sub_phase_d_total.py 2>&1 | tail -20
 ```
 
 Expected: pass.
@@ -503,7 +503,7 @@ If the directory becomes pointless (only an empty __init__.py), keep it for now 
 - [ ] **Step 4: Run full test suite (no more --ignore flags needed)**
 
 ```bash
-uv run pytest tests/ -x --tb=short 2>&1 | tail -20
+uv run python -m pytest tests/ -x --tb=short 2>&1 | tail -20
 ```
 
 Expected: all remaining tests pass.
@@ -548,7 +548,7 @@ Expected: `ls: cannot access ... No such file or directory` for all.
 - [ ] **Step 3: Run full test suite**
 
 ```bash
-uv run pytest tests/ --tb=short 2>&1 | tail -10
+uv run python -m pytest tests/ --tb=short 2>&1 | tail -10
 ```
 
 Expected: all tests pass.
@@ -671,7 +671,7 @@ Expected: clean install. The package now installs as `orca`, not `spec-kit-orca`
 - [ ] **Step 11: Run full test suite**
 
 ```bash
-uv run pytest tests/ -x --tb=short 2>&1 | tail -20
+uv run python -m pytest tests/ -x --tb=short 2>&1 | tail -20
 ```
 
 Expected: all tests pass with the new module name.
@@ -744,7 +744,7 @@ For each match, use Edit to update path conventions to `.orca/`. Tests likely ha
 - [ ] **Step 5: Run full test suite**
 
 ```bash
-uv run pytest tests/ -x --tb=short 2>&1 | tail -20
+uv run python -m pytest tests/ -x --tb=short 2>&1 | tail -20
 ```
 
 Expected: all tests pass with new state path.
@@ -836,7 +836,7 @@ For each match, replace `speckit.orca.X` with `orca:X` using Edit.
 - [ ] **Step 6: Run tests to verify nothing broke**
 
 ```bash
-uv run pytest tests/ -x --tb=short 2>&1 | tail -20
+uv run python -m pytest tests/ -x --tb=short 2>&1 | tail -20
 ```
 
 Expected: pass. Slash command name references in tests should already be updated (most tests don't reference command names by string).
@@ -946,7 +946,7 @@ hooks:
 - [ ] **Step 3: Run tests**
 
 ```bash
-uv run pytest tests/ -x --tb=short 2>&1 | tail -20
+uv run python -m pytest tests/ -x --tb=short 2>&1 | tail -20
 ```
 
 Expected: pass. Extension.yml is metadata; no test should fail.
@@ -1098,7 +1098,7 @@ Expected: `ls: cannot access ... No such file or directory` for each.
 - [ ] **Step 3: Run full test suite**
 
 ```bash
-uv run pytest tests/ --tb=short 2>&1 | tail -10
+uv run python -m pytest tests/ --tb=short 2>&1 | tail -10
 ```
 
 Expected: all tests pass.
@@ -1106,7 +1106,7 @@ Expected: all tests pass.
 - [ ] **Step 4: Compare test count to pre-flight snapshot**
 
 ```bash
-uv run pytest tests/ --collect-only -q 2>&1 | tail -5
+uv run python -m pytest tests/ --collect-only -q 2>&1 | tail -5
 ```
 
 Expected: count is `pre-flight count - (number of stripped tests)`. Do the math from Task 1's pre-flight count to verify nothing else dropped silently.
