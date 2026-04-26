@@ -3,7 +3,6 @@
 The TUI calls `Watcher(repo_root, on_change)` once at startup. The
 watcher observes the directories that back the panes:
 
-- `.specify/orca/matriarch/` (lanes, mailbox, reports)
 - `specs/` (feature artifacts that influence flow-state reviews)
 
 On any change under those trees, `on_change(path)` is invoked on a
@@ -86,7 +85,6 @@ class Watcher:
         # Missing roots are created as needed so the observer can attach
         # without crashing; absent parent dirs degrade to polling.
         watch_targets = [
-            self.repo_root / ".specify" / "orca" / "matriarch",
             self.repo_root / "specs",
         ]
         active_targets = [p for p in watch_targets if p.exists()]

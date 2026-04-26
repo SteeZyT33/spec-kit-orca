@@ -1,6 +1,6 @@
 """Drawer (detail overlay) support for the Orca TUI v1.1.
 
-Read-only detail views for rows in the lane and review panes.
+Read-only detail views for rows in the review pane.
 Drawer content is a pure-data `DrawerContent` payload built by a
 per-row-type builder function; the `DetailDrawer` ModalScreen renders
 that payload and binds Escape / Enter to close itself.
@@ -24,7 +24,7 @@ from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
-from speckit_orca.tui.collectors import LaneRow, ReviewRow
+from speckit_orca.tui.collectors import ReviewRow
 
 logger = logging.getLogger(__name__)
 
@@ -59,83 +59,6 @@ def _as_str(value: Any) -> str:
     if isinstance(value, dict):
         return f"{{{len(value)} key(s)}}"
     return str(value)
-
-
-def build_lane_drawer(repo_root: Path, row: LaneRow) -> DrawerContent:
-    """Build a DrawerContent for a lane row via matriarch.summarize_lane.
-
-    Graceful degradation: failures at either the fetch site OR the render
-    site (malformed payload, missing keys, unexpected types) collapse to a
-    placeholder body that still identifies the lane.
-    """
-    title = f"Lane: {row.lane_id}"
-    try:
-        from speckit_orca import matriarch as _matriarch
-        summary = _matriarch.summarize_lane(row.lane_id, repo_root=repo_root)
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("build_lane_drawer: summarize_lane failed", exc_info=True)
-        return DrawerContent(
-            title=title,
-            body=[
-                ("lane_id", row.lane_id),
-                ("effective_state", row.effective_state),
-                ("error", f"lane record unavailable: {exc!s}"),
-            ],
-            tail=[],
-        )
-
-    try:
-        mailbox = summary.get("mailbox_counts") if isinstance(summary, dict) else None
-        if not isinstance(mailbox, dict):
-            mailbox = {}
-        mailbox_str = (
-            f"inbound={mailbox.get('inbound', 0)} "
-            f"outbound={mailbox.get('outbound', 0)} "
-            f"reports={mailbox.get('reports', 0)}"
-        )
-        deployment = summary.get("deployment") if isinstance(summary, dict) else None
-        if isinstance(deployment, dict):
-            # summarize_lane emits the LaneDeployment asdict() output,
-            # which carries `deployment_kind` (not `kind`). Fall back
-            # across both for forward/back compat.
-            kind = deployment.get("deployment_kind") or deployment.get("kind") or "?"
-            launcher = deployment.get("launched_by") or "?"
-            deployment_str = f"{kind} by {launcher}"
-        else:
-            deployment_str = "-"
-
-        def _get(key: str) -> Any:
-            return summary.get(key) if isinstance(summary, dict) else None
-
-        body: list[tuple[str, str]] = [
-            ("lane_id", _as_str(_get("lane_id") or row.lane_id)),
-            ("spec_id", _as_str(_get("spec_id"))),
-            ("title", _as_str(_get("title"))),
-            ("branch", _as_str(_get("branch"))),
-            ("worktree_path", _as_str(_get("worktree_path"))),
-            ("effective_state", _as_str(_get("effective_state"))),
-            ("status_reason", _as_str(_get("status_reason"))),
-            ("owner_type", _as_str(_get("owner_type"))),
-            ("owner_id", _as_str(_get("owner_id"))),
-            ("dependencies", _as_str(_get("dependencies"))),
-            ("mailbox_counts", mailbox_str),
-            ("delegated_work", _as_str(_get("delegated_work"))),
-            ("assignment_history", _as_str(_get("assignment_history"))),
-            ("deployment", deployment_str),
-            ("registry_revision", _as_str(_get("registry_revision"))),
-        ]
-        return DrawerContent(title=title, body=body, tail=[])
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("build_lane_drawer: rendering failed", exc_info=True)
-        return DrawerContent(
-            title=title,
-            body=[
-                ("lane_id", row.lane_id),
-                ("effective_state", row.effective_state),
-                ("error", f"lane payload malformed: {exc!s}"),
-            ],
-            tail=[],
-        )
 
 
 def _review_artifact_path(repo_root: Path, row: ReviewRow) -> Path:

@@ -10,8 +10,6 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from speckit_orca import matriarch
-
 
 # ---------------------------------------------------------------------------
 # Fixture helpers
@@ -51,70 +49,6 @@ def test_app_constructs_without_repo_work():
 # ---------------------------------------------------------------------------
 
 
-def _init_repo(tmp_path: Path) -> None:
-    """Initialize tmp_path as a minimal git repo with one commit.
-
-    017-agent-presence-and-matriarch-gates tightened ``register_lane`` to
-    require a resolvable HEAD (LANE_REGISTRATION_HEAD_UNRESOLVED guard),
-    so tests that register lanes need real git history.
-    """
-    import os
-    import subprocess
-
-    (tmp_path / ".specify").mkdir(exist_ok=True)
-    if (tmp_path / ".git").exists():
-        return
-    env = {
-        "GIT_AUTHOR_NAME": "test",
-        "GIT_AUTHOR_EMAIL": "test@example.com",
-        "GIT_COMMITTER_NAME": "test",
-        "GIT_COMMITTER_EMAIL": "test@example.com",
-        "PATH": os.environ.get("PATH", ""),
-    }
-    subprocess.run(
-        ["git", "init", "-q", "-b", "main", str(tmp_path)],
-        check=True, capture_output=True,
-    )
-    (tmp_path / ".gitkeep").write_text("")
-    subprocess.run(
-        ["git", "-C", str(tmp_path), "add", ".gitkeep"],
-        check=True, capture_output=True, env=env,
-    )
-    subprocess.run(
-        ["git", "-C", str(tmp_path), "commit", "-q", "-m", "init"],
-        check=True, capture_output=True, env=env,
-    )
-
-
-def test_collect_lanes_empty(tmp_path: Path):
-    """No matriarch directory => empty list, no raise."""
-    from speckit_orca.tui.collectors import collect_lanes
-
-    _init_repo(tmp_path)
-    rows = collect_lanes(tmp_path)
-    assert rows == []
-
-
-def test_collect_lanes_returns_rows(tmp_path: Path):
-    """One registered lane => one LaneRow."""
-    from speckit_orca.tui.collectors import LaneRow, collect_lanes
-
-    _init_repo(tmp_path)
-    # Create a minimal lane via matriarch.register_lane
-    matriarch.register_lane(
-        spec_id="020-example",
-        title="Example",
-        branch="020-example",
-        worktree_path=str(tmp_path),
-        repo_root=tmp_path,
-    )
-    rows = collect_lanes(tmp_path)
-    assert len(rows) == 1
-    assert isinstance(rows[0], LaneRow)
-    assert rows[0].lane_id == "020-example"
-    assert rows[0].effective_state  # non-empty string
-
-
 def test_collect_reviews_skips_complete(tmp_path: Path):
     """Features without review-spec appear; features with complete reviews do not.
 
@@ -145,7 +79,6 @@ def test_collect_all_returns_collector_result(tmp_path: Path):
     result = collect_all(tmp_path, polling_mode=True)
     assert isinstance(result, CollectorResult)
     assert result.polling_mode is True
-    assert result.lanes == []
     assert result.reviews == []
     assert result.event_feed == []
     assert result.collected_at  # truthy timestamp string
@@ -201,10 +134,10 @@ def test_watcher_detects_file_change(tmp_path):
     from speckit_orca.tui import watcher as watcher_mod
 
     (tmp_path / ".git").mkdir()
-    # Create a matriarch dir so there's something to watch
-    matr = tmp_path / ".specify" / "orca" / "matriarch"
-    matr.mkdir(parents=True)
-    events_path = matr / "watched.jsonl"
+    # Create a specs dir so there's something to watch
+    specs = tmp_path / "specs"
+    specs.mkdir(parents=True)
+    events_path = specs / "watched.jsonl"
     events_path.write_text("")
 
     triggered: list[str] = []
@@ -241,7 +174,6 @@ def test_app_mounts_panes(tmp_path: Path):
     async def _run():
         app = OrcaTUI(repo_root=tmp_path)
         async with app.run_test():
-            assert app.query_one("#lane-pane") is not None
             assert app.query_one("#review-pane") is not None
             assert app.query_one("#event-pane") is not None
 
@@ -349,56 +281,36 @@ def test_do_refresh_isolates_pane_failures(tmp_path: Path):
     import asyncio
 
     from speckit_orca.tui import OrcaTUI
-    from speckit_orca.tui.panes import LanePane
+    from speckit_orca.tui.panes import EventFeedPane, ReviewPane
 
     (tmp_path / ".git").mkdir()
 
     async def _run():
         app = OrcaTUI(repo_root=tmp_path)
         async with app.run_test():
-            # Sabotage just one pane's update_rows; the others should
-            # still receive a refresh call.
-            lane_pane = app.query_one("#lane-pane", LanePane)
+            # Sabotage one pane's update_rows; the other should still
+            # receive a refresh call.
+            review_pane = app.query_one("#review-pane", ReviewPane)
 
             def _boom(_rows):
-                raise RuntimeError("lane pane exploded")
+                raise RuntimeError("review pane exploded")
 
-            lane_pane.update_rows = _boom  # type: ignore[assignment]
+            review_pane.update_rows = _boom  # type: ignore[assignment]
 
-            calls: dict[str, int] = {"review": 0, "event": 0}
+            calls: dict[str, int] = {"event": 0}
 
-            from speckit_orca.tui.panes import EventFeedPane, ReviewPane
-
-            review = app.query_one("#review-pane", ReviewPane)
             event = app.query_one("#event-pane", EventFeedPane)
-
-            orig_review = review.update_rows
             orig_event = event.update_rows
-
-            def _wrap_review(rows):
-                calls["review"] += 1
-                return orig_review(rows)
 
             def _wrap_event(rows):
                 calls["event"] += 1
                 return orig_event(rows)
 
-            review.update_rows = _wrap_review  # type: ignore[assignment]
             event.update_rows = _wrap_event  # type: ignore[assignment]
 
             # Trigger refresh explicitly; must not raise.
             app._do_refresh()
 
-            assert calls["review"] >= 1
             assert calls["event"] >= 1
 
     asyncio.run(_run())
-
-
-def test_tail_jsonl_handles_unicode_decode_error(tmp_path: Path):
-    """_tail_jsonl swallows UnicodeDecodeError and returns []."""
-    from speckit_orca.tui.collectors import _tail_jsonl
-
-    bad = tmp_path / "bad.jsonl"
-    bad.write_bytes(b"\xff\xfe\xfd\n")
-    assert _tail_jsonl(bad, 10) == []

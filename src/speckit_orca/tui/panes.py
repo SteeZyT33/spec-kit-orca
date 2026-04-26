@@ -12,60 +12,12 @@ from textual.widgets import DataTable, RichLog
 
 from speckit_orca.tui.collectors import (
     EventFeedEntry,
-    LaneRow,
     ReviewRow,
 )
 
 
-class LanePane(Container):
-    """Top-left: lane roster."""
-
-    DEFAULT_CSS = """
-    LanePane { border: round $accent; }
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # Cache of the last rows passed to update_rows so the app can
-        # resolve cursor -> row without re-running collectors.
-        self._last_rows: list[LaneRow] = []
-
-    def compose(self):  # type: ignore[override]
-        table = DataTable(id="lane-table")
-        table.cursor_type = "row"
-        table.add_columns("lane", "state", "owner", "reason")
-        yield table
-
-    def update_rows(self, rows: list[LaneRow]) -> None:
-        self._last_rows = list(rows)
-        table = self.query_one("#lane-table", DataTable)
-        table.clear()
-        if not rows:
-            table.add_row("-", "-", "-", "no lanes registered")
-            return
-        for r in rows:
-            table.add_row(
-                r.lane_id,
-                r.effective_state,
-                r.owner_id or "-",
-                (r.status_reason or "")[:60],
-            )
-
-    def row_at_cursor(self) -> LaneRow | None:
-        """Return the LaneRow under the DataTable cursor, or None."""
-        if not self._last_rows:
-            return None
-        try:
-            idx = self.query_one("#lane-table", DataTable).cursor_row
-        except Exception:  # noqa: BLE001
-            return None
-        if idx is None or idx < 0 or idx >= len(self._last_rows):
-            return None
-        return self._last_rows[idx]
-
-
 class ReviewPane(Container):
-    """Bottom-left: pending reviews across all features."""
+    """Left: pending reviews across all features."""
 
     DEFAULT_CSS = """
     ReviewPane { border: round $accent; }
@@ -104,7 +56,7 @@ class ReviewPane(Container):
 
 
 class EventFeedPane(Container):
-    """Bottom-right: live event feed from matriarch."""
+    """Right: live event feed (no sources after v1 strip)."""
 
     DEFAULT_CSS = """
     EventFeedPane { border: round $accent; }
