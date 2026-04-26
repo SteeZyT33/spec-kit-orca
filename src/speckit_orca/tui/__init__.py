@@ -1,4 +1,4 @@
-"""Orca TUI - read-only 4-pane Textual view of lane / yolo / review state.
+"""Orca TUI - read-only Textual view of lane / review state.
 
 Phase 1 scope: projection, never a source. The TUI watches files the
 existing CLI already writes and renders them. No mutations.

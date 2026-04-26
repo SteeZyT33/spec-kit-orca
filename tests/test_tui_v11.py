@@ -53,51 +53,6 @@ def _init_repo(tmp_path: Path) -> None:
     )
 
 
-def _write_yolo_run(
-    repo_root: Path,
-    run_id: str,
-    feature_id: str,
-    outcome: str = "running",
-    current_stage: str = "implement",
-) -> None:
-    from speckit_orca.yolo import Event, EventType, append_event, generate_ulid
-
-    started = Event(
-        event_id=generate_ulid(),
-        run_id=run_id,
-        event_type=EventType.RUN_STARTED,
-        timestamp="2026-04-16T10:00:00Z",
-        lamport_clock=1,
-        actor="claude",
-        feature_id=feature_id,
-        lane_id=None,
-        branch=feature_id,
-        head_commit_sha="abc1234",
-        from_stage=None,
-        to_stage="brainstorm",
-        reason=None,
-        evidence=None,
-    )
-    append_event(repo_root, run_id, started)
-    entered = Event(
-        event_id=generate_ulid(),
-        run_id=run_id,
-        event_type=EventType.STAGE_ENTERED,
-        timestamp="2026-04-16T10:01:00Z",
-        lamport_clock=2,
-        actor="claude",
-        feature_id=feature_id,
-        lane_id=None,
-        branch=feature_id,
-        head_commit_sha="abc1234",
-        from_stage="brainstorm",
-        to_stage=current_stage,
-        reason=None,
-        evidence=None,
-    )
-    append_event(repo_root, run_id, entered)
-
-
 def _make_feature(repo_root: Path, feature_id: str) -> Path:
     feat = repo_root / "specs" / feature_id
     feat.mkdir(parents=True, exist_ok=True)
@@ -154,51 +109,6 @@ def test_drawer_content_lane_degrades_on_missing_lane(tmp_path: Path):
     content = build_lane_drawer(tmp_path, row)
     joined = " ".join(value for (_label, value) in content.body).lower()
     assert "error" in joined or "missing" in joined or "unavailable" in joined
-
-
-def test_drawer_content_yolo_includes_runstate_fields(tmp_path: Path):
-    """Yolo drawer surfaces RunState fields that the pane does not show."""
-    from speckit_orca.tui.collectors import YoloRow
-    from speckit_orca.tui.drawer import build_yolo_drawer
-
-    (tmp_path / ".git").mkdir()
-    _write_yolo_run(tmp_path, "run-drawer", "020-example")
-    row = YoloRow(
-        run_id="run-drawer",
-        feature_id="020-example",
-        current_stage="implement",
-        outcome="running",
-        matriarch_sync_failed=False,
-    )
-    content = build_yolo_drawer(tmp_path, row)
-    labels = [label for (label, _value) in content.body]
-    # RunState fields that are NOT in the v1 pane
-    assert "mode" in labels
-    assert "retry_counts" in labels
-    assert "last_event_timestamp" in labels
-    # tail should be a list of event summaries
-    assert isinstance(content.tail, list)
-    assert len(content.tail) > 0
-
-
-def test_drawer_content_yolo_degrades_on_read_failure(tmp_path: Path):
-    """Yolo drawer for unknown run returns placeholder, no raise."""
-    from speckit_orca.tui.collectors import YoloRow
-    from speckit_orca.tui.drawer import build_yolo_drawer
-
-    (tmp_path / ".git").mkdir()
-    row = YoloRow(
-        run_id="never-existed",
-        feature_id="020-example",
-        current_stage="?",
-        outcome="?",
-        matriarch_sync_failed=False,
-    )
-    content = build_yolo_drawer(tmp_path, row)
-    # must not raise; tail is an empty / placeholder list
-    assert isinstance(content.tail, list)
-    joined = " ".join(value for (_label, value) in content.body).lower()
-    assert "error" in joined or "unavailable" in joined or "no events" in joined or content.tail == []
 
 
 def test_drawer_content_review_previews_artifact(tmp_path: Path):
@@ -350,7 +260,7 @@ def test_enter_on_event_pane_is_noop(tmp_path: Path):
     async def _run():
         app = OrcaTUI(repo_root=tmp_path)
         async with app.run_test() as pilot:
-            await pilot.press("4")  # focus event pane
+            await pilot.press("3")  # focus event pane
             await pilot.pause()
             await pilot.press("enter")
             await pilot.pause()
@@ -512,31 +422,6 @@ def test_lane_drawer_degrades_on_malformed_payload(tmp_path: Path, monkeypatch):
     content = drawer_mod.build_lane_drawer(tmp_path, row)
     joined = " ".join(v for (_l, v) in content.body).lower()
     assert "020-x" in joined or "error" in joined or "malformed" in joined
-
-
-def test_yolo_drawer_degrades_on_partial_runstate(tmp_path: Path, monkeypatch):
-    """A RunState missing expected attributes must render via getattr fallback."""
-    from speckit_orca.tui.collectors import YoloRow
-    from speckit_orca.tui import drawer as drawer_mod
-
-    class _Partial:
-        run_id = "r-1"
-        feature_id = "020"
-        # Intentionally missing most fields.
-
-    from speckit_orca import yolo as _yolo
-    monkeypatch.setattr(_yolo, "run_status", lambda repo, rid: _Partial())
-
-    row = YoloRow(
-        run_id="r-1", feature_id="020", current_stage="implement",
-        outcome="running", matriarch_sync_failed=False,
-    )
-    content = drawer_mod.build_yolo_drawer(tmp_path, row)
-    labels = [label for (label, _value) in content.body]
-    # Rendering did not raise; required labels are present with fallbacks.
-    assert "run_id" in labels
-    assert "mode" in labels
-    assert "retry_counts" in labels
 
 
 def test_theme_index_does_not_advance_on_setter_failure(tmp_path: Path, monkeypatch):

@@ -1,10 +1,9 @@
 """File watcher with watchdog-preferred / polling-fallback behavior.
 
 The TUI calls `Watcher(repo_root, on_change)` once at startup. The
-watcher observes the directories that back the four panes:
+watcher observes the directories that back the panes:
 
 - `.specify/orca/matriarch/` (lanes, mailbox, reports)
-- `.specify/orca/yolo/runs/` (event logs + markers)
 - `specs/` (feature artifacts that influence flow-state reviews)
 
 On any change under those trees, `on_change(path)` is invoked on a
@@ -83,12 +82,11 @@ class Watcher:
                     return
                 handler_parent._schedule_fire(Path(event.src_path))
 
-        # Watch the three directories described in the module docstring.
+        # Watch the directories described in the module docstring.
         # Missing roots are created as needed so the observer can attach
         # without crashing; absent parent dirs degrade to polling.
         watch_targets = [
             self.repo_root / ".specify" / "orca" / "matriarch",
-            self.repo_root / ".specify" / "orca" / "yolo" / "runs",
             self.repo_root / "specs",
         ]
         active_targets = [p for p in watch_targets if p.exists()]

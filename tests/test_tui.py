@@ -1,4 +1,4 @@
-"""Tests for the Orca TUI (018-orca-tui) - read-only 4-pane view.
+"""Tests for the Orca TUI (018-orca-tui) - read-only multi-pane view.
 
 Collectors are pure functions of repo-root input; they do not import
 Textual. Pane / app tests use Textual's Pilot harness where practical.
@@ -19,73 +19,6 @@ from speckit_orca import matriarch
 # ---------------------------------------------------------------------------
 # Fixture helpers
 # ---------------------------------------------------------------------------
-
-
-def _write_yolo_run(
-    repo_root: Path,
-    run_id: str,
-    feature_id: str,
-    outcome: str,
-    current_stage: str = "implement",
-) -> None:
-    from speckit_orca.yolo import Event, EventType, append_event, generate_ulid
-
-    # RUN_STARTED
-    started = Event(
-        event_id=generate_ulid(),
-        run_id=run_id,
-        event_type=EventType.RUN_STARTED,
-        timestamp="2026-04-16T10:00:00Z",
-        lamport_clock=1,
-        actor="claude",
-        feature_id=feature_id,
-        lane_id=None,
-        branch=feature_id,
-        head_commit_sha="abc1234",
-        from_stage=None,
-        to_stage="brainstorm",
-        reason=None,
-        evidence=None,
-    )
-    append_event(repo_root, run_id, started)
-
-    # STAGE_ENTERED moves to current_stage
-    entered = Event(
-        event_id=generate_ulid(),
-        run_id=run_id,
-        event_type=EventType.STAGE_ENTERED,
-        timestamp="2026-04-16T10:01:00Z",
-        lamport_clock=2,
-        actor="claude",
-        feature_id=feature_id,
-        lane_id=None,
-        branch=feature_id,
-        head_commit_sha="abc1234",
-        from_stage="brainstorm",
-        to_stage=current_stage,
-        reason=None,
-        evidence=None,
-    )
-    append_event(repo_root, run_id, entered)
-
-    if outcome == "canceled":
-        canceled = Event(
-            event_id=generate_ulid(),
-            run_id=run_id,
-            event_type=EventType.TERMINAL,
-            timestamp="2026-04-16T10:02:00Z",
-            lamport_clock=3,
-            actor="claude",
-            feature_id=feature_id,
-            lane_id=None,
-            branch=feature_id,
-            head_commit_sha="abc1234",
-            from_stage=current_stage,
-            to_stage=None,
-            reason="canceled",
-            evidence=None,
-        )
-        append_event(repo_root, run_id, canceled)
 
 
 def _make_feature(repo_root: Path, feature_id: str, with_spec: bool = True) -> Path:
@@ -185,25 +118,6 @@ def test_collect_lanes_returns_rows(tmp_path: Path):
     assert rows[0].effective_state  # non-empty string
 
 
-def test_collect_yolo_runs_filters_terminal(tmp_path: Path):
-    """Runs with outcome in {completed, canceled, failed} excluded."""
-    from speckit_orca.tui.collectors import collect_yolo_runs
-
-    (tmp_path / ".git").mkdir()
-    _write_yolo_run(tmp_path, "run-active", "020-example", outcome="running")
-    _write_yolo_run(tmp_path, "run-done", "021-example", outcome="canceled")
-    rows = collect_yolo_runs(tmp_path)
-    run_ids = {r.run_id for r in rows}
-    assert "run-active" in run_ids
-    assert "run-done" not in run_ids
-
-
-def test_collect_yolo_runs_empty(tmp_path: Path):
-    from speckit_orca.tui.collectors import collect_yolo_runs
-    (tmp_path / ".git").mkdir()
-    assert collect_yolo_runs(tmp_path) == []
-
-
 def test_collect_reviews_skips_complete(tmp_path: Path):
     """Features without review-spec appear; features with complete reviews do not.
 
@@ -221,20 +135,6 @@ def test_collect_reviews_skips_complete(tmp_path: Path):
     assert "022-needs-review" in feature_ids
 
 
-def test_collect_event_feed_merges_sources(tmp_path: Path):
-    """Yolo events + matriarch inbound mailbox messages merged + sorted desc."""
-    from speckit_orca.tui.collectors import collect_event_feed
-
-    (tmp_path / ".git").mkdir()
-    _write_yolo_run(tmp_path, "run-feed", "020-example", outcome="running")
-
-    entries = collect_event_feed(tmp_path)
-    assert len(entries) > 0
-    assert any(e.source == "yolo" for e in entries)
-    # Truncated to 30 max
-    assert len(entries) <= 30
-
-
 def test_collect_event_feed_empty(tmp_path: Path):
     from speckit_orca.tui.collectors import collect_event_feed
     (tmp_path / ".git").mkdir()
@@ -249,7 +149,6 @@ def test_collect_all_returns_collector_result(tmp_path: Path):
     assert isinstance(result, CollectorResult)
     assert result.polling_mode is True
     assert result.lanes == []
-    assert result.yolo_runs == []
     assert result.reviews == []
     assert result.event_feed == []
     assert result.collected_at  # truthy timestamp string
@@ -307,10 +206,10 @@ def test_watcher_detects_file_change(tmp_path):
     from speckit_orca.tui import watcher as watcher_mod
 
     (tmp_path / ".git").mkdir()
-    # Create a yolo runs dir so there's something to watch
-    runs = tmp_path / ".specify" / "orca" / "yolo" / "runs" / "run-1"
-    runs.mkdir(parents=True)
-    events_path = runs / "events.jsonl"
+    # Create a matriarch dir so there's something to watch
+    matr = tmp_path / ".specify" / "orca" / "matriarch"
+    matr.mkdir(parents=True)
+    events_path = matr / "watched.jsonl"
     events_path.write_text("")
 
     triggered: list[str] = []
@@ -337,8 +236,8 @@ def test_watcher_detects_file_change(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_app_mounts_four_panes(tmp_path: Path):
-    """Pilot: all four pane IDs exist on mount."""
+def test_app_mounts_panes(tmp_path: Path):
+    """Pilot: surviving pane IDs exist on mount."""
     import asyncio
     from speckit_orca.tui import OrcaTUI
 
@@ -348,7 +247,6 @@ def test_app_mounts_four_panes(tmp_path: Path):
         app = OrcaTUI(repo_root=tmp_path)
         async with app.run_test():
             assert app.query_one("#lane-pane") is not None
-            assert app.query_one("#yolo-pane") is not None
             assert app.query_one("#review-pane") is not None
             assert app.query_one("#event-pane") is not None
 
@@ -463,7 +361,7 @@ def test_do_refresh_isolates_pane_failures(tmp_path: Path):
     async def _run():
         app = OrcaTUI(repo_root=tmp_path)
         async with app.run_test():
-            # Sabotage just one pane's update_rows; the other three should
+            # Sabotage just one pane's update_rows; the others should
             # still receive a refresh call.
             lane_pane = app.query_one("#lane-pane", LanePane)
 
@@ -472,21 +370,15 @@ def test_do_refresh_isolates_pane_failures(tmp_path: Path):
 
             lane_pane.update_rows = _boom  # type: ignore[assignment]
 
-            calls: dict[str, int] = {"yolo": 0, "review": 0, "event": 0}
+            calls: dict[str, int] = {"review": 0, "event": 0}
 
-            from speckit_orca.tui.panes import EventFeedPane, ReviewPane, YoloPane
+            from speckit_orca.tui.panes import EventFeedPane, ReviewPane
 
-            yolo = app.query_one("#yolo-pane", YoloPane)
             review = app.query_one("#review-pane", ReviewPane)
             event = app.query_one("#event-pane", EventFeedPane)
 
-            orig_yolo = yolo.update_rows
             orig_review = review.update_rows
             orig_event = event.update_rows
-
-            def _wrap_yolo(rows):
-                calls["yolo"] += 1
-                return orig_yolo(rows)
 
             def _wrap_review(rows):
                 calls["review"] += 1
@@ -496,56 +388,16 @@ def test_do_refresh_isolates_pane_failures(tmp_path: Path):
                 calls["event"] += 1
                 return orig_event(rows)
 
-            yolo.update_rows = _wrap_yolo  # type: ignore[assignment]
             review.update_rows = _wrap_review  # type: ignore[assignment]
             event.update_rows = _wrap_event  # type: ignore[assignment]
 
             # Trigger refresh explicitly; must not raise.
             app._do_refresh()
 
-            assert calls["yolo"] >= 1
             assert calls["review"] >= 1
             assert calls["event"] >= 1
 
     asyncio.run(_run())
-
-
-def test_event_feed_survives_corrupt_jsonl(tmp_path: Path):
-    """A corrupt events.jsonl line must not abort the feed; valid entries still surface."""
-    from speckit_orca.tui.collectors import collect_event_feed
-
-    (tmp_path / ".git").mkdir()
-
-    # One clean run
-    _write_yolo_run(tmp_path, "run-clean", "020-example", outcome="running")
-
-    # One corrupt run: overwrite events.jsonl with garbage lines (no valid JSON)
-    bad_run = tmp_path / ".specify" / "orca" / "yolo" / "runs" / "run-bad"
-    bad_run.mkdir(parents=True, exist_ok=True)
-    (bad_run / "events.jsonl").write_text("this is not json\n{broken\n")
-
-    entries = collect_event_feed(tmp_path)
-    # Clean run's events still present.
-    assert any("run-clea" in e.summary for e in entries if e.source == "yolo")
-
-
-def test_event_feed_survives_invalid_utf8(tmp_path: Path):
-    """Non-UTF-8 bytes in events.jsonl degrade to empty for that file, not whole feed."""
-    from speckit_orca.tui.collectors import collect_event_feed
-
-    (tmp_path / ".git").mkdir()
-
-    # Clean run
-    _write_yolo_run(tmp_path, "run-utf8ok", "020-example", outcome="running")
-
-    # Run with invalid UTF-8 bytes in its events.jsonl
-    bad_run = tmp_path / ".specify" / "orca" / "yolo" / "runs" / "run-utf8bad"
-    bad_run.mkdir(parents=True, exist_ok=True)
-    (bad_run / "events.jsonl").write_bytes(b"\xff\xfe\xfd not-utf-8 bytes\n")
-
-    # Must not raise; must still return the clean run's entries.
-    entries = collect_event_feed(tmp_path)
-    assert any(e.source == "yolo" for e in entries)
 
 
 def test_tail_jsonl_handles_unicode_decode_error(tmp_path: Path):
@@ -555,26 +407,3 @@ def test_tail_jsonl_handles_unicode_decode_error(tmp_path: Path):
     bad = tmp_path / "bad.jsonl"
     bad.write_bytes(b"\xff\xfe\xfd\n")
     assert _tail_jsonl(bad, 10) == []
-
-
-def test_event_feed_survives_unreadable_directory(tmp_path: Path, monkeypatch):
-    """If iterdir() raises OSError mid-refresh, the feed degrades to the other source."""
-    from speckit_orca.tui import collectors as coll
-
-    (tmp_path / ".git").mkdir()
-    # Make the runs dir exist so the code path is entered.
-    runs_dir = tmp_path / ".specify" / "orca" / "yolo" / "runs"
-    runs_dir.mkdir(parents=True)
-
-    real_iterdir = Path.iterdir
-
-    def _iterdir(self):
-        if self == runs_dir:
-            raise OSError("simulated unreadable tree")
-        return real_iterdir(self)
-
-    monkeypatch.setattr(Path, "iterdir", _iterdir)
-
-    # Must not raise.
-    entries = coll.collect_event_feed(tmp_path)
-    assert entries == []

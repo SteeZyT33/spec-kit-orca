@@ -1,6 +1,6 @@
 """Drawer (detail overlay) support for the Orca TUI v1.1.
 
-Read-only detail views for rows in the lane, yolo, and review panes.
+Read-only detail views for rows in the lane and review panes.
 Drawer content is a pure-data `DrawerContent` payload built by a
 per-row-type builder function; the `DetailDrawer` ModalScreen renders
 that payload and binds Escape / Enter to close itself.
@@ -24,13 +24,12 @@ from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
-from speckit_orca.tui.collectors import LaneRow, ReviewRow, YoloRow
+from speckit_orca.tui.collectors import LaneRow, ReviewRow
 
 logger = logging.getLogger(__name__)
 
 
 REVIEW_PREVIEW_LINES = 40
-YOLO_EVENT_TAIL = 10
 
 
 @dataclass(frozen=True)
@@ -137,104 +136,6 @@ def build_lane_drawer(repo_root: Path, row: LaneRow) -> DrawerContent:
             ],
             tail=[],
         )
-
-
-def _yolo_event_tail(repo_root: Path, run_id: str, limit: int) -> list[str]:
-    """Return last `limit` event summaries for a yolo run, or [] on failure."""
-    events_path = (
-        repo_root / ".specify" / "orca" / "yolo" / "runs" / run_id / "events.jsonl"
-    )
-    try:
-        from speckit_orca.tui.collectors import _tail_jsonl
-        objs = _tail_jsonl(events_path, limit)
-    except Exception:  # noqa: BLE001
-        logger.debug("_yolo_event_tail: tail failed", exc_info=True)
-        return []
-    lines: list[str] = []
-    for obj in objs:
-        ts = obj.get("timestamp", "")
-        etype = obj.get("event_type", "?")
-        to_stage = obj.get("to_stage")
-        entry = f"{ts} {etype}"
-        if to_stage:
-            entry += f" -> {to_stage}"
-        reason = obj.get("reason")
-        if reason:
-            entry += f" ({reason})"
-        lines.append(entry)
-    return lines
-
-
-def build_yolo_drawer(repo_root: Path, row: YoloRow) -> DrawerContent:
-    """Build a DrawerContent for a yolo run via yolo.run_status.
-
-    Graceful degradation: failures at either the fetch site OR the
-    per-field render site collapse to a placeholder body. Attribute
-    access is wrapped with getattr() fallbacks so a partially-populated
-    RunState never raises during rendering.
-    """
-    title = f"Run: {row.run_id}"
-    try:
-        from speckit_orca import yolo as _yolo
-        state = _yolo.run_status(repo_root, row.run_id)
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("build_yolo_drawer: run_status failed", exc_info=True)
-        return DrawerContent(
-            title=title,
-            body=[
-                ("run_id", row.run_id),
-                ("feature_id", row.feature_id),
-                ("current_stage", row.current_stage),
-                ("outcome", row.outcome),
-                ("error", f"run state unavailable: {exc!s}"),
-            ],
-            tail=[],
-        )
-
-    def _attr(name: str, default: Any = None) -> Any:
-        try:
-            return getattr(state, name, default)
-        except Exception:  # noqa: BLE001
-            return default
-
-    try:
-        body: list[tuple[str, str]] = [
-            ("run_id", _as_str(_attr("run_id", row.run_id))),
-            ("feature_id", _as_str(_attr("feature_id", row.feature_id))),
-            ("mode", _as_str(_attr("mode"))),
-            ("lane_id", _as_str(_attr("lane_id"))),
-            ("current_stage", _as_str(_attr("current_stage", row.current_stage))),
-            ("outcome", _as_str(_attr("outcome", row.outcome))),
-            ("block_reason", _as_str(_attr("block_reason"))),
-            ("branch", _as_str(_attr("branch"))),
-            ("head_commit_sha_at_last_event",
-             _as_str(_attr("head_commit_sha_at_last_event"))),
-            ("deployment_kind", _as_str(_attr("deployment_kind"))),
-            ("review_spec_status", _as_str(_attr("review_spec_status"))),
-            ("review_code_status", _as_str(_attr("review_code_status"))),
-            ("review_pr_status", _as_str(_attr("review_pr_status"))),
-            ("mailbox_path", _as_str(_attr("mailbox_path"))),
-            ("last_mailbox_event_id", _as_str(_attr("last_mailbox_event_id"))),
-            ("retry_counts", _as_str(_attr("retry_counts"))),
-            ("matriarch_sync_failed", _as_str(_attr("matriarch_sync_failed"))),
-            ("last_event_id", _as_str(_attr("last_event_id"))),
-            ("last_event_timestamp", _as_str(_attr("last_event_timestamp"))),
-        ]
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("build_yolo_drawer: rendering failed", exc_info=True)
-        return DrawerContent(
-            title=title,
-            body=[
-                ("run_id", row.run_id),
-                ("feature_id", row.feature_id),
-                ("error", f"run state malformed: {exc!s}"),
-            ],
-            tail=[],
-        )
-    tail = _yolo_event_tail(repo_root, row.run_id, YOLO_EVENT_TAIL)
-    if not tail:
-        tail = ["(no events)"]
-    return DrawerContent(title=title, body=body, tail=tail)
 
 
 def _review_artifact_path(repo_root: Path, row: ReviewRow) -> Path:

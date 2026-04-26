@@ -8,7 +8,6 @@ without a terminal (spec FR-014).
 The collectors call through to:
 
 - `speckit_orca.matriarch.list_lanes`
-- `speckit_orca.yolo.list_runs` + `yolo.run_status` (+ reducer helpers)
 - `speckit_orca.flow_state.compute_flow_state`
 
 None of the collectors parse `spec.md` / `plan.md` / `tasks.md` directly;
@@ -28,12 +27,10 @@ from typing import Any
 # fine because every module is importable independently.
 from speckit_orca import flow_state as _flow_state
 from speckit_orca import matriarch as _matriarch
-from speckit_orca import yolo as _yolo
 
 logger = logging.getLogger(__name__)
 
 
-TERMINAL_OUTCOMES = frozenset({"completed", "canceled", "failed"})
 EVENT_FEED_MAX_ENTRIES = 30
 
 # Review statuses that count as "still open" for the review queue pane.
@@ -54,15 +51,6 @@ class LaneRow:
 
 
 @dataclass(frozen=True)
-class YoloRow:
-    run_id: str
-    feature_id: str
-    current_stage: str
-    outcome: str
-    matriarch_sync_failed: bool
-
-
-@dataclass(frozen=True)
 class ReviewRow:
     feature_id: str
     review_type: str
@@ -72,14 +60,13 @@ class ReviewRow:
 @dataclass(frozen=True)
 class EventFeedEntry:
     timestamp: str
-    source: str  # "yolo" | "matr"
+    source: str  # "matr"
     summary: str
 
 
 @dataclass
 class CollectorResult:
     lanes: list[LaneRow] = field(default_factory=list)
-    yolo_runs: list[YoloRow] = field(default_factory=list)
     reviews: list[ReviewRow] = field(default_factory=list)
     event_feed: list[EventFeedEntry] = field(default_factory=list)
     collected_at: str = ""
@@ -125,42 +112,6 @@ def collect_lanes(repo_root: Path) -> list[LaneRow]:
             effective_state=lane.get("effective_state", "unknown"),
             owner_id=lane.get("owner_id"),
             status_reason=lane.get("status_reason", ""),
-        ))
-    return rows
-
-
-def collect_yolo_runs(repo_root: Path) -> list[YoloRow]:
-    """List non-terminal yolo runs in the repo.
-
-    Filters out runs whose outcome is in {completed, canceled, failed}
-    per spec FR-005.
-    """
-    runs_dir = repo_root / ".specify" / "orca" / "yolo" / "runs"
-    if not runs_dir.exists():
-        return []
-    try:
-        run_ids = _yolo.list_runs(repo_root)
-    except Exception:  # noqa: BLE001
-        logger.debug("Failed to list yolo runs", exc_info=True)
-        return []
-
-    rows: list[YoloRow] = []
-    for rid in run_ids:
-        try:
-            state = _yolo.run_status(repo_root, rid)
-        except Exception:  # noqa: BLE001 - one bad run shouldn't kill the pane
-            logger.debug(
-                "Skipping yolo run due to status read failure: %s", rid, exc_info=True
-            )
-            continue
-        if state.outcome in TERMINAL_OUTCOMES:
-            continue
-        rows.append(YoloRow(
-            run_id=state.run_id,
-            feature_id=state.feature_id,
-            current_stage=state.current_stage,
-            outcome=state.outcome,
-            matriarch_sync_failed=bool(state.matriarch_sync_failed),
         ))
     return rows
 
@@ -240,32 +191,6 @@ def _safe_iterdir(path: Path) -> list[Path]:
         return []
 
 
-def _collect_yolo_event_entries(repo_root: Path, per_run_limit: int = 30) -> list[EventFeedEntry]:
-    runs_dir = repo_root / ".specify" / "orca" / "yolo" / "runs"
-    if not runs_dir.exists():
-        return []
-    entries: list[EventFeedEntry] = []
-    for run_dir in _safe_iterdir(runs_dir):
-        if not run_dir.is_dir():
-            continue
-        events_path = run_dir / "events.jsonl"
-        try:
-            objs = _tail_jsonl(events_path, per_run_limit)
-        except Exception:  # noqa: BLE001 - one bad file shouldn't kill the feed
-            logger.debug("Skipping unreadable yolo event file: %s", events_path, exc_info=True)
-            continue
-        for obj in objs:
-            ts = obj.get("timestamp", "")
-            etype = obj.get("event_type", "?")
-            to_stage = obj.get("to_stage")
-            feat = obj.get("feature_id", "?")
-            summary = f"{run_dir.name[:8]} {feat} {etype}"
-            if to_stage:
-                summary += f" -> {to_stage}"
-            entries.append(EventFeedEntry(timestamp=ts, source="yolo", summary=summary))
-    return entries
-
-
 def _collect_matriarch_event_entries(repo_root: Path, per_lane_limit: int = 30) -> list[EventFeedEntry]:
     mroot = _matriarch_root(repo_root)
     if not mroot.exists():
@@ -293,17 +218,13 @@ def _collect_matriarch_event_entries(repo_root: Path, per_lane_limit: int = 30) 
 
 
 def collect_event_feed(repo_root: Path) -> list[EventFeedEntry]:
-    """Merge yolo + matriarch mailbox entries, sort desc by timestamp, cap at 30.
+    """Collect matriarch mailbox entries, sort desc by timestamp, cap at 30.
 
     Every per-file / per-directory failure degrades to empty for that source
     rather than aborting the refresh, so one corrupt JSONL or permission
     error never zeros out the whole feed.
     """
     entries: list[EventFeedEntry] = []
-    try:
-        entries.extend(_collect_yolo_event_entries(repo_root))
-    except Exception:  # noqa: BLE001
-        logger.debug("yolo event-feed collection failed", exc_info=True)
     try:
         entries.extend(_collect_matriarch_event_entries(repo_root))
     except Exception:  # noqa: BLE001
@@ -316,7 +237,6 @@ def collect_all(repo_root: Path, polling_mode: bool = False) -> CollectorResult:
     """Run every collector in sequence and bundle the result."""
     return CollectorResult(
         lanes=collect_lanes(repo_root),
-        yolo_runs=collect_yolo_runs(repo_root),
         reviews=collect_reviews(repo_root),
         event_feed=collect_event_feed(repo_root),
         collected_at=_now_utc_iso(),

@@ -2,9 +2,9 @@
 
 Phase 1 scope (spec 018-orca-tui):
 
-- Read-only projection of lane / yolo / review / event-feed state.
-- 4-pane grid layout with header + footer.
-- Keybindings: q (quit), r (refresh), 1-4 (focus pane).
+- Read-only projection of lane / review / event-feed state.
+- Multi-pane grid layout with header + footer.
+- Keybindings: q (quit), r (refresh), 1-3 (focus pane).
 - Watchdog-preferred file watcher with 5s polling fallback.
 
 Entry point: `python -m speckit_orca.tui`.
@@ -29,9 +29,8 @@ from speckit_orca.tui.drawer import (
     DrawerContent,
     build_lane_drawer,
     build_review_drawer,
-    build_yolo_drawer,
 )
-from speckit_orca.tui.panes import EventFeedPane, LanePane, ReviewPane, YoloPane
+from speckit_orca.tui.panes import EventFeedPane, LanePane, ReviewPane
 from speckit_orca.tui.watcher import Watcher
 
 logger = logging.getLogger(__name__)
@@ -67,7 +66,7 @@ def _git_branch(repo_root: Path) -> str | None:
 
 
 class OrcaTUI(App):
-    """Textual app hosting the 4-pane read-only Orca view."""
+    """Textual app hosting the multi-pane read-only Orca view."""
 
     CSS = """
     Screen { layout: vertical; }
@@ -79,7 +78,7 @@ class OrcaTUI(App):
         padding: 0 1;
     }
     #tui-grid {
-        grid-size: 2 2;
+        grid-size: 1 3;
         grid-gutter: 1 1;
         height: 1fr;
     }
@@ -89,9 +88,8 @@ class OrcaTUI(App):
         Binding("q", "quit", "quit", show=True),
         Binding("r", "refresh", "refresh", show=True),
         Binding("1", "focus_pane('lane-pane')", "lanes", show=True),
-        Binding("2", "focus_pane('yolo-pane')", "yolo", show=True),
-        Binding("3", "focus_pane('review-pane')", "reviews", show=True),
-        Binding("4", "focus_pane('event-pane')", "events", show=True),
+        Binding("2", "focus_pane('review-pane')", "reviews", show=True),
+        Binding("3", "focus_pane('event-pane')", "events", show=True),
         # v1.1 additions. `enter` is marked priority so it beats
         # DataTable's default `select_cursor` binding - otherwise pressing
         # Enter on a row would fire the table's row-select and never
@@ -128,7 +126,6 @@ class OrcaTUI(App):
         yield Static(self.render_header_text(), id="tui-header")
         yield Grid(
             LanePane(id="lane-pane"),
-            YoloPane(id="yolo-pane"),
             ReviewPane(id="review-pane"),
             EventFeedPane(id="event-pane"),
             id="tui-grid",
@@ -215,11 +212,10 @@ class OrcaTUI(App):
     def _do_refresh(self) -> None:
         result: CollectorResult = collect_all(self.repo_root, polling_mode=self.polling_mode)
         # One try per pane so a single widget lookup / update failure does
-        # not zero out the remaining three panes. During early mount the
+        # not zero out the remaining panes. During early mount the
         # widgets may not yet be queryable; later refreshes catch up.
         for pane_id, widget_cls, rows in (
             ("#lane-pane", LanePane, result.lanes),
-            ("#yolo-pane", YoloPane, result.yolo_runs),
             ("#review-pane", ReviewPane, result.reviews),
             ("#event-pane", EventFeedPane, result.event_feed),
         ):
@@ -246,12 +242,11 @@ class OrcaTUI(App):
     # v1.1 actions
 
     def _find_focused_pane(self):
-        """Return the currently focused pane container (lane/yolo/review)
+        """Return the currently focused pane container (lane/review)
         with a row_at_cursor() method, or None.
         """
         for pane_id, cls in (
             ("#lane-pane", LanePane),
-            ("#yolo-pane", YoloPane),
             ("#review-pane", ReviewPane),
         ):
             try:
@@ -284,8 +279,6 @@ class OrcaTUI(App):
         try:
             if pane_id == "#lane-pane":
                 return build_lane_drawer(self.repo_root, row)
-            if pane_id == "#yolo-pane":
-                return build_yolo_drawer(self.repo_root, row)
             if pane_id == "#review-pane":
                 return build_review_drawer(self.repo_root, row)
         except Exception:  # noqa: BLE001
@@ -334,7 +327,7 @@ class OrcaTUI(App):
             return
         if origin is None:
             return
-        # origin is already stored as "#lane-pane" / "#yolo-pane" / "#review-pane"
+        # origin is already stored as "#lane-pane" / "#review-pane"
         # from _find_focused_pane(); do NOT prefix another "#" here.
         try:
             self.query_one(origin).focus()
@@ -375,7 +368,7 @@ def _positive_float(value: str) -> float:
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="python -m speckit_orca.tui",
-        description="Orca TUI - read-only 4-pane view of lane / yolo / review state.",
+        description="Orca TUI - read-only multi-pane view of lane / review state.",
     )
     p.add_argument(
         "--repo-root",

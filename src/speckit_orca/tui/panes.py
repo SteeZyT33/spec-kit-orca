@@ -1,4 +1,4 @@
-"""Textual Widget subclasses for the four Orca TUI panes.
+"""Textual Widget subclasses for the Orca TUI panes.
 
 Each pane is a thin wrapper around a Textual `DataTable` (or `RichLog`
 for the event feed). Panes receive plain-data rows from collectors and
@@ -14,7 +14,6 @@ from speckit_orca.tui.collectors import (
     EventFeedEntry,
     LaneRow,
     ReviewRow,
-    YoloRow,
 )
 
 
@@ -65,51 +64,6 @@ class LanePane(Container):
         return self._last_rows[idx]
 
 
-class YoloPane(Container):
-    """Top-right: active yolo runs."""
-
-    DEFAULT_CSS = """
-    YoloPane { border: round $accent; }
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._last_rows: list[YoloRow] = []
-
-    def compose(self):  # type: ignore[override]
-        table = DataTable(id="yolo-table")
-        table.cursor_type = "row"
-        table.add_columns("run", "feat", "stage", "outcome", "sync")
-        yield table
-
-    def update_rows(self, rows: list[YoloRow]) -> None:
-        self._last_rows = list(rows)
-        table = self.query_one("#yolo-table", DataTable)
-        table.clear()
-        if not rows:
-            table.add_row("-", "-", "-", "-", "no active runs")
-            return
-        for r in rows:
-            table.add_row(
-                r.run_id[:8],
-                r.feature_id,
-                r.current_stage,
-                r.outcome,
-                "FAIL" if r.matriarch_sync_failed else "ok",
-            )
-
-    def row_at_cursor(self) -> YoloRow | None:
-        if not self._last_rows:
-            return None
-        try:
-            idx = self.query_one("#yolo-table", DataTable).cursor_row
-        except Exception:  # noqa: BLE001
-            return None
-        if idx is None or idx < 0 or idx >= len(self._last_rows):
-            return None
-        return self._last_rows[idx]
-
-
 class ReviewPane(Container):
     """Bottom-left: pending reviews across all features."""
 
@@ -150,7 +104,7 @@ class ReviewPane(Container):
 
 
 class EventFeedPane(Container):
-    """Bottom-right: live event feed from yolo + matriarch."""
+    """Bottom-right: live event feed from matriarch."""
 
     DEFAULT_CSS = """
     EventFeedPane { border: round $accent; }
