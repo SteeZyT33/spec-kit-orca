@@ -449,13 +449,13 @@ class TestSpecKitComputeStageOrder:
         normalized = adapter.load_feature(handle, repo_root=tmp_path)
         stages = adapter.compute_stage(normalized)
 
-        # Spec-kit's canonical nine-stage order.
+        # Spec-kit's canonical eight-stage order (assign stage removed
+        # alongside the matriarch supervisor in Phase 1).
         expected_order = [
             "brainstorm",
             "specify",
             "plan",
             "tasks",
-            "assign",
             "implement",
             "review-spec",
             "review-code",
@@ -472,9 +472,8 @@ class TestSpecKitComputeStageOrder:
         assert status_map["review-spec"] == "missing"
         assert status_map["review-code"] == "not_started"
         assert status_map["review-pr"] == "not_started"
-        # No brainstorm file, no assignees, no completed tasks.
+        # No brainstorm file, no completed tasks.
         assert status_map["brainstorm"] == "incomplete"
-        assert status_map["assign"] == "incomplete"
         assert status_map["implement"] == "incomplete"
 
 

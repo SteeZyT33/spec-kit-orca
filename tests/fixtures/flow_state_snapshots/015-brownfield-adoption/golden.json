@@ -33,12 +33,6 @@
       "notes": []
     },
     {
-      "stage": "assign",
-      "status": "incomplete",
-      "evidence_sources": [],
-      "notes": []
-    },
-    {
       "stage": "implement",
       "status": "incomplete",
       "evidence_sources": [],

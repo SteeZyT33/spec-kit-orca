@@ -45,12 +45,6 @@
   ],
   "incomplete_milestones": [
     {
-      "stage": "assign",
-      "status": "incomplete",
-      "evidence_sources": [],
-      "notes": []
-    },
-    {
       "stage": "review-spec",
       "status": "missing",
       "evidence_sources": [],

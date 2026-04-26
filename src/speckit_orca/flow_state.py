@@ -14,7 +14,6 @@ STAGE_ORDER = [
     "specify",
     "plan",
     "tasks",
-    "assign",
     "implement",
     "review-spec",
     "review-code",
@@ -26,7 +25,6 @@ STAGE_KIND = {
     "specify": "build",
     "plan": "build",
     "tasks": "build",
-    "assign": "meta",
     "implement": "build",
     "review-spec": "review",
     "review-code": "review",
@@ -373,13 +371,6 @@ def _stage_milestones(evidence: FeatureEvidence, reviews: list[ReviewMilestone])
         )
     )
 
-    assign_status = "incomplete"
-    assign_sources: list[str] = []
-    if tasks_path.exists() and evidence.task_summary.assigned > 0:
-        assign_status = "complete"
-        assign_sources.append(str(tasks_path))
-    milestones.append(FlowMilestone("assign", assign_status, assign_sources))
-
     implement_status = "incomplete"
     implement_sources: list[str] = []
     if evidence.task_summary.has_implementation_progress:
@@ -468,8 +459,6 @@ def _next_step(milestones: list[FlowMilestone], ambiguities: list[str], evidence
         return f"Generate {plan_name} to lock architecture and implementation shape."
     if status_map["tasks"] != "complete":
         return f"Generate {tasks_name} so implementation can proceed from a durable task plan."
-    if status_map["assign"] != "complete" and status_map["implement"] != "complete":
-        return "Run /speckit.orca.assign if this feature needs multi-agent coordination, or proceed directly to implementation."
     if status_map["implement"] != "complete":
         return f"Implement the next incomplete task and keep {tasks_name} current."
     review_spec_status = status_map.get("review-spec", "missing")

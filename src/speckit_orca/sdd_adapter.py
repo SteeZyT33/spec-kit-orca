@@ -473,21 +473,6 @@ class SpecKitAdapter(SddAdapter):
             )
         )
 
-        # assign
-        assign_status = "incomplete"
-        assign_sources: list[str] = []
-        if tasks_path.exists() and task_summary.get("assigned", 0) > 0:
-            assign_status = "complete"
-            assign_sources.append(str(tasks_path))
-        progress.append(
-            StageProgress(
-                stage="assign",
-                status=assign_status,
-                evidence_sources=assign_sources,
-                notes=[],
-            )
-        )
-
         # implement
         implement_status = "incomplete"
         implement_sources: list[str] = []
