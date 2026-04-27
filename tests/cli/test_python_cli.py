@@ -215,3 +215,32 @@ def test_cli_worktree_overlap_check_invalid_input(monkeypatch, capsys):
     assert rc == 1
     assert env["ok"] is False
     assert env["error"]["kind"] == "input_invalid"
+
+
+def test_cli_flow_state_projection(tmp_path, capsys):
+    """flow-state-projection capability works via CLI."""
+    feat = tmp_path / "specs" / "001-test"
+    feat.mkdir(parents=True)
+    (feat / "spec.md").write_text("# Spec\n")
+
+    rc = cli_main([
+        "flow-state-projection",
+        "--feature-dir", str(feat),
+    ])
+    out = capsys.readouterr().out
+    env = json.loads(out)
+    assert rc == 0
+    assert env["ok"] is True
+    assert env["result"]["feature_id"] == "001-test"
+
+
+def test_cli_flow_state_projection_missing_dir(tmp_path, capsys):
+    rc = cli_main([
+        "flow-state-projection",
+        "--feature-dir", str(tmp_path / "nonexistent"),
+    ])
+    out = capsys.readouterr().out
+    env = json.loads(out)
+    assert rc == 1
+    assert env["ok"] is False
+    assert env["error"]["kind"] == "input_invalid"

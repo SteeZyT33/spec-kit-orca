@@ -31,6 +31,11 @@ from orca.capabilities.cross_agent_review import (
     CrossAgentReviewInput,
     cross_agent_review,
 )
+from orca.capabilities.flow_state_projection import (
+    VERSION as FLOW_STATE_PROJECTION_VERSION,
+    FlowStateProjectionInput,
+    flow_state_projection,
+)
 from orca.capabilities.worktree_overlap_check import (
     VERSION as WORKTREE_OVERLAP_CHECK_VERSION,
     WorktreeInfo,
@@ -327,6 +332,72 @@ def _run_worktree_overlap_check(args: list[str]) -> int:
     )
 
 
+def _run_flow_state_projection(args: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="orca-cli flow-state-projection",
+        exit_on_error=False,
+    )
+    parser.add_argument("--feature-id", default=None)
+    parser.add_argument("--feature-dir", default=None)
+    parser.add_argument("--repo-root", default=None)
+    parser.add_argument("--pretty", action="store_true",
+                        help="emit human-readable summary instead of JSON envelope")
+
+    try:
+        ns, unknown = parser.parse_known_args(args)
+    except argparse.ArgumentError as exc:
+        return _emit_envelope(
+            envelope=_err_envelope(
+                "flow-state-projection", FLOW_STATE_PROJECTION_VERSION,
+                ErrorKind.INPUT_INVALID, f"argv parse error: {exc}",
+            ),
+            pretty=False,
+            exit_code=2,
+        )
+    except SystemExit as exc:
+        if exc.code == 0:
+            return 0
+        return _emit_envelope(
+            envelope=_err_envelope(
+                "flow-state-projection", FLOW_STATE_PROJECTION_VERSION,
+                ErrorKind.INPUT_INVALID, "argv parse error (missing/invalid arguments)",
+            ),
+            pretty=False,
+            exit_code=2,
+        )
+
+    if unknown:
+        return _emit_envelope(
+            envelope=_err_envelope(
+                "flow-state-projection", FLOW_STATE_PROJECTION_VERSION,
+                ErrorKind.INPUT_INVALID, f"unknown args: {unknown}",
+            ),
+            pretty=ns.pretty,
+            exit_code=2,
+        )
+
+    inp = FlowStateProjectionInput(
+        feature_id=ns.feature_id,
+        feature_dir=ns.feature_dir,
+        repo_root=ns.repo_root,
+    )
+
+    started = time.monotonic()
+    result = flow_state_projection(inp)
+    duration_ms = int((time.monotonic() - started) * 1000)
+
+    envelope = result.to_json(
+        capability="flow-state-projection",
+        version=FLOW_STATE_PROJECTION_VERSION,
+        duration_ms=duration_ms,
+    )
+    return _emit_envelope(
+        envelope=envelope,
+        pretty=ns.pretty,
+        exit_code=0 if result.ok else 1,
+    )
+
+
 def _emit_envelope(*, envelope: dict, pretty: bool, exit_code: int) -> int:
     if pretty:
         if envelope["ok"]:
@@ -360,6 +431,24 @@ def _print_pretty_success(envelope: dict) -> None:
                 print(f"  conflict: {c['path']} between {', '.join(c['worktrees'])}")
             for o in result.get("proposed_overlaps", []):
                 print(f"  proposed: {o['path']} blocked by {o['blocked_by']}")
+    elif capability == "flow-state-projection":
+        feature_id = result.get("feature_id", "?")
+        stage = result.get("current_stage") or "ambiguous/unknown"
+        next_step = result.get("next_step") or "none"
+        completed = result.get("completed_milestones", [])
+        incomplete = result.get("incomplete_milestones", [])
+        print(f"OK feature={feature_id} stage={stage}")
+        print(f"  next: {next_step}")
+        if completed:
+            print(f"  completed: {len(completed)}")
+            for m in completed:
+                stage_name = m.get("stage", "?")
+                print(f"    - {stage_name}")
+        if incomplete:
+            print(f"  incomplete: {len(incomplete)}")
+            for m in incomplete:
+                stage_name = m.get("stage", "?")
+                print(f"    - {stage_name}")
     else:
         # Fallback: dump JSON for unknown capabilities
         print(json.dumps(envelope, indent=2))
@@ -367,6 +456,7 @@ def _print_pretty_success(envelope: dict) -> None:
 
 _register("cross-agent-review", _run_cross_agent_review, CROSS_AGENT_REVIEW_VERSION)
 _register("worktree-overlap-check", _run_worktree_overlap_check, WORKTREE_OVERLAP_CHECK_VERSION)
+_register("flow-state-projection", _run_flow_state_projection, FLOW_STATE_PROJECTION_VERSION)
 
 
 if __name__ == "__main__":
