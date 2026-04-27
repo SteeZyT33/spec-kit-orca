@@ -644,6 +644,13 @@ def _emit_envelope(*, envelope: dict, pretty: bool, exit_code: int) -> int:
     return exit_code
 
 
+def _truncate(text: str, limit: int) -> str:
+    """Truncate text to limit chars, appending '...' if shortened."""
+    if len(text) <= limit:
+        return text
+    return text[:limit - 3] + "..."
+
+
 def _print_pretty_success(envelope: dict) -> None:
     """Render success envelope based on capability shape."""
     capability = envelope.get("metadata", {}).get("capability", "")
@@ -710,7 +717,7 @@ def _print_pretty_success(envelope: dict) -> None:
         print(f"  well_supported: {len(well)}")
         print(f"  uncited:        {len(uncited)}")
         for c in uncited:
-            print(f"    line {c.get('line', '?')}: {c.get('text', '')[:80]}")
+            print(f"    line {c.get('line', '?')}: {_truncate(c.get('text', ''), 80)}")
         print(f"  broken_refs:    {len(broken)}")
         for r in broken:
             print(f"    line {r.get('line', '?')}: [{r.get('ref', '')}]")
@@ -719,18 +726,21 @@ def _print_pretty_success(envelope: dict) -> None:
         partial = result.get("partial", False)
         missing = result.get("missing_reviewers", [])
         token = "OK" if not contradictions else "ISSUES"
-        partial_note = f" (partial; missing: {','.join(missing)})" if partial else ""
+        partial_note = f" (partial; missing: {', '.join(missing)})" if partial else ""
         print(f"{token} {len(contradictions)} contradictions{partial_note}")
         for c in contradictions:
             confidence = c.get("confidence", "?")
-            new_claim = c.get("new_claim", "")[:80]
-            ref = c.get("conflicting_evidence_ref", "")
-            print(f"  [{confidence}] {new_claim}")
-            if ref:
-                print(f"    conflicts with: {ref}")
+            new_claim = _truncate(c.get("new_claim", ""), 80)
+            refs = c.get("conflicting_evidence_refs", [])
+            reviewers = c.get("reviewers", [])
+            ref_display = ", ".join(refs) if refs else ""
+            rev_display = "+".join(reviewers) if reviewers else "?"
+            print(f"  [{confidence}] ({rev_display}) {new_claim}")
+            if ref_display:
+                print(f"    conflicts with: {ref_display}")
             resolution = c.get("suggested_resolution", "")
             if resolution:
-                print(f"    resolution: {resolution[:80]}")
+                print(f"    resolution: {_truncate(resolution, 80)}")
     else:
         # Fallback: dump JSON for unknown capabilities
         print(json.dumps(envelope, indent=2))

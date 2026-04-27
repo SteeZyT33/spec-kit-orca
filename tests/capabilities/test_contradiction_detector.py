@@ -64,7 +64,12 @@ def test_returns_contradictions(tmp_path):
     assert result.ok
     # Cross mode dedupes the same contradiction across reviewers
     assert len(result.value["contradictions"]) == 1
-    assert result.value["contradictions"][0]["new_claim"] == "X is fast"
+    c = result.value["contradictions"][0]
+    assert c["new_claim"] == "X is fast"
+    # Plural refs (now list with single entry from this stub)
+    assert c["conflicting_evidence_refs"] == ["evidence.md"]
+    # Multi-reviewer consensus surfaces
+    assert set(c["reviewers"]) == {"claude", "codex"}
     assert result.value["partial"] is False
     assert result.value["missing_reviewers"] == []
 
@@ -92,6 +97,8 @@ def test_partial_when_one_fails(tmp_path):
     assert result.ok
     assert result.value["partial"] is True
     assert result.value["missing_reviewers"] == ["codex"]
+    # Single surviving reviewer attribution
+    assert result.value["contradictions"][0]["reviewers"] == ["claude"]
 
 
 def test_all_fail_returns_backend_failure(tmp_path):
@@ -102,6 +109,11 @@ def test_all_fail_returns_backend_failure(tmp_path):
     )
     assert not result.ok
     assert result.error.kind == ErrorKind.BACKEND_FAILURE
+    # Cross path also preserves diagnostics through CrossReviewer's
+    # 'all reviewers failed' wrapped ReviewerError
+    assert result.error.detail is not None
+    assert result.error.detail.get("underlying") == "all_reviewers_failed"
+    assert "retryable" in result.error.detail
 
 
 def test_invalid_reviewer(tmp_path):
@@ -148,7 +160,7 @@ def test_single_reviewer_mode_claude(tmp_path):
     assert result.value["partial"] is False
     assert result.value["missing_reviewers"] == []
     assert len(result.value["contradictions"]) == 1
-    assert result.value["contradictions"][0]["reviewer"] == "claude"
+    assert result.value["contradictions"][0]["reviewers"] == ["claude"]
 
 
 def test_single_reviewer_not_configured(tmp_path):
@@ -211,3 +223,54 @@ def test_output_validates_against_schema(tmp_path):
     )
     assert result.ok
     jsonschema.validate(result.value, schema)
+
+
+def test_contradiction_preserves_multiple_evidence_refs(tmp_path):
+    """When one new claim conflicts with multiple prior evidence files,
+    all refs should appear in conflicting_evidence_refs (plural)."""
+
+    # Stub returns a finding with multi-ref evidence
+    class _MultiRefStub:
+        name = "claude"
+
+        def review(self, bundle, prompt):
+            return RawFindings(
+                reviewer="claude",
+                findings=[{
+                    "category": "contradiction",
+                    "severity": "high",
+                    "confidence": "high",
+                    "summary": "X is fast",
+                    "detail": "conflicts with multiple prior runs",
+                    "evidence": ["run1.jsonl", "run2.jsonl", "summary.md"],
+                    "suggestion": "re-measure across all runs",
+                }],
+                metadata={},
+            )
+
+    inp = _input(tmp_path, reviewer="claude")
+    result = contradiction_detector(
+        inp,
+        reviewers={"claude": _MultiRefStub()},
+    )
+    assert result.ok
+    assert len(result.value["contradictions"]) == 1
+    refs = result.value["contradictions"][0]["conflicting_evidence_refs"]
+    assert refs == ["run1.jsonl", "run2.jsonl", "summary.md"]
+
+
+def test_contradiction_with_empty_suggestion(tmp_path):
+    """An empty suggestion should pass schema validation as empty string."""
+    contradictions = [{
+        "new_claim": "X",
+        "conflicting_evidence_ref": "e.md",
+        "confidence": "low",
+        "suggested_resolution": "",
+    }]
+    inp = _input(tmp_path, reviewer="claude")
+    result = contradiction_detector(
+        inp,
+        reviewers={"claude": _StubReviewer("claude", contradictions=contradictions)},
+    )
+    assert result.ok
+    assert result.value["contradictions"][0]["suggested_resolution"] == ""

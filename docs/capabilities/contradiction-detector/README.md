@@ -18,9 +18,9 @@ See `schema/input.json`.
 
 See `schema/output.json`.
 
-- `contradictions[]`: each item is a structured contradiction with `new_claim`, `conflicting_evidence_ref`, `confidence`, `suggested_resolution`, `reviewer`.
+- `contradictions[]`: each item is a structured contradiction with `new_claim`, `conflicting_evidence_refs[]` (all conflicting evidence files, not just the primary), `confidence`, `suggested_resolution`, `reviewers[]` (all reviewers that reported this contradiction; for cross mode this surfaces consensus when both backends agree).
 - `partial`: true when one reviewer in cross mode failed but the other succeeded.
-- `missing_reviewers`: tuple of failed reviewer names (sorted). Empty when all succeeded.
+- `missing_reviewers`: list of failed reviewer names (sorted). Empty when all succeeded.
 - `reviewer_metadata`: per-reviewer metadata (token counts, model, etc.).
 
 ## Confidence
@@ -35,6 +35,8 @@ Reviewer-reported confidence is preserved as-is. Hosts decide thresholds for blo
 ## Relationship to cross-agent-review
 
 v1 is a thin wrapper: same bundle/reviewer mechanics, fixed contradiction prompt, structured output. v2 may collapse this into a `cross-agent-review` preset.
+
+<!-- TODO(orca-v2): collapse into cross-agent-review preset -->
 
 ## CLI
 

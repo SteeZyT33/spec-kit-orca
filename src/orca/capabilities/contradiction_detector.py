@@ -61,6 +61,11 @@ def contradiction_detector(
     CrossReviewer (requires both backends configured). Single-reviewer mode
     calls the named reviewer once.
 
+    The contradiction prompt is fixed in v1 (DEFAULT_CONTRADICTION_PROMPT).
+    To use a custom prompt, call cross_agent_review directly with your own
+    criteria; this capability is a wrapper for the standard contradiction
+    workflow only.
+
     Errors:
     - INPUT_INVALID: unknown reviewer, missing/non-existent new_content,
       empty prior_evidence, missing backend for cross mode.
@@ -177,18 +182,33 @@ def _run_single(
     })
 
 
-def _to_contradiction(finding: dict) -> dict:
+def _to_contradiction(finding: dict[str, Any]) -> dict[str, Any]:
     """Reshape a Finding's JSON into the contradiction-shaped envelope item.
 
-    The `summary` -> `new_claim`, first `evidence[]` -> `conflicting_evidence_ref`,
-    and `suggestion` -> `suggested_resolution`. `confidence` and `reviewer`
-    pass through.
+    `summary` -> `new_claim`. `evidence[]` -> `conflicting_evidence_refs[]`
+    (preserves all evidence refs, not just the first). `suggestion` ->
+    `suggested_resolution`. `reviewers` (plural tuple from cross-mode merge)
+    -> `reviewers` list (preserves consensus when both reviewers report
+    the same contradiction). `confidence` passes through.
+
+    Defensive defaults are present because _to_contradiction accepts a
+    plain dict, not a Finding instance; a hand-built dict could omit any
+    field. Finding.to_json always populates these.
     """
-    evidence = finding.get("evidence", [])
+    refs = list(finding.get("evidence", []))
+    if not refs:
+        # Schema requires at least one ref; reviewer should not produce
+        # a contradiction with zero evidence, but defend with a sentinel.
+        refs = [""]
+    reviewers = list(finding.get("reviewers", []))
+    if not reviewers:
+        # Fall back to singular reviewer if reviewers tuple is missing.
+        single = finding.get("reviewer", "")
+        reviewers = [single] if single else [""]
     return {
         "new_claim": finding.get("summary", ""),
-        "conflicting_evidence_ref": evidence[0] if evidence else "",
+        "conflicting_evidence_refs": refs,
         "confidence": finding.get("confidence", "low"),
         "suggested_resolution": finding.get("suggestion", ""),
-        "reviewer": finding.get("reviewer", ""),
+        "reviewers": reviewers,
     }

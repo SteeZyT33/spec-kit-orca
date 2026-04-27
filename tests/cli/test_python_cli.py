@@ -443,3 +443,34 @@ def test_cli_contradiction_detector_invalid_reviewer(tmp_path, capsys):
     assert rc == 2
     assert env["ok"] is False
     assert env["error"]["kind"] == "input_invalid"
+
+
+def test_cli_contradiction_detector_single_reviewer(tmp_path, capsys, monkeypatch):
+    """contradiction-detector via --reviewer claude (single mode) at the CLI boundary."""
+    new = tmp_path / "synthesis.md"
+    new.write_text("X.")
+    prior = tmp_path / "evidence.md"
+    prior.write_text("Y.")
+    fixture = tmp_path / "scenario.json"
+    fixture.write_text(json.dumps({
+        "reviewer": "claude",
+        "raw_findings": [
+            {"category": "contradiction", "severity": "high", "confidence": "high",
+             "summary": "X", "detail": "d", "evidence": ["evidence.md"], "suggestion": "s"}
+        ],
+    }))
+    monkeypatch.setenv("ORCA_FIXTURE_REVIEWER_CLAUDE", str(fixture))
+
+    rc = cli_main([
+        "contradiction-detector",
+        "--new-content", str(new),
+        "--prior-evidence", str(prior),
+        "--reviewer", "claude",
+    ])
+    out = capsys.readouterr().out
+    env = json.loads(out)
+    assert rc == 0
+    assert env["ok"] is True
+    assert len(env["result"]["contradictions"]) == 1
+    assert env["result"]["contradictions"][0]["reviewers"] == ["claude"]
+    assert env["result"]["missing_reviewers"] == []

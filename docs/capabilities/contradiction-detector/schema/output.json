@@ -8,13 +8,13 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["new_claim", "conflicting_evidence_ref", "confidence", "suggested_resolution", "reviewer"],
+        "required": ["new_claim", "conflicting_evidence_refs", "confidence", "suggested_resolution", "reviewers"],
         "properties": {
           "new_claim": {"type": "string"},
-          "conflicting_evidence_ref": {"type": "string"},
+          "conflicting_evidence_refs": {"type": "array", "items": {"type": "string"}, "minItems": 1},
           "confidence": {"enum": ["high", "medium", "low"]},
           "suggested_resolution": {"type": "string"},
-          "reviewer": {"type": "string"}
+          "reviewers": {"type": "array", "items": {"type": "string"}, "minItems": 1}
         },
         "additionalProperties": false
       }
