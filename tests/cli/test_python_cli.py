@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
-from pathlib import Path
 
 import pytest
 
@@ -131,6 +130,17 @@ def test_cli_pretty_mode_prints_error(tmp_path, capsys, monkeypatch):
     assert rc == 1
     assert "ERROR" in out
     assert "input_invalid" in out
+
+
+def test_cli_capability_help_exits_clean(capsys):
+    """`orca-cli cross-agent-review --help` must exit 0 without emitting
+    a spurious error envelope. Argparse prints the help text itself.
+    """
+    rc = cli_main(["cross-agent-review", "--help"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    # argparse-generated help text mentions the subcommand name
+    assert "cross-agent-review" in out
 
 
 def test_orca_cli_script_entry_lists_capabilities():

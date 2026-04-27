@@ -111,9 +111,13 @@ def _run_cross_agent_review(args: list[str]) -> int:
             pretty=False,  # ns isn't built yet; default to JSON
             exit_code=2,  # universal Result contract: 2 = argv parse error
         )
-    except SystemExit:
+    except SystemExit as exc:
         # Some argparse paths (missing required args, -h/--help) still call
-        # sys.exit even with exit_on_error=False; capture as INPUT_INVALID.
+        # sys.exit even with exit_on_error=False. Successful --help exits
+        # with code 0 after argparse already printed the help text; let it
+        # pass through. Other codes are real parse failures.
+        if exc.code == 0:
+            return 0
         return _emit_envelope(
             envelope=_err_envelope(
                 "cross-agent-review", CROSS_AGENT_REVIEW_VERSION,
