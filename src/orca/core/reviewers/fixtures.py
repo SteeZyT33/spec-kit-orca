@@ -37,12 +37,13 @@ class FixtureReviewer:
         if not self.scenario.exists():
             raise ReviewerError(f"fixture not found: {self.scenario}")
         try:
-            self._cached = json.loads(self.scenario.read_text(encoding="utf-8"))
+            data: dict[str, Any] = json.loads(self.scenario.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
             raise ReviewerError(
                 f"malformed fixture {self.scenario}: {exc}"
             ) from exc
-        return self._cached
+        self._cached = data
+        return data
 
     def review(self, bundle: ReviewBundle, prompt: str) -> RawFindings:
         del prompt  # unused; protocol conformance
