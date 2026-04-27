@@ -31,6 +31,12 @@ from orca.capabilities.cross_agent_review import (
     CrossAgentReviewInput,
     cross_agent_review,
 )
+from orca.capabilities.worktree_overlap_check import (
+    VERSION as WORKTREE_OVERLAP_CHECK_VERSION,
+    WorktreeInfo,
+    WorktreeOverlapInput,
+    worktree_overlap_check,
+)
 from orca.core.errors import Error, ErrorKind
 from orca.core.result import Err
 from orca.core.reviewers.claude import ClaudeReviewer
@@ -220,15 +226,89 @@ def _err_envelope(capability: str, version: str, kind: ErrorKind, message: str) 
     )
 
 
+def _run_worktree_overlap_check(args: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="orca-cli worktree-overlap-check",
+        exit_on_error=False,
+    )
+    parser.add_argument("--input", default="-",
+                        help="path to JSON input file, or '-' for stdin")
+    parser.add_argument("--pretty", action="store_true",
+                        help="emit human-readable summary instead of JSON envelope")
+
+    try:
+        ns, unknown = parser.parse_known_args(args)
+    except argparse.ArgumentError as exc:
+        return _emit_envelope(
+            envelope=_err_envelope(
+                "worktree-overlap-check", WORKTREE_OVERLAP_CHECK_VERSION,
+                ErrorKind.INPUT_INVALID, f"argv parse error: {exc}",
+            ),
+            pretty=False,
+            exit_code=2,
+        )
+    except SystemExit as exc:
+        if exc.code == 0:
+            return 0
+        return _emit_envelope(
+            envelope=_err_envelope(
+                "worktree-overlap-check", WORKTREE_OVERLAP_CHECK_VERSION,
+                ErrorKind.INPUT_INVALID, "argv parse error (missing/invalid arguments)",
+            ),
+            pretty=False,
+            exit_code=2,
+        )
+
+    if unknown:
+        return _emit_envelope(
+            envelope=_err_envelope(
+                "worktree-overlap-check", WORKTREE_OVERLAP_CHECK_VERSION,
+                ErrorKind.INPUT_INVALID, f"unknown args: {unknown}",
+            ),
+            pretty=ns.pretty,
+            exit_code=2,
+        )
+
+    started = time.monotonic()
+    try:
+        if ns.input == "-":
+            raw = sys.stdin.read()
+        else:
+            raw = Path(ns.input).read_text(encoding="utf-8")
+        data = json.loads(raw)
+        inp = WorktreeOverlapInput(
+            worktrees=[WorktreeInfo(**wt) for wt in data.get("worktrees", [])],
+            proposed_writes=data.get("proposed_writes", []),
+            repo_root=data.get("repo_root"),
+        )
+    except (json.JSONDecodeError, KeyError, TypeError, OSError) as exc:
+        return _emit_envelope(
+            envelope=_err_envelope(
+                "worktree-overlap-check", WORKTREE_OVERLAP_CHECK_VERSION,
+                ErrorKind.INPUT_INVALID, f"input parse error: {exc}",
+            ),
+            pretty=ns.pretty,
+            exit_code=1,
+        )
+
+    result = worktree_overlap_check(inp)
+    duration_ms = int((time.monotonic() - started) * 1000)
+    envelope = result.to_json(
+        capability="worktree-overlap-check",
+        version=WORKTREE_OVERLAP_CHECK_VERSION,
+        duration_ms=duration_ms,
+    )
+    return _emit_envelope(
+        envelope=envelope,
+        pretty=ns.pretty,
+        exit_code=0 if result.ok else 1,
+    )
+
+
 def _emit_envelope(*, envelope: dict, pretty: bool, exit_code: int) -> int:
     if pretty:
         if envelope["ok"]:
-            findings = envelope["result"].get("findings", [])
-            print(f"OK ({len(findings)} findings)")
-            for f in findings:
-                evidence = ",".join(f.get("evidence", []))
-                suffix = f" - {evidence}" if evidence else ""
-                print(f"  [{f['severity']}] {f['summary']}{suffix}")
+            _print_pretty_success(envelope)
         else:
             print(f"ERROR ({envelope['error']['kind']}): {envelope['error']['message']}")
     else:
@@ -236,7 +316,35 @@ def _emit_envelope(*, envelope: dict, pretty: bool, exit_code: int) -> int:
     return exit_code
 
 
+def _print_pretty_success(envelope: dict) -> None:
+    """Render success envelope based on capability shape."""
+    capability = envelope.get("metadata", {}).get("capability", "")
+    result = envelope.get("result", {})
+
+    if capability == "cross-agent-review":
+        findings = result.get("findings", [])
+        print(f"OK ({len(findings)} findings)")
+        for f in findings:
+            evidence = ",".join(f.get("evidence", []))
+            suffix = f" - {evidence}" if evidence else ""
+            print(f"  [{f['severity']}] {f['summary']}{suffix}")
+    elif capability == "worktree-overlap-check":
+        if result.get("safe"):
+            print("OK (safe: no conflicts)")
+        else:
+            print(f"OK (NOT safe: {len(result.get('conflicts', []))} conflicts, "
+                  f"{len(result.get('proposed_overlaps', []))} proposed overlaps)")
+            for c in result.get("conflicts", []):
+                print(f"  conflict: {c['path']} between {', '.join(c['worktrees'])}")
+            for o in result.get("proposed_overlaps", []):
+                print(f"  proposed: {o['path']} blocked by {o['blocked_by']}")
+    else:
+        # Fallback: dump JSON for unknown capabilities
+        print(json.dumps(envelope, indent=2))
+
+
 _register("cross-agent-review", _run_cross_agent_review, CROSS_AGENT_REVIEW_VERSION)
+_register("worktree-overlap-check", _run_worktree_overlap_check, WORKTREE_OVERLAP_CHECK_VERSION)
 
 
 if __name__ == "__main__":

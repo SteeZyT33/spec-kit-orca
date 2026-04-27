@@ -181,3 +181,37 @@ def test_orca_cli_script_entry_lists_capabilities():
     )
     assert completed.returncode == 0, completed.stderr
     assert "cross-agent-review" in completed.stdout
+
+
+def test_cli_worktree_overlap_check_via_stdin(monkeypatch, capsys):
+    """worktree-overlap-check reads JSON from stdin and emits envelope."""
+    import io
+    payload = json.dumps({
+        "worktrees": [
+            {"path": "/a", "branch": "f1", "feature_id": "001",
+             "claimed_paths": ["src/foo.py"]},
+            {"path": "/b", "branch": "f2", "feature_id": "002",
+             "claimed_paths": ["src/foo.py"]},
+        ],
+        "proposed_writes": [],
+    })
+    monkeypatch.setattr("sys.stdin", io.StringIO(payload))
+    rc = cli_main(["worktree-overlap-check"])
+    out = capsys.readouterr().out
+    env = json.loads(out)
+    assert rc == 0  # Result is Ok; "safe: false" is business logic, not a Result Err
+    assert env["ok"] is True
+    assert env["result"]["safe"] is False
+    assert len(env["result"]["conflicts"]) == 1
+
+
+def test_cli_worktree_overlap_check_invalid_input(monkeypatch, capsys):
+    """Bad JSON on stdin returns INPUT_INVALID with exit 1."""
+    import io
+    monkeypatch.setattr("sys.stdin", io.StringIO("{not-json}"))
+    rc = cli_main(["worktree-overlap-check"])
+    out = capsys.readouterr().out
+    env = json.loads(out)
+    assert rc == 1
+    assert env["ok"] is False
+    assert env["error"]["kind"] == "input_invalid"
