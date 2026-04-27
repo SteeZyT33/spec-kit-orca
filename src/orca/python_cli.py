@@ -25,6 +25,11 @@ import time
 from collections.abc import Sequence
 from pathlib import Path
 
+from orca.capabilities.completion_gate import (
+    VERSION as COMPLETION_GATE_VERSION,
+    CompletionGateInput,
+    completion_gate,
+)
 from orca.capabilities.cross_agent_review import (
     DEFAULT_REVIEW_PROMPT,
     VERSION as CROSS_AGENT_REVIEW_VERSION,
@@ -398,6 +403,89 @@ def _run_flow_state_projection(args: list[str]) -> int:
     )
 
 
+def _run_completion_gate(args: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="orca-cli completion-gate",
+        exit_on_error=False,
+    )
+    parser.add_argument("--feature-dir", required=True)
+    parser.add_argument("--target-stage", required=True)
+    parser.add_argument("--evidence-json", default=None,
+                        help="JSON-encoded evidence dict (e.g., '{\"ci_green\": true}')")
+    parser.add_argument("--pretty", action="store_true",
+                        help="emit human-readable summary instead of JSON envelope")
+
+    try:
+        ns, unknown = parser.parse_known_args(args)
+    except argparse.ArgumentError as exc:
+        return _emit_envelope(
+            envelope=_err_envelope(
+                "completion-gate", COMPLETION_GATE_VERSION,
+                ErrorKind.INPUT_INVALID, f"argv parse error: {exc}",
+            ),
+            pretty=False,
+            exit_code=2,
+        )
+    except SystemExit as exc:
+        if exc.code == 0:
+            return 0
+        return _emit_envelope(
+            envelope=_err_envelope(
+                "completion-gate", COMPLETION_GATE_VERSION,
+                ErrorKind.INPUT_INVALID, "argv parse error (missing/invalid arguments)",
+            ),
+            pretty=False,
+            exit_code=2,
+        )
+
+    if unknown:
+        return _emit_envelope(
+            envelope=_err_envelope(
+                "completion-gate", COMPLETION_GATE_VERSION,
+                ErrorKind.INPUT_INVALID, f"unknown args: {unknown}",
+            ),
+            pretty=ns.pretty,
+            exit_code=2,
+        )
+
+    evidence: dict = {}
+    if ns.evidence_json:
+        try:
+            evidence = json.loads(ns.evidence_json)
+            if not isinstance(evidence, dict):
+                raise TypeError("evidence must be a JSON object")
+        except (json.JSONDecodeError, TypeError) as exc:
+            return _emit_envelope(
+                envelope=_err_envelope(
+                    "completion-gate", COMPLETION_GATE_VERSION,
+                    ErrorKind.INPUT_INVALID, f"invalid --evidence-json: {exc}",
+                ),
+                pretty=ns.pretty,
+                exit_code=1,
+            )
+
+    inp = CompletionGateInput(
+        feature_dir=ns.feature_dir,
+        target_stage=ns.target_stage,
+        evidence=evidence,
+    )
+
+    started = time.monotonic()
+    result = completion_gate(inp)
+    duration_ms = int((time.monotonic() - started) * 1000)
+
+    envelope = result.to_json(
+        capability="completion-gate",
+        version=COMPLETION_GATE_VERSION,
+        duration_ms=duration_ms,
+    )
+    return _emit_envelope(
+        envelope=envelope,
+        pretty=ns.pretty,
+        exit_code=0 if result.ok else 1,
+    )
+
+
 def _emit_envelope(*, envelope: dict, pretty: bool, exit_code: int) -> int:
     if pretty:
         if envelope["ok"]:
@@ -449,6 +537,21 @@ def _print_pretty_success(envelope: dict) -> None:
             for m in incomplete:
                 stage_name = m.get("stage", "?")
                 print(f"    - {stage_name}")
+    elif capability == "completion-gate":
+        status = result.get("status", "?")
+        blockers = result.get("blockers", [])
+        stale = result.get("stale_artifacts", [])
+        gates = result.get("gates_evaluated", [])
+        print(f"OK status={status}")
+        print(f"  gates: {len(gates)} evaluated")
+        for g in gates:
+            mark = "✓" if g.get("passed") else "✗"
+            reason = f" - {g.get('reason')}" if g.get("reason") else ""
+            print(f"    {mark} {g.get('gate', '?')}{reason}")
+        if blockers:
+            print(f"  blockers: {', '.join(blockers)}")
+        if stale:
+            print(f"  stale: {', '.join(stale)}")
     else:
         # Fallback: dump JSON for unknown capabilities
         print(json.dumps(envelope, indent=2))
@@ -457,6 +560,7 @@ def _print_pretty_success(envelope: dict) -> None:
 _register("cross-agent-review", _run_cross_agent_review, CROSS_AGENT_REVIEW_VERSION)
 _register("worktree-overlap-check", _run_worktree_overlap_check, WORKTREE_OVERLAP_CHECK_VERSION)
 _register("flow-state-projection", _run_flow_state_projection, FLOW_STATE_PROJECTION_VERSION)
+_register("completion-gate", _run_completion_gate, COMPLETION_GATE_VERSION)
 
 
 if __name__ == "__main__":

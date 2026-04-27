@@ -262,3 +262,58 @@ def test_cli_flow_state_projection_via_feature_id(tmp_path, capsys):
     assert rc == 0
     assert env["ok"] is True
     assert env["result"]["feature_id"] == "002-via-id"
+
+
+def test_cli_completion_gate_pass(tmp_path, capsys):
+    feat = tmp_path / "specs" / "001"
+    feat.mkdir(parents=True)
+    (feat / "spec.md").write_text("# Spec\n")
+
+    rc = cli_main([
+        "completion-gate",
+        "--feature-dir", str(feat),
+        "--target-stage", "plan-ready",
+    ])
+    out = capsys.readouterr().out
+    env = json.loads(out)
+    assert rc == 0
+    assert env["ok"] is True
+    assert env["result"]["status"] == "pass"
+
+
+def test_cli_completion_gate_with_evidence_json(tmp_path, capsys):
+    feat = tmp_path / "specs" / "001"
+    feat.mkdir(parents=True)
+    (feat / "spec.md").write_text("# Spec\n")
+    (feat / "plan.md").write_text("# Plan\n")
+    (feat / "tasks.md").write_text("# Tasks\n")
+
+    rc = cli_main([
+        "completion-gate",
+        "--feature-dir", str(feat),
+        "--target-stage", "merge-ready",
+        "--evidence-json", '{"ci_green": true}',
+    ])
+    out = capsys.readouterr().out
+    env = json.loads(out)
+    assert rc == 0
+    assert env["ok"] is True
+    assert env["result"]["status"] == "pass"
+
+
+def test_cli_completion_gate_invalid_evidence_json(tmp_path, capsys):
+    feat = tmp_path / "specs" / "001"
+    feat.mkdir(parents=True)
+    (feat / "spec.md").write_text("# Spec\n")
+
+    rc = cli_main([
+        "completion-gate",
+        "--feature-dir", str(feat),
+        "--target-stage", "plan-ready",
+        "--evidence-json", "{not-json}",
+    ])
+    out = capsys.readouterr().out
+    env = json.loads(out)
+    assert rc == 1
+    assert env["ok"] is False
+    assert env["error"]["kind"] == "input_invalid"
