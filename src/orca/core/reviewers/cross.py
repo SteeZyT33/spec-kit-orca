@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Any
 
 from orca.core.bundle import ReviewBundle
-from orca.core.findings import Confidence, Finding, Findings, Severity
+from orca.core.findings import Finding, Findings
 from orca.core.reviewers.base import Reviewer, ReviewerError
 
 
@@ -14,15 +15,19 @@ class CrossResult:
 
     `findings` are typed Finding objects (already converted from raw dicts).
     `partial=True` when at least one reviewer failed but at least one
-    succeeded; `missing_reviewer` carries the first failed reviewer's name.
+    succeeded; `missing_reviewers` lists ALL failed reviewer names sorted.
     `reviewer_metadata` maps reviewer name -> the RawFindings.metadata dict
-    for downstream observability (e.g., capability emits this via shim).
+    for downstream observability.
+
+    On dedupe collisions, the field values from the first reviewer in
+    `reviewers=` are retained; only the `reviewers` tuple accumulates
+    across collapsed findings.
     """
 
     findings: Findings
     partial: bool
-    missing_reviewer: str | None
-    reviewer_metadata: dict
+    missing_reviewers: tuple[str, ...]
+    reviewer_metadata: dict[str, dict[str, Any]]
 
 
 class CrossReviewer:
@@ -37,6 +42,9 @@ class CrossReviewer:
     directly when reviewer=cross is requested.
     """
 
+    # Identifier used by capability code when emitting metadata. CrossReviewer
+    # is not a Reviewer (returns CrossResult, not RawFindings) but downstream
+    # observers may want to tag findings with the combiner identity.
     name = "cross"
 
     def __init__(self, *, reviewers: Sequence[Reviewer]):
@@ -44,12 +52,17 @@ class CrossReviewer:
             raise ValueError(
                 f"CrossReviewer requires at least 2 reviewers, got {len(reviewers)}"
             )
+        names = [r.name for r in reviewers]
+        if len(set(names)) != len(names):
+            raise ValueError(
+                f"CrossReviewer reviewers must have unique names; got {names}"
+            )
         self.reviewers = list(reviewers)
 
     def review(self, bundle: ReviewBundle, prompt: str) -> CrossResult:
         per_reviewer_findings: list[list[Finding]] = []
         failures: list[tuple[str, ReviewerError]] = []
-        metadata: dict[str, dict] = {}
+        metadata: dict[str, dict[str, Any]] = {}
 
         for reviewer in self.reviewers:
             try:
@@ -57,8 +70,24 @@ class CrossReviewer:
             except ReviewerError as exc:
                 failures.append((reviewer.name, exc))
                 continue
+
+            try:
+                findings = [
+                    Finding.from_raw(f, reviewer=reviewer.name)
+                    for f in raw.findings
+                ]
+            except (KeyError, ValueError) as exc:
+                # Reviewer returned malformed/unknown-severity findings.
+                # Treat as a backend failure rather than crashing CrossReviewer.
+                wrapped = ReviewerError(
+                    f"{reviewer.name} returned malformed finding: {exc}",
+                    retryable=False,
+                    underlying="malformed_finding",
+                )
+                failures.append((reviewer.name, wrapped))
+                continue
+
             metadata[reviewer.name] = raw.metadata
-            findings = [_to_finding(f, reviewer.name) for f in raw.findings]
             per_reviewer_findings.append(findings)
 
         if not per_reviewer_findings:
@@ -67,27 +96,11 @@ class CrossReviewer:
 
         merged = Findings.merge(*per_reviewer_findings)
         partial = len(failures) > 0
-        missing = failures[0][0] if partial else None
+        missing_reviewers = tuple(sorted(name for name, _ in failures))
 
         return CrossResult(
             findings=merged,
             partial=partial,
-            missing_reviewer=missing,
+            missing_reviewers=missing_reviewers,
             reviewer_metadata=metadata,
         )
-
-
-def _to_finding(raw: dict, reviewer_name: str) -> Finding:
-    """Convert a raw finding dict (from RawFindings.findings) into a
-    typed Finding. The capability layer would otherwise duplicate this.
-    """
-    return Finding(
-        category=raw["category"],
-        severity=Severity(raw["severity"]),
-        confidence=Confidence(raw["confidence"]),
-        summary=raw["summary"],
-        detail=raw["detail"],
-        evidence=list(raw.get("evidence", [])),
-        suggestion=raw.get("suggestion", ""),
-        reviewer=reviewer_name,
-    )

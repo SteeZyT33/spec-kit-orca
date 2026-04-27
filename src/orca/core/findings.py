@@ -33,6 +33,42 @@ class Confidence(str, Enum):
     LOW = "low"
 
 
+_SEVERITY_ALIASES = {
+    "critical": "blocker",
+    "warning": "medium",
+    "info": "nit",
+    "informational": "nit",
+    "moderate": "medium",
+    "minor": "low",
+}
+
+_CONFIDENCE_ALIASES = {
+    "very_high": "high",
+    "very high": "high",
+    "certain": "high",
+    "uncertain": "low",
+}
+
+
+def _normalize_severity(raw: str) -> "Severity":
+    """Normalize an LLM-emitted severity string to a Severity enum.
+
+    Accepts canonical values directly; maps common variants via an alias
+    table. Unknown values still raise ValueError so brand-new severities
+    surface loudly rather than silently degrading to a default.
+    """
+    s = raw.strip().lower()
+    s = _SEVERITY_ALIASES.get(s, s)
+    return Severity(s)
+
+
+def _normalize_confidence(raw: str) -> "Confidence":
+    """Normalize an LLM-emitted confidence string to a Confidence enum."""
+    c = raw.strip().lower()
+    c = _CONFIDENCE_ALIASES.get(c, c)
+    return Confidence(c)
+
+
 @dataclass(frozen=True)
 class Finding:
     category: str
@@ -53,6 +89,29 @@ class Finding:
         object.__setattr__(self, "evidence", tuple(str(e) for e in self.evidence))
         if not self.reviewers:
             object.__setattr__(self, "reviewers", (self.reviewer,))
+
+    @classmethod
+    def from_raw(cls, raw: dict[str, Any], *, reviewer: str) -> "Finding":
+        """Construct a Finding from a raw reviewer-output dict.
+
+        Used by CrossReviewer and capability code (Task 8) to convert raw
+        finding dicts (from `RawFindings.findings`) into typed Findings.
+        Severity strings are normalized for common LLM-output variants
+        ("critical" -> "blocker", "informational" -> "nit", etc.); unknown
+        severities still raise ValueError.
+
+        Raises KeyError if a required key is missing from `raw`.
+        """
+        return cls(
+            category=raw["category"],
+            severity=_normalize_severity(raw["severity"]),
+            confidence=_normalize_confidence(raw["confidence"]),
+            summary=raw["summary"],
+            detail=raw["detail"],
+            evidence=list(raw.get("evidence", [])),
+            suggestion=raw.get("suggestion", ""),
+            reviewer=reviewer,
+        )
 
     def dedupe_id(self) -> str:
         payload = {

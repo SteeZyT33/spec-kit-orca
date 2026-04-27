@@ -48,7 +48,7 @@ def test_cross_both_succeed_merges_findings(tmp_path):
     ])
     result = cross.review(_bundle(tmp_path), prompt="x")
     assert result.partial is False
-    assert result.missing_reviewer is None
+    assert result.missing_reviewers == ()
     assert len(result.findings) == 2
     assert {f.reviewer for f in result.findings} == {"claude", "codex"}
 
@@ -76,7 +76,48 @@ def test_cross_partial_when_one_fails(tmp_path):
     ])
     result = cross.review(_bundle(tmp_path), prompt="x")
     assert result.partial is True
-    assert result.missing_reviewer == "codex"
+    assert result.missing_reviewers == ("codex",)
+    assert len(result.findings) == 1
+
+
+def test_cross_partial_with_multiple_failures(tmp_path):
+    """When >2 reviewers and 2 fail, missing_reviewers lists ALL failed names."""
+    f = {"category": "c", "severity": "high", "confidence": "high",
+         "summary": "Z", "detail": "d", "evidence": ["x.py:1"], "suggestion": "s"}
+    cross = CrossReviewer(reviewers=[
+        _StubReviewer("claude", findings=[f]),
+        _StubReviewer("codex", raise_error=True),
+        _StubReviewer("gemini", raise_error=True),
+    ])
+    result = cross.review(_bundle(tmp_path), prompt="x")
+    assert result.partial is True
+    assert result.missing_reviewers == ("codex", "gemini")  # sorted
+    assert len(result.findings) == 1
+
+
+def test_cross_rejects_duplicate_reviewer_names(tmp_path):
+    """Two reviewers with the same name would silently overwrite metadata
+    and break finding attribution."""
+    with pytest.raises(ValueError, match="unique names"):
+        CrossReviewer(reviewers=[
+            _StubReviewer("claude"),
+            _StubReviewer("claude"),
+        ])
+
+
+def test_cross_malformed_finding_treated_as_failure(tmp_path):
+    """Reviewer returning a finding without required fields should land
+    in failures (not propagate KeyError)."""
+    bad = {"category": "c", "severity": "high", "confidence": "high"}  # missing summary, detail, evidence, suggestion
+    good = {"category": "c", "severity": "high", "confidence": "high",
+            "summary": "Z", "detail": "d", "evidence": ["x.py:1"], "suggestion": "s"}
+    cross = CrossReviewer(reviewers=[
+        _StubReviewer("claude", findings=[bad]),
+        _StubReviewer("codex", findings=[good]),
+    ])
+    result = cross.review(_bundle(tmp_path), prompt="x")
+    assert result.partial is True
+    assert result.missing_reviewers == ("claude",)
     assert len(result.findings) == 1
 
 

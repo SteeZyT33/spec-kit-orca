@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from orca.core.findings import Finding, Findings, Severity, Confidence
 
 
@@ -133,3 +135,47 @@ def test_finding_evidence_is_immutable_tuple():
     )
     assert isinstance(f.evidence, tuple)
     assert f.evidence == ("a.py:1", "b.py:2")
+
+
+def test_finding_from_raw_basic():
+    raw = {
+        "category": "correctness",
+        "severity": "high",
+        "confidence": "high",
+        "summary": "Off-by-one",
+        "detail": "d",
+        "evidence": ["x.py:1"],
+        "suggestion": "s",
+    }
+    f = Finding.from_raw(raw, reviewer="claude")
+    assert f.category == "correctness"
+    assert f.severity == Severity.HIGH
+    assert f.confidence == Confidence.HIGH
+    assert f.reviewer == "claude"
+    assert f.evidence == ("x.py:1",)
+
+
+def test_finding_from_raw_normalizes_severity_aliases():
+    base = {
+        "category": "c", "confidence": "high",
+        "summary": "S", "detail": "d",
+        "evidence": [], "suggestion": "",
+    }
+    assert Finding.from_raw({**base, "severity": "critical"}, reviewer="r").severity == Severity.BLOCKER
+    assert Finding.from_raw({**base, "severity": "informational"}, reviewer="r").severity == Severity.NIT
+    assert Finding.from_raw({**base, "severity": "WARNING"}, reviewer="r").severity == Severity.MEDIUM
+
+
+def test_finding_from_raw_unknown_severity_raises():
+    raw = {
+        "category": "c", "severity": "ULTRA_BLOCKER", "confidence": "high",
+        "summary": "S", "detail": "d", "evidence": [], "suggestion": "",
+    }
+    with pytest.raises(ValueError):
+        Finding.from_raw(raw, reviewer="r")
+
+
+def test_finding_from_raw_missing_key_raises():
+    raw = {"category": "c", "severity": "high", "confidence": "high"}  # no summary
+    with pytest.raises(KeyError):
+        Finding.from_raw(raw, reviewer="r")
