@@ -21,6 +21,7 @@ dependencies = [
 
 [project.scripts]
 orca = "orca.cli:main"
+orca-cli = "orca.python_cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/orca"]
