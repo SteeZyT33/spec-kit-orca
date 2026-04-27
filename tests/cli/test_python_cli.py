@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -55,7 +57,6 @@ def test_cli_cross_agent_review_with_fixture_reviewer(tmp_path, capsys, monkeypa
         "--kind", "diff",
         "--target", str(target),
         "--reviewer", "claude",
-        "--json",
     ])
     out = capsys.readouterr().out
     payload = json.loads(out)
@@ -76,7 +77,6 @@ def test_cli_invalid_input_exits_1_with_error_json(tmp_path, capsys, monkeypatch
         "--kind", "diff",
         "--target", str(tmp_path / "missing.py"),
         "--reviewer", "claude",
-        "--json",
     ])
     out = capsys.readouterr().out
     payload = json.loads(out)
@@ -131,3 +131,17 @@ def test_cli_pretty_mode_prints_error(tmp_path, capsys, monkeypatch):
     assert rc == 1
     assert "ERROR" in out
     assert "input_invalid" in out
+
+
+def test_orca_cli_script_entry_lists_capabilities():
+    """Verify the pyproject.toml [project.scripts] entry actually wires
+    'orca-cli' to orca.python_cli:main. This catches packaging
+    regressions that the in-process tests can't see."""
+    if shutil.which("orca-cli") is None:
+        pytest.skip("orca-cli script not on PATH; run `uv sync` first")
+    completed = subprocess.run(
+        ["orca-cli", "--list"],
+        capture_output=True, text=True, check=False, timeout=10,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "cross-agent-review" in completed.stdout
