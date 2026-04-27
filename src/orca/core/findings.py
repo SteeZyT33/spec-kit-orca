@@ -2,9 +2,21 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Iterable
+
+
+def _normalize_summary_for_digest(summary: str) -> str:
+    """Normalize a finding summary for dedupe-id computation.
+
+    Cross-reviewer prose differs in trivial ways (trailing punctuation,
+    extra whitespace, case). The dedupe_id must treat those as equivalent
+    so identical findings from claude and codex collapse into one row.
+    """
+    s = re.sub(r"\s+", " ", summary).strip().lower()
+    return s.rstrip(".,;:!?")
 
 
 class Severity(str, Enum):
@@ -28,12 +40,17 @@ class Finding:
     confidence: Confidence
     summary: str
     detail: str
-    evidence: list[str]
+    evidence: tuple[str, ...]
     suggestion: str
     reviewer: str
     reviewers: tuple[str, ...] = field(default=())
 
     def __post_init__(self) -> None:
+        # Coerce evidence to immutable tuple of strings. Mutable evidence on a
+        # frozen dataclass would let dedupe_id drift between merge time and
+        # to_json time. Stringifying defends sorted() against future structured
+        # evidence inputs.
+        object.__setattr__(self, "evidence", tuple(str(e) for e in self.evidence))
         if not self.reviewers:
             object.__setattr__(self, "reviewers", (self.reviewer,))
 
@@ -41,7 +58,7 @@ class Finding:
         payload = {
             "category": self.category,
             "severity": self.severity.value,
-            "summary": self.summary.strip().lower(),
+            "summary": _normalize_summary_for_digest(self.summary),
             "evidence": sorted(self.evidence),
         }
         digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()

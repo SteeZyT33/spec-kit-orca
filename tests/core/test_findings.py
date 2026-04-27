@@ -106,3 +106,30 @@ def test_findings_merge_keeps_distinct():
     )
     merged = Findings.merge([a], [b])
     assert len(merged) == 2
+
+
+def test_dedupe_id_normalizes_summary_punctuation_and_whitespace():
+    base = dict(
+        category="correctness",
+        severity=Severity.HIGH,
+        confidence=Confidence.HIGH,
+        detail="d",
+        evidence=["x.py:1"],
+        suggestion="s",
+        reviewer="claude",
+    )
+    f1 = Finding(summary="Off-by-one in loop", **base)
+    f2 = Finding(summary="Off-by-one in loop.", **base)
+    f3 = Finding(summary="Off-by-one  in  loop", **base)  # double spaces
+    f4 = Finding(summary="off-by-one in loop!", **base)
+    assert f1.dedupe_id() == f2.dedupe_id() == f3.dedupe_id() == f4.dedupe_id()
+
+
+def test_finding_evidence_is_immutable_tuple():
+    f = Finding(
+        category="c", severity=Severity.HIGH, confidence=Confidence.HIGH,
+        summary="x", detail="d", evidence=["a.py:1", "b.py:2"], suggestion="s",
+        reviewer="claude",
+    )
+    assert isinstance(f.evidence, tuple)
+    assert f.evidence == ("a.py:1", "b.py:2")
