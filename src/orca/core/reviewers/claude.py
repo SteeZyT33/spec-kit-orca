@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-import json
-import re
 from typing import Any
 
 from orca.core.bundle import ReviewBundle
+from orca.core.reviewers._parse import parse_findings_array
 from orca.core.reviewers.base import RawFindings, ReviewerError
-
-
-_JSON_ARRAY = re.compile(r"\[.*\]", re.DOTALL)
 
 
 def _is_retryable(exc: BaseException) -> bool:
@@ -101,82 +97,9 @@ class ClaudeReviewer:
                 retryable=False,
                 underlying="max_tokens_truncation",
             )
-        findings = _parse_findings(text)
+        findings = parse_findings_array(text, source="response")
         return RawFindings(
             reviewer=self.name,
             findings=findings,
             metadata=metadata,
         )
-
-
-def _parse_findings(text: str) -> list[dict[str, Any]]:
-    """Extract a JSON array of finding dicts from model output.
-
-    Returns raw `list[dict[str, Any]]`; per-finding schema validation is the
-    caller's job (capability code constructs `Finding` instances). The parser
-    is resilient to chatty models that mention bracketed lists in prose:
-    if the greedy match fails, fall back to scanning for all balanced arrays
-    and pick the last one that decodes as a list of dicts.
-    """
-    # Greedy first: typical case — model returns one JSON array, possibly
-    # inside a code fence. Greedy match handles fenced + unfenced uniformly.
-    match = _JSON_ARRAY.search(text)
-    if match:
-        try:
-            data = json.loads(match.group(0))
-            if isinstance(data, list):
-                return data
-        except json.JSONDecodeError:
-            pass  # fall through to balanced-scan
-
-    # Fallback: scan all balanced top-level arrays, pick the last one that
-    # decodes as a list of dicts (final-answer convention).
-    for candidate in reversed(_balanced_arrays(text)):
-        try:
-            data = json.loads(candidate)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(data, list) and (not data or isinstance(data[0], dict)):
-            return data
-
-    raise ReviewerError(
-        f"could not parse JSON array from response: {text[:200]}"
-    )
-
-
-def _balanced_arrays(text: str) -> list[str]:
-    """Find all top-level balanced [...] spans in text. Naive bracket-counting
-    that ignores brackets inside JSON strings. Good enough for LLM output."""
-    out: list[str] = []
-    i = 0
-    n = len(text)
-    while i < n:
-        if text[i] != "[":
-            i += 1
-            continue
-        depth = 0
-        in_string = False
-        escape = False
-        start = i
-        while i < n:
-            c = text[i]
-            if escape:
-                escape = False
-            elif c == "\\":
-                escape = True
-            elif c == '"':
-                in_string = not in_string
-            elif not in_string:
-                if c == "[":
-                    depth += 1
-                elif c == "]":
-                    depth -= 1
-                    if depth == 0:
-                        out.append(text[start:i + 1])
-                        i += 1
-                        break
-            i += 1
-        else:
-            # Unbalanced; abandon
-            break
-    return out

@@ -1,0 +1,5 @@
+{
+  "stdout": "[{\"category\":\"correctness\",\"severity\":\"medium\",\"confidence\":\"high\",\"summary\":\"Off-by-one in loop\",\"detail\":\"Use range(n+1).\",\"evidence\":[\"src/foo.py:42\"],\"suggestion\":\"range(n+1)\"}]",
+  "stderr": "",
+  "returncode": 0
+}

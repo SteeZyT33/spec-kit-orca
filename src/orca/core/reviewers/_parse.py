@@ -1,0 +1,89 @@
+"""Shared JSON-array extraction logic for reviewer adapters.
+
+Both ClaudeReviewer and CodexReviewer call into LLM-or-CLI-backed agents
+and parse a JSON array of finding dicts from the output text. Centralizing
+that parser here prevents drift and keeps test coverage in one place.
+
+The parser is resilient to chatty output: greedy regex first (catches the
+typical "single array, possibly fenced" case), then a balanced-bracket
+scan that picks the LAST list-of-dicts (final-answer convention) when
+the greedy match fails.
+"""
+from __future__ import annotations
+
+import json
+import re
+from typing import Any
+
+from orca.core.reviewers.base import ReviewerError
+
+
+_JSON_ARRAY = re.compile(r"\[.*\]", re.DOTALL)
+
+
+def parse_findings_array(text: str, *, source: str = "response") -> list[dict[str, Any]]:
+    """Extract a JSON array of finding dicts from agent output.
+
+    Returns raw `list[dict[str, Any]]`; per-finding schema validation is the
+    caller's job (capability code constructs `Finding` instances).
+
+    `source` is interpolated into error messages so callers can localize
+    diagnostic context (e.g., "response", "codex output").
+    """
+    match = _JSON_ARRAY.search(text)
+    if match:
+        try:
+            data = json.loads(match.group(0))
+            if isinstance(data, list):
+                return data
+        except json.JSONDecodeError:
+            pass  # fall through to balanced-scan
+
+    for candidate in reversed(_balanced_arrays(text)):
+        try:
+            data = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, list) and (not data or isinstance(data[0], dict)):
+            return data
+
+    raise ReviewerError(
+        f"could not parse JSON array from {source}: {text[:200]}"
+    )
+
+
+def _balanced_arrays(text: str) -> list[str]:
+    """Find all top-level balanced [...] spans, ignoring brackets in JSON
+    strings. Naive scanner; good enough for LLM/CLI output."""
+    out: list[str] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        if text[i] != "[":
+            i += 1
+            continue
+        depth = 0
+        in_string = False
+        escape = False
+        start = i
+        while i < n:
+            c = text[i]
+            if escape:
+                escape = False
+            elif c == "\\":
+                escape = True
+            elif c == '"':
+                in_string = not in_string
+            elif not in_string:
+                if c == "[":
+                    depth += 1
+                elif c == "]":
+                    depth -= 1
+                    if depth == 0:
+                        out.append(text[start:i + 1])
+                        i += 1
+                        break
+            i += 1
+        else:
+            break
+    return out
