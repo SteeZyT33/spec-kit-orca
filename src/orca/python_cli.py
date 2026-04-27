@@ -35,6 +35,11 @@ from orca.capabilities.completion_gate import (
     CompletionGateInput,
     completion_gate,
 )
+from orca.capabilities.contradiction_detector import (
+    VERSION as CONTRADICTION_DETECTOR_VERSION,
+    ContradictionDetectorInput,
+    contradiction_detector,
+)
 from orca.capabilities.cross_agent_review import (
     DEFAULT_REVIEW_PROMPT,
     VERSION as CROSS_AGENT_REVIEW_VERSION,
@@ -560,6 +565,74 @@ def _run_citation_validator(args: list[str]) -> int:
     )
 
 
+def _run_contradiction_detector(args: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="orca-cli contradiction-detector",
+        exit_on_error=False,
+    )
+    parser.add_argument("--new-content", required=True)
+    parser.add_argument("--prior-evidence", action="append", required=True, default=[],
+                        help="path to prior evidence file (repeatable, at least one required)")
+    parser.add_argument("--reviewer", default="cross", choices=["claude", "codex", "cross"])
+    parser.add_argument("--pretty", action="store_true",
+                        help="emit human-readable summary instead of JSON envelope")
+
+    try:
+        ns, unknown = parser.parse_known_args(args)
+    except argparse.ArgumentError as exc:
+        return _emit_envelope(
+            envelope=_err_envelope(
+                "contradiction-detector", CONTRADICTION_DETECTOR_VERSION,
+                ErrorKind.INPUT_INVALID, f"argv parse error: {exc}",
+            ),
+            pretty=False,
+            exit_code=2,
+        )
+    except SystemExit as exc:
+        if exc.code == 0:
+            return 0
+        return _emit_envelope(
+            envelope=_err_envelope(
+                "contradiction-detector", CONTRADICTION_DETECTOR_VERSION,
+                ErrorKind.INPUT_INVALID, "argv parse error (missing/invalid arguments)",
+            ),
+            pretty=False,
+            exit_code=2,
+        )
+
+    if unknown:
+        return _emit_envelope(
+            envelope=_err_envelope(
+                "contradiction-detector", CONTRADICTION_DETECTOR_VERSION,
+                ErrorKind.INPUT_INVALID, f"unknown args: {unknown}",
+            ),
+            pretty=ns.pretty,
+            exit_code=2,
+        )
+
+    inp = ContradictionDetectorInput(
+        new_content=ns.new_content,
+        prior_evidence=ns.prior_evidence,
+        reviewer=ns.reviewer,
+    )
+
+    started = time.monotonic()
+    reviewers = _load_reviewers()
+    result = contradiction_detector(inp, reviewers=reviewers)
+    duration_ms = int((time.monotonic() - started) * 1000)
+
+    envelope = result.to_json(
+        capability="contradiction-detector",
+        version=CONTRADICTION_DETECTOR_VERSION,
+        duration_ms=duration_ms,
+    )
+    return _emit_envelope(
+        envelope=envelope,
+        pretty=ns.pretty,
+        exit_code=0 if result.ok else 1,
+    )
+
+
 def _emit_envelope(*, envelope: dict, pretty: bool, exit_code: int) -> int:
     if pretty:
         if envelope["ok"]:
@@ -641,6 +714,23 @@ def _print_pretty_success(envelope: dict) -> None:
         print(f"  broken_refs:    {len(broken)}")
         for r in broken:
             print(f"    line {r.get('line', '?')}: [{r.get('ref', '')}]")
+    elif capability == "contradiction-detector":
+        contradictions = result.get("contradictions", [])
+        partial = result.get("partial", False)
+        missing = result.get("missing_reviewers", [])
+        token = "OK" if not contradictions else "ISSUES"
+        partial_note = f" (partial; missing: {','.join(missing)})" if partial else ""
+        print(f"{token} {len(contradictions)} contradictions{partial_note}")
+        for c in contradictions:
+            confidence = c.get("confidence", "?")
+            new_claim = c.get("new_claim", "")[:80]
+            ref = c.get("conflicting_evidence_ref", "")
+            print(f"  [{confidence}] {new_claim}")
+            if ref:
+                print(f"    conflicts with: {ref}")
+            resolution = c.get("suggested_resolution", "")
+            if resolution:
+                print(f"    resolution: {resolution[:80]}")
     else:
         # Fallback: dump JSON for unknown capabilities
         print(json.dumps(envelope, indent=2))
@@ -651,6 +741,7 @@ _register("worktree-overlap-check", _run_worktree_overlap_check, WORKTREE_OVERLA
 _register("flow-state-projection", _run_flow_state_projection, FLOW_STATE_PROJECTION_VERSION)
 _register("completion-gate", _run_completion_gate, COMPLETION_GATE_VERSION)
 _register("citation-validator", _run_citation_validator, CITATION_VALIDATOR_VERSION)
+_register("contradiction-detector", _run_contradiction_detector, CONTRADICTION_DETECTOR_VERSION)
 
 
 if __name__ == "__main__":

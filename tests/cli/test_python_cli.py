@@ -388,3 +388,58 @@ def test_cli_citation_validator_invalid_mode(tmp_path, capsys):
     assert rc == 2
     assert env["ok"] is False
     assert env["error"]["kind"] == "input_invalid"
+
+
+def test_cli_contradiction_detector_with_fixture_reviewer(tmp_path, capsys, monkeypatch):
+    """contradiction-detector via CLI with FixtureReviewer-backed env."""
+    new = tmp_path / "synthesis.md"
+    new.write_text("X is fast.")
+    prior = tmp_path / "evidence.md"
+    prior.write_text("X measured slow.")
+
+    fixture = tmp_path / "scenario.json"
+    fixture.write_text(json.dumps({
+        "reviewer": "claude",
+        "raw_findings": [
+            {"category": "contradiction", "severity": "high", "confidence": "high",
+             "summary": "X is fast", "detail": "conflicts with prior measurements",
+             "evidence": ["evidence.md"], "suggestion": "re-measure"}
+        ],
+    }))
+
+    monkeypatch.setenv("ORCA_FIXTURE_REVIEWER_CLAUDE", str(fixture))
+    monkeypatch.setenv("ORCA_FIXTURE_REVIEWER_CODEX", str(fixture))
+
+    rc = cli_main([
+        "contradiction-detector",
+        "--new-content", str(new),
+        "--prior-evidence", str(prior),
+        "--reviewer", "cross",
+    ])
+    out = capsys.readouterr().out
+    env = json.loads(out)
+    assert rc == 0
+    assert env["ok"] is True
+    # Cross mode dedupes the contradiction across reviewers
+    assert len(env["result"]["contradictions"]) == 1
+    assert env["result"]["contradictions"][0]["new_claim"] == "X is fast"
+
+
+def test_cli_contradiction_detector_invalid_reviewer(tmp_path, capsys):
+    """argparse choices rejects bogus reviewer with exit 2."""
+    new = tmp_path / "synthesis.md"
+    new.write_text("X.")
+    prior = tmp_path / "evidence.md"
+    prior.write_text("Y.")
+
+    rc = cli_main([
+        "contradiction-detector",
+        "--new-content", str(new),
+        "--prior-evidence", str(prior),
+        "--reviewer", "bogus",
+    ])
+    out = capsys.readouterr().out
+    env = json.loads(out)
+    assert rc == 2
+    assert env["ok"] is False
+    assert env["error"]["kind"] == "input_invalid"
