@@ -44,8 +44,11 @@ def flow_state_projection(inp: FlowStateProjectionInput) -> Result[dict, Error]:
         return Err(feat_dir)
 
     try:
+        # repo_root is passed even when feature_dir was given directly:
+        # compute_flow_state uses it for .orca/flow-state/<id>.json
+        # resume-metadata lookup. Not redundant.
         result = compute_flow_state(feat_dir, repo_root=inp.repo_root)
-    except Exception as exc:  # noqa: BLE001 — boundary translation
+    except Exception as exc:  # noqa: BLE001 — boundary translation for in-process call into flow_state filesystem/parser code
         return Err(Error(
             kind=ErrorKind.INTERNAL,
             message=f"compute_flow_state failed: {exc}",

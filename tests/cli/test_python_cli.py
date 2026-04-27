@@ -244,3 +244,21 @@ def test_cli_flow_state_projection_missing_dir(tmp_path, capsys):
     assert rc == 1
     assert env["ok"] is False
     assert env["error"]["kind"] == "input_invalid"
+
+
+def test_cli_flow_state_projection_via_feature_id(tmp_path, capsys):
+    """flow-state-projection via --feature-id + --repo-root resolves to specs/<id>."""
+    feat = tmp_path / "specs" / "002-via-id"
+    feat.mkdir(parents=True)
+    (feat / "spec.md").write_text("# Spec\n")
+
+    rc = cli_main([
+        "flow-state-projection",
+        "--feature-id", "002-via-id",
+        "--repo-root", str(tmp_path),
+    ])
+    out = capsys.readouterr().out
+    env = json.loads(out)
+    assert rc == 0
+    assert env["ok"] is True
+    assert env["result"]["feature_id"] == "002-via-id"

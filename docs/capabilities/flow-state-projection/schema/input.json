@@ -7,9 +7,15 @@
     "feature_dir": {"type": "string"},
     "repo_root": {"type": "string"}
   },
-  "anyOf": [
-    {"required": ["feature_id", "repo_root"]},
-    {"required": ["feature_dir"]}
+  "oneOf": [
+    {
+      "required": ["feature_dir"],
+      "not": {"required": ["feature_id"]}
+    },
+    {
+      "required": ["feature_id", "repo_root"],
+      "not": {"required": ["feature_dir"]}
+    }
   ],
   "additionalProperties": false
 }

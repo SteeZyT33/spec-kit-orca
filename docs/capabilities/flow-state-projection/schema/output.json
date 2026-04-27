@@ -12,15 +12,33 @@
     "current_stage": {"type": ["string", "null"]},
     "completed_milestones": {
       "type": "array",
-      "items": {"type": "object"}
+      "items": {
+        "type": "object",
+        "required": ["stage"],
+        "properties": {
+          "stage": {"type": "string"}
+        }
+      }
     },
     "incomplete_milestones": {
       "type": "array",
-      "items": {"type": "object"}
+      "items": {
+        "type": "object",
+        "required": ["stage"],
+        "properties": {
+          "stage": {"type": "string"}
+        }
+      }
     },
     "review_milestones": {
       "type": "array",
-      "items": {"type": "object"}
+      "items": {
+        "type": "object",
+        "required": ["review_type"],
+        "properties": {
+          "review_type": {"type": "string"}
+        }
+      }
     },
     "ambiguities": {"type": "array", "items": {"type": "string"}},
     "next_step": {"type": ["string", "null"]},
