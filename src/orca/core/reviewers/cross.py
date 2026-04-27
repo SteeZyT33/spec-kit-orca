@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from orca.core.bundle import ReviewBundle
-from orca.core.findings import Finding, Findings
+from orca.core.findings import Finding, Findings, convert_raw_findings
 from orca.core.reviewers.base import Reviewer, ReviewerError
 
 
@@ -72,19 +72,12 @@ class CrossReviewer:
                 continue
 
             try:
-                findings = [
-                    Finding.from_raw(f, reviewer=reviewer.name)
-                    for f in raw.findings
-                ]
-            except (KeyError, ValueError) as exc:
-                # Reviewer returned malformed/unknown-severity findings.
-                # Treat as a backend failure rather than crashing CrossReviewer.
-                wrapped = ReviewerError(
-                    f"{reviewer.name} returned malformed finding: {exc}",
-                    retryable=False,
-                    underlying="malformed_finding",
-                )
-                failures.append((reviewer.name, wrapped))
+                findings = convert_raw_findings(raw.findings, reviewer=reviewer.name)
+            except ReviewerError as exc:
+                # convert_raw_findings already wraps KeyError/ValueError as
+                # ReviewerError(underlying='malformed_finding'); route into
+                # the same failure-path as a backend-side review error.
+                failures.append((reviewer.name, exc))
                 continue
 
             metadata[reviewer.name] = raw.metadata

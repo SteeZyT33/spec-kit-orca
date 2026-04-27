@@ -114,6 +114,12 @@ class Finding:
         )
 
     def dedupe_id(self) -> str:
+        """Return a stable 16-char id for cross-reviewer dedupe.
+
+        The 16-char prefix is the JSON-schema coupling for cross-agent-review
+        outputs (`findings[].id`). Changing the slice length is a wire-format
+        breaking change; update the schema's minLength/maxLength to match.
+        """
         payload = {
             "category": self.category,
             "severity": self.severity.value,
@@ -165,3 +171,28 @@ class Findings(list):
 
     def to_json(self) -> list[dict[str, Any]]:
         return [f.to_json() for f in self]
+
+
+def convert_raw_findings(
+    raw: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+    *,
+    reviewer: str,
+) -> list[Finding]:
+    """Convert raw finding dicts to typed Findings.
+
+    Used by CrossReviewer (multi-reviewer combiner) and capability code
+    (single-reviewer mode) to centralize the raw-dict -> Finding boundary.
+    Wraps KeyError (missing required key) and ValueError (unknown enum
+    value) as ReviewerError(underlying='malformed_finding') so callers
+    can route both into existing failure paths uniformly.
+    """
+    from orca.core.reviewers.base import ReviewerError  # late import to break cycle
+
+    try:
+        return [Finding.from_raw(f, reviewer=reviewer) for f in raw]
+    except (KeyError, ValueError) as exc:
+        raise ReviewerError(
+            f"{reviewer} returned malformed finding: {exc}",
+            retryable=False,
+            underlying="malformed_finding",
+        ) from exc

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Mapping
+from typing import Any, TypedDict
 
-from orca.core.bundle import BundleError, build_bundle
+from orca.core.bundle import BundleError, ReviewBundle, build_bundle
 from orca.core.errors import Error, ErrorKind
-from orca.core.findings import Finding, Findings
+from orca.core.findings import Findings, convert_raw_findings
 from orca.core.result import Err, Ok, Result
 from orca.core.reviewers.base import Reviewer, ReviewerError
 from orca.core.reviewers.cross import CrossReviewer, CrossResult
@@ -13,6 +14,22 @@ from orca.core.reviewers.cross import CrossReviewer, CrossResult
 VERSION = "0.1.0"
 
 _VALID_REVIEWERS = {"claude", "codex", "cross"}
+
+DEFAULT_REVIEW_PROMPT = "Review the following content. Return a JSON array of findings."
+
+
+class ReviewEnvelope(TypedDict):
+    """JSON envelope returned by cross_agent_review on success.
+
+    This is the wire-boundary contract — CLI (Task 9), perf-lab integration
+    (Phase 4), and other consumers depend on this shape. Changes here are
+    breaking changes for downstream.
+    """
+
+    findings: list[dict[str, Any]]
+    partial: bool
+    missing_reviewers: list[str]
+    reviewer_metadata: dict[str, dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -23,14 +40,14 @@ class CrossAgentReviewInput:
     feature_id: str | None = None
     criteria: list[str] = field(default_factory=list)
     context: list[str] = field(default_factory=list)
-    prompt: str = "Review the following content. Return a JSON array of findings."
+    prompt: str = DEFAULT_REVIEW_PROMPT
 
 
 def cross_agent_review(
     inp: CrossAgentReviewInput,
     *,
     reviewers: Mapping[str, Reviewer],
-) -> Result[dict, Error]:
+) -> Result[ReviewEnvelope, Error]:
     """Run cross-agent review and return a JSON-envelope-shaped Result.
 
     Three reviewer modes:
@@ -62,6 +79,12 @@ def cross_agent_review(
         )
     except BundleError as exc:
         return Err(Error(kind=ErrorKind.INPUT_INVALID, message=str(exc)))
+    except OSError as exc:
+        return Err(Error(
+            kind=ErrorKind.INPUT_INVALID,
+            message=f"failed to read bundle target: {exc}",
+            detail={"errno": getattr(exc, "errno", None), "filename": getattr(exc, "filename", None)},
+        ))
 
     if inp.reviewer == "cross":
         return _run_cross(bundle, inp, reviewers)
@@ -69,10 +92,20 @@ def cross_agent_review(
 
 
 def _run_cross(
-    bundle,
+    bundle: ReviewBundle,
     inp: CrossAgentReviewInput,
     reviewers: Mapping[str, Reviewer],
-) -> Result[dict, Error]:
+) -> Result[ReviewEnvelope, Error]:
+    """Cross-mode dispatch: run claude+codex via CrossReviewer and merge.
+
+    All-fail path: if every backend reviewer raises ReviewerError, the
+    CrossReviewer raises 'all reviewers failed' which we surface as
+    BACKEND_FAILURE. The semantic is "reviewers responded but produced
+    nothing usable" -- still a backend problem, not user error.
+
+    Partial-fail: if at least one reviewer succeeds, returns Ok with
+    `partial=True` and `missing_reviewers` listing failed names.
+    """
     try:
         cross = CrossReviewer(reviewers=[reviewers["claude"], reviewers["codex"]])
     except KeyError as exc:
@@ -83,12 +116,16 @@ def _run_cross(
     try:
         cross_result = cross.review(bundle, inp.prompt)
     except ReviewerError as exc:
-        return Err(Error(kind=ErrorKind.BACKEND_FAILURE, message=str(exc)))
+        return Err(Error(
+            kind=ErrorKind.BACKEND_FAILURE,
+            message=str(exc),
+            detail={"underlying": exc.underlying, "retryable": exc.retryable},
+        ))
 
     return Ok(_render_cross(cross_result))
 
 
-def _render_cross(result: CrossResult) -> dict:
+def _render_cross(result: CrossResult) -> ReviewEnvelope:
     return {
         "findings": result.findings.to_json(),
         "partial": result.partial,
@@ -98,10 +135,10 @@ def _render_cross(result: CrossResult) -> dict:
 
 
 def _run_single(
-    bundle,
+    bundle: ReviewBundle,
     inp: CrossAgentReviewInput,
     reviewers: Mapping[str, Reviewer],
-) -> Result[dict, Error]:
+) -> Result[ReviewEnvelope, Error]:
     if inp.reviewer not in reviewers:
         return Err(Error(
             kind=ErrorKind.INPUT_INVALID,
@@ -111,16 +148,25 @@ def _run_single(
     try:
         raw = reviewers[inp.reviewer].review(bundle, inp.prompt)
     except ReviewerError as exc:
-        return Err(Error(kind=ErrorKind.BACKEND_FAILURE, message=str(exc)))
-
-    try:
-        findings = Findings([Finding.from_raw(f, reviewer=raw.reviewer) for f in raw.findings])
-    except (KeyError, ValueError) as exc:
         return Err(Error(
             kind=ErrorKind.BACKEND_FAILURE,
-            message=f"{raw.reviewer} returned malformed finding: {exc}",
-            detail={"underlying": "malformed_finding", "reviewer": raw.reviewer},
+            message=str(exc),
+            detail={"underlying": exc.underlying, "retryable": exc.retryable},
         ))
+
+    try:
+        findings_list = convert_raw_findings(raw.findings, reviewer=raw.reviewer)
+    except ReviewerError as exc:
+        return Err(Error(
+            kind=ErrorKind.BACKEND_FAILURE,
+            message=str(exc),
+            detail={
+                "underlying": exc.underlying,
+                "retryable": exc.retryable,
+                "reviewer": raw.reviewer,
+            },
+        ))
+    findings = Findings(findings_list)
 
     return Ok({
         "findings": findings.to_json(),

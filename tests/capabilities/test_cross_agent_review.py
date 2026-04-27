@@ -124,9 +124,9 @@ def test_cross_agent_review_single_reviewer_backend_failure(tmp_path):
 
 
 def test_cross_agent_review_single_reviewer_malformed_finding(tmp_path):
-    """Single-reviewer mode wraps Finding.from_raw KeyError as INPUT_INVALID-ish.
-    Capability layer chose to surface as BACKEND_FAILURE since the reviewer
-    returned bad output."""
+    """Single-reviewer mode: when the reviewer responds with a finding
+    missing required keys, the capability surfaces BACKEND_FAILURE with
+    detail.underlying='malformed_finding'."""
     bad = {"category": "c", "severity": "high", "confidence": "high"}  # missing keys
     inp = _input(tmp_path, reviewer="claude")
     result = cross_agent_review(
@@ -162,6 +162,25 @@ def test_cross_agent_review_output_validates_against_schema(tmp_path):
     )
     assert result.ok
     jsonschema.validate(result.value, schema)
+
+
+def test_cross_agent_review_threads_criteria_to_bundle(tmp_path):
+    """Criteria pass through to the underlying ReviewBundle so reviewers
+    can see them. We verify by inspecting the bundle reviewer was called with."""
+    captured: dict = {}
+
+    class _CapturingReviewer:
+        name = "claude"
+
+        def review(self, bundle, prompt):
+            captured["criteria"] = bundle.criteria
+            captured["context_paths"] = bundle.context_paths
+            return RawFindings(reviewer="claude", findings=[], metadata={})
+
+    inp = _input(tmp_path, reviewer="claude", criteria=["correctness", "security"])
+    result = cross_agent_review(inp, reviewers={"claude": _CapturingReviewer()})
+    assert result.ok
+    assert captured["criteria"] == ("correctness", "security")
 
 
 def test_cross_agent_review_missing_target_path(tmp_path):
