@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -25,7 +26,7 @@ class ReviewBundle:
     def render_text(self) -> str:
         chunks: list[str] = []
         for p in self.target_paths:
-            chunks.append(f"### {p}\n{p.read_text()}")
+            chunks.append(f"### {p}\n{p.read_text(encoding='utf-8', errors='replace')}")
         return "\n\n".join(chunks)
 
 
@@ -54,25 +55,16 @@ def build_bundle(
         if not p.exists():
             raise BundleError(f"context not found: {p}")
 
-    h = hashlib.sha256()
-    h.update(kind.encode())
-    h.update(b"|")
-    h.update((feature_id or "").encode())
-    h.update(b"|")
-    for p in target_paths:
-        h.update(str(p).encode())
-        h.update(b":")
-        h.update(p.read_bytes())
-        h.update(b"|")
-    for p in context_paths:
-        h.update(str(p).encode())
-        h.update(b":")
-        h.update(p.read_bytes())
-        h.update(b"|")
-    for c in criteria_tuple:
-        h.update(c.encode())
-        h.update(b"|")
-    bundle_hash = h.hexdigest()[:32]
+    hash_payload = {
+        "kind": kind,
+        "feature_id": feature_id,  # None encodes naturally as null in JSON
+        "targets": [(str(p), p.read_bytes().hex()) for p in target_paths],
+        "context": [(str(p), p.read_bytes().hex()) for p in context_paths],
+        "criteria": list(criteria_tuple),
+    }
+    bundle_hash = hashlib.sha256(
+        json.dumps(hash_payload, sort_keys=True).encode("utf-8")
+    ).hexdigest()[:32]
 
     return ReviewBundle(
         kind=kind,
