@@ -67,4 +67,6 @@ def test_codex_reviewer_timeout(tmp_path):
         reviewer = CodexReviewer(binary="codex", timeout_s=1)
         with pytest.raises(ReviewerError, match="timeout") as exc_info:
             reviewer.review(_bundle(tmp_path), prompt="review")
-        assert exc_info.value.retryable is True
+        # Local subprocess timeout: bundle-too-big, not transient — non-retryable
+        assert exc_info.value.retryable is False
+        assert exc_info.value.underlying == "timeout"

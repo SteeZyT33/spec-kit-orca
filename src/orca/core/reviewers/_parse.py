@@ -85,5 +85,7 @@ def _balanced_arrays(text: str) -> list[str]:
                         break
             i += 1
         else:
+            # Unterminated [ ran to end-of-text. The remainder cannot
+            # contain a balanced top-level array, so abandon scanning.
             break
     return out
