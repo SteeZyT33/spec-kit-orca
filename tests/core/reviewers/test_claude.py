@@ -10,7 +10,8 @@ from orca.core.bundle import build_bundle
 from orca.core.reviewers.base import ReviewerError
 from orca.core.reviewers.claude import ClaudeReviewer
 
-FIXTURE = Path(__file__).parent.parent.parent / "fixtures" / "reviewers" / "claude" / "simple_review.json"
+TESTS_DIR = Path(__file__).resolve().parents[2]
+FIXTURE = TESTS_DIR / "fixtures" / "reviewers" / "claude" / "simple_review.json"
 
 
 def _bundle(tmp_path):
@@ -64,10 +65,27 @@ def test_claude_reviewer_api_error_wrapped(tmp_path):
     client.messages.create.side_effect = RuntimeError("rate limited")
 
     reviewer = ClaudeReviewer(client=client, model="claude-sonnet-4-6")
-    with pytest.raises(ReviewerError, match="rate limited"):
+    with pytest.raises(ReviewerError, match="rate limited") as exc_info:
         reviewer.review(_bundle(tmp_path), prompt="any")
+    # RuntimeError is not an Anthropic SDK class -> conservative non-retryable
+    assert exc_info.value.retryable is False
+    assert exc_info.value.underlying == "RuntimeError"
 
 
-def test_claude_reviewer_name_default(tmp_path):
+def test_claude_reviewer_anthropic_rate_limit_is_retryable(tmp_path):
+    import anthropic
+    client = MagicMock()
+    # APIConnectionError takes a request kwarg; minimal construction:
+    err = anthropic.APIConnectionError(request=MagicMock())
+    client.messages.create.side_effect = err
+
+    reviewer = ClaudeReviewer(client=client, model="claude-sonnet-4-6")
+    with pytest.raises(ReviewerError) as exc_info:
+        reviewer.review(_bundle(tmp_path), prompt="any")
+    assert exc_info.value.retryable is True
+    assert exc_info.value.underlying == "APIConnectionError"
+
+
+def test_claude_reviewer_name_default():
     reviewer = ClaudeReviewer(client=MagicMock(), model="claude-sonnet-4-6")
     assert reviewer.name == "claude"

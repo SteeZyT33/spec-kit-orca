@@ -38,6 +38,8 @@ packages = ["src/orca"]
 pythonpath = ["src"]
 
 [dependency-groups]
+# uv prunes test-only deps from the lockfile when not declared here;
+# this group keeps pytest available for `uv sync --all-groups`.
 dev = [
     "pytest>=9.0.3",
 ]
