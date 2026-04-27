@@ -241,13 +241,13 @@ def _require_argv_safe(prompt: str, agent: str) -> None:
 
 
 def invoke_codex(args: argparse.Namespace, prompt: str) -> str:
+    # codex >=0.124 dropped --ask-for-approval; `exec --sandbox read-only`
+    # runs non-interactively on its own (no approval prompts in exec mode).
     cmd = [
         "codex",
         "exec",
         "--sandbox",
         "read-only",
-        "--ask-for-approval",
-        "never",
     ]
     if args.model:
         cmd += ["-c", f"model={args.model}"]
