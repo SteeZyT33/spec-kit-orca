@@ -117,7 +117,7 @@ Phase 1 of the v1 rebuild renamed slash commands from `speckit.orca.{cmd}` to `o
 
 **Resolution:** Picked option (A). All 7 `provides.commands` entries renamed `orca:*` -> `speckit.orca.*` in `extension.yml`. Hooks references updated to match. Verified via `specify extension add --dev /home/taylor/worktrees/spec-kit-orca/orca-phase-3-plugin-formats` - validator accepts cleanly. Slash invocation unchanged because `src/orca/assets/orca-main.sh:705` derives skill names from file basenames (`orca-{base}`), not from `extension.yml`. (Commit `4bd6a7d` as part of review-pr Round 1 disposition sweep.)
 
-### 9. The "claude reviewer via SDK" identity collapse - DEFERRED (2026-04-28)
+### 9. The "claude reviewer via SDK" identity collapse - DONE via Phase 4a (2026-04-28)
 
 Documented in the Phase 3 review-code Round 3. When a Claude session invokes a slash command that runs `orca-cli cross-agent-review --reviewer cross`, the "claude" reviewer adapter calls `anthropic.Anthropic()` - an HTTP roundtrip to api.anthropic.com using the operator's API key. That's:
 - A different Claude than the in-session agent (no shared context/memory)
@@ -131,7 +131,16 @@ Documented in the Phase 3 review-code Round 3. When a Claude session invokes a s
 
 (C) is the cheapest. (A) is the architecturally honest one. (B) is a pragmatic middle.
 
-**Status:** Option (C) partly delivered: the AGENTS.md "Live Backend Prerequisites" block and the slash-command Prerequisites blocks both call out that the claude reviewer is API-Claude (a separate session from any in-session host Claude). Option (A) - an `in-session` reviewer that delegates back to the host harness - is left for Phase 4 because it requires a host-orchestration protocol that doesn't exist yet (host Claude needs to know how to "fill in" a sentinel envelope, and orca needs a way to wait for that fill). Defer until cross-host orchestration design lands.
+**Status:** Shipped in Phase 4a. Option (A) (in-session reviewer mode) plus orca-cli-side validation. Specifically:
+- New `FileBackedReviewer` (commits `0b9282d` + `f603988`) loads pre-authored findings from a JSON file, bypassing the SDK roundtrip.
+- New `--claude-findings-file` / `--codex-findings-file` flags on `cross-agent-review` (commits `6fd948c0` + `f17b65a`); pre-flight validation surfaces all six failure modes as `INPUT_INVALID` per spec.
+- New utility subcommands `parse-subagent-response` (commit `8856a61`) and `build-review-prompt` (commit `9b62da9`) - host pipes subagent output through these.
+- Slash commands `review-spec`, `review-code`, `review-pr` (commits `7c479e0`, `16b6cd8`, `b4a007a`) updated to dispatch a `Code Reviewer` subagent BEFORE calling `cross-agent-review --claude-findings-file`. Subagent runs in a fresh Claude Code context (no shared memory with host, no API key needed).
+- AGENTS.md (commits `a21199b3` + `2f12c9c`) documents the in-session flow as a coherent feature.
+- 24 new tests added (FileBackedReviewer + flag tests + parse-subagent-response + build-review-prompt + context bullets); 445 tests pass total.
+- End-to-end smoke verified: file-backed cross-agent-review produces well-formed envelope with `reviewer_metadata.<name>.source = "in-session-subagent"`.
+
+Option (B) auto-detection via `CLAUDECODE=1` was rejected per Phase 4a spec; operators explicitly pass `--claude-findings-file`.
 
 ### 10. Configurable codex reviewer timeout - DONE (2026-04-28)
 
