@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import io
+import json
+
 import pytest
 
 from orca.cli_output import (
+    main as cli_output_main,
     render_citation_markdown,
     render_completion_gate_markdown,
     render_error_block,
@@ -536,3 +540,82 @@ def test_render_citation_no_double_blank_populated():
     }
     out = render_citation_markdown(envelope, content_path="synthesis.md")
     _assert_no_double_blank_before_footer(out)
+
+
+def test_main_lists_render_subcommands_with_help(capsys):
+    rc = cli_output_main(["--help"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "render-review-spec" in out
+    assert "render-completion-gate" in out
+
+
+def test_main_render_review_spec_from_stdin(monkeypatch, capsys):
+    payload = json.dumps({
+        "ok": True,
+        "result": {"findings": [], "partial": False, "missing_reviewers": [], "reviewer_metadata": {}},
+        "metadata": {"capability": "cross-agent-review", "version": "0.1.0", "duration_ms": 100},
+    })
+    monkeypatch.setattr("sys.stdin", io.StringIO(payload))
+    rc = cli_output_main(["render-review-spec", "--feature-id", "001-x", "--round", "1"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "### Round 1 - Cross-Pass (001-x)" in out
+
+
+def test_main_render_completion_gate_from_envelope_file(tmp_path, capsys):
+    payload = {
+        "ok": True,
+        "result": {
+            "status": "pass",
+            "gates_evaluated": [{"gate": "spec_exists", "passed": True, "reason": ""}],
+            "blockers": [],
+            "stale_artifacts": [],
+        },
+        "metadata": {"capability": "completion-gate", "version": "0.1.0", "duration_ms": 50},
+    }
+    env_file = tmp_path / "env.json"
+    env_file.write_text(json.dumps(payload))
+    rc = cli_output_main([
+        "render-completion-gate",
+        "--target-stage", "plan-ready",
+        "--envelope-file", str(env_file),
+    ])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "## Completion Gate: plan-ready" in out
+    assert "Status: **pass**" in out
+
+
+def test_main_render_citation_with_inline_path(monkeypatch, capsys):
+    payload = json.dumps({
+        "ok": True,
+        "result": {
+            "uncited_claims": [],
+            "broken_refs": [],
+            "well_supported_claims": [],
+            "citation_coverage": 1.0,
+        },
+        "metadata": {"capability": "citation-validator", "version": "0.1.0", "duration_ms": 30},
+    })
+    monkeypatch.setattr("sys.stdin", io.StringIO(payload))
+    rc = cli_output_main([
+        "render-citation",
+        "--content-path", "synthesis.md",
+    ])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "## Citation Report: synthesis.md" in out
+
+
+def test_main_render_unknown_subcommand_exits_3(capsys):
+    rc = cli_output_main(["render-banana"])
+    assert rc == 3
+
+
+def test_main_render_with_invalid_json_exits_1(monkeypatch, capsys):
+    monkeypatch.setattr("sys.stdin", io.StringIO("{not-json}"))
+    rc = cli_output_main(["render-review-spec", "--feature-id", "x", "--round", "1"])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "invalid JSON" in err.lower() or "could not parse" in err.lower()
