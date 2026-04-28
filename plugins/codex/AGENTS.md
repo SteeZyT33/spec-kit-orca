@@ -103,6 +103,54 @@ If a required prerequisite is missing, the capability returns an
 reviewer failed and why (e.g., "Could not resolve authentication method"
 for missing API key, "codex timeout after 120s" for timeout exhaustion).
 
+### In-Session Reviewer (Claude Code hosts)
+
+When the host harness is Claude Code, `cross-agent-review` can use a
+file-backed reviewer instead of the Anthropic SDK. This avoids the API
+roundtrip and lets the host's subagent author the claude findings, so:
+
+- No `ANTHROPIC_API_KEY` needed (subagent inherits Claude Code auth)
+- Subagent runs in a fresh context window (different conversation from host)
+- Findings are authored via the same prompt the SDK adapter would use
+
+Two helper subcommands support the flow:
+
+- `orca-cli build-review-prompt --kind <k> [--criteria ...]` emits the
+  canonical review prompt on stdout (plain text). Slash commands feed
+  this to the dispatched subagent.
+- `orca-cli parse-subagent-response < <raw-text>` validates the subagent's
+  free-form response, extracts the JSON findings array, and emits valid
+  findings JSON on stdout. Failure: `Err(INPUT_INVALID)` envelope, exit 1.
+  Slash commands pipe subagent output through this before passing the
+  resulting file to `cross-agent-review`.
+
+Two new `cross-agent-review` flags:
+
+- `--claude-findings-file <path>`: claude reviewer slot reads from this
+  file instead of calling the SDK. File MUST be a top-level JSON array of
+  finding dicts. Symlinks rejected, file size capped at 10 MB. Pre-flight
+  validation surfaces malformed files as `Err(INPUT_INVALID,
+  "claude-findings-file: ...")` exit 1 (not BACKEND_FAILURE).
+- `--codex-findings-file <path>`: symmetric. Operator-supplied; not tied
+  to any specific producer (Phase 4a v1 ships claude-side host wiring;
+  codex-side host wiring is left for whoever needs it).
+
+Reviewer-source precedence (per slot):
+1. `--<name>-findings-file` flag -> FileBackedReviewer
+2. `ORCA_FIXTURE_REVIEWER_<NAME>` env var -> FixtureReviewer
+3. `ORCA_LIVE=1` -> live SDK/CLI factory
+4. None -> `Err(INPUT_INVALID)` "no reviewer source configured for <name>"
+
+Mixed mode (file-backed claude + SDK codex when `ORCA_LIVE=1`) is valid
+but bypasses cross-reviewer dedupe (subagent-authored findings produce
+distinct IDs from SDK-authored findings for the same logical issue).
+
+The slash commands at `plugins/claude-code/commands/review-{spec,code,pr}.md`
+implement this flow: build prompt -> dispatch subagent -> parse response ->
+call cross-agent-review with `--claude-findings-file`. Hosts other than
+Claude Code do not get the subagent benefit; they continue to use SDK or
+fixture sources via the existing precedence rules.
+
 ## Invocation Patterns
 
 ### Single capability call
