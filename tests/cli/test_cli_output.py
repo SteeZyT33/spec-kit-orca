@@ -369,4 +369,3 @@ def test_render_review_pr_no_double_blank_populated():
         _populated_cross_agent_envelope(), round_num=1, feature_id="x",
     )
     _assert_no_double_blank_before_footer(out)
-    assert "\n" not in row
