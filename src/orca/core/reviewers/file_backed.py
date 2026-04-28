@@ -18,7 +18,7 @@ from orca.core.reviewers._parse import validate_findings_array
 from orca.core.reviewers.base import RawFindings, ReviewerError
 
 
-_MAX_FILE_BYTES = 10 * 1024 * 1024  # 10 MB cap; findings JSON should never approach
+MAX_FILE_BYTES = 10 * 1024 * 1024  # 10 MB cap; findings JSON should never approach
 _METADATA_SOURCE = "in-session-subagent"
 
 
@@ -50,9 +50,9 @@ class FileBackedReviewer:
                 underlying="file_not_found",
             )
         size = path.stat().st_size
-        if size > _MAX_FILE_BYTES:
+        if size > MAX_FILE_BYTES:
             raise ReviewerError(
-                f"file-backed reviewer: file exceeds {_MAX_FILE_BYTES} byte cap: {size} bytes",
+                f"file-backed reviewer: file exceeds {MAX_FILE_BYTES} byte cap: {size} bytes",
                 retryable=False,
                 underlying="file_too_large",
             )

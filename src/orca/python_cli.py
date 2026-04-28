@@ -64,7 +64,7 @@ from orca.core.reviewers._parse import parse_findings_array, validate_findings_a
 from orca.core.reviewers.base import ReviewerError
 from orca.core.reviewers.claude import ClaudeReviewer
 from orca.core.reviewers.codex import CodexReviewer
-from orca.core.reviewers.file_backed import FileBackedReviewer
+from orca.core.reviewers.file_backed import MAX_FILE_BYTES, FileBackedReviewer
 from orca.core.reviewers.fixtures import FixtureReviewer
 
 # capability name -> (subcommand handler, version string).
@@ -276,26 +276,26 @@ def _validate_findings_file_eagerly(path_str: str) -> str | None:
     """
     path = Path(path_str)
     if path.is_symlink():
-        return "symlinks rejected"
+        return f"symlinks rejected: {path}"
     if not path.exists():
-        return f"{path}: file not found"
+        return f"file not found: {path}"
     size = path.stat().st_size
-    if size > 10 * 1024 * 1024:
-        return f"file exceeds 10 MB cap: {size} bytes"
+    if size > MAX_FILE_BYTES:
+        return f"file exceeds {MAX_FILE_BYTES} byte cap ({size} bytes): {path}"
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
-        return f"{path}: read error: {exc}"
+        return f"read error ({exc}): {path}"
     try:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
-        return f"invalid JSON: {exc}"
+        return f"invalid JSON ({exc}): {path}"
     if not isinstance(data, list):
-        return f"expected JSON array, got {type(data).__name__}"
+        return f"expected JSON array, got {type(data).__name__}: {path}"
     try:
         validate_findings_array(data, source="cli-preflight")
     except Exception as exc:
-        return str(exc)
+        return f"finding validation failed ({exc}): {path}"
     return None
 
 
