@@ -506,6 +506,10 @@ def _run_citation_validator(args: list[str]) -> int:
     parser.add_argument("--reference-set", action="append", default=[],
                         help="path to a reference (repeatable)")
     parser.add_argument("--mode", default="strict", choices=["strict", "lenient"])
+    parser.add_argument("--skip-pattern", action="append", default=[],
+                        dest="skip_patterns",
+                        help="extra regex (matched per-line) for lines to skip "
+                             "on top of built-in scaffolding patterns; repeatable")
     parser.add_argument("--pretty", action="store_true",
                         help="emit human-readable summary instead of JSON envelope")
 
@@ -547,6 +551,7 @@ def _run_citation_validator(args: list[str]) -> int:
         content_text=ns.content_text,
         reference_set=ns.reference_set,
         mode=ns.mode,
+        skip_patterns=ns.skip_patterns,
     )
 
     started = time.monotonic()

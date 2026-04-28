@@ -244,6 +244,225 @@ def test_sentence_split_handles_eg_abbreviation():
     assert "e.g." in result.value["uncited_claims"][0]["text"]
 
 
+# ---------------------------------------------------------------------------
+# Markdown-aware preprocessing (Phase 3.2 backlog item 1)
+# ---------------------------------------------------------------------------
+
+
+def test_skips_lines_inside_fenced_code_blocks():
+    """Lines inside ``` fences are not prose; assertions inside are ignored."""
+    text = (
+        "Intro paragraph.\n"
+        "```bash\n"
+        "Results show 50% improvement.\n"
+        "```\n"
+        "Closing paragraph.\n"
+    )
+    result = citation_validator(CitationValidatorInput(
+        content_text=text,
+        reference_set=[],
+        mode="strict",
+    ))
+    assert result.ok
+    # The fenced "Results show 50%" must NOT count as an uncited claim.
+    assert result.value["uncited_claims"] == []
+    assert result.value["citation_coverage"] == 1.0
+
+
+def test_skips_lines_inside_tilde_fenced_blocks():
+    """Lines inside ~~~ fences are skipped just like ``` fences."""
+    text = (
+        "Intro.\n"
+        "~~~\n"
+        "Results show 50% improvement.\n"
+        "~~~\n"
+    )
+    result = citation_validator(CitationValidatorInput(
+        content_text=text,
+        reference_set=[],
+        mode="strict",
+    ))
+    assert result.ok
+    assert result.value["uncited_claims"] == []
+
+
+def test_handles_unclosed_fence_at_eof():
+    """An unclosed fence at EOF should not error; trailing lines are skipped."""
+    text = (
+        "Intro.\n"
+        "```\n"
+        "Results show 50% improvement.\n"
+        "More code that never closes.\n"
+    )
+    result = citation_validator(CitationValidatorInput(
+        content_text=text,
+        reference_set=[],
+        mode="strict",
+    ))
+    assert result.ok
+    assert result.value["uncited_claims"] == []
+
+
+def test_skips_markdown_table_rows():
+    """Pipe-delimited table rows are not prose; their content is ignored."""
+    text = (
+        "| col1 | col2 |\n"
+        "| --- | --- |\n"
+        "| Results show 50% | yes |\n"
+    )
+    result = citation_validator(CitationValidatorInput(
+        content_text=text,
+        reference_set=[],
+        mode="strict",
+    ))
+    assert result.ok
+    assert result.value["uncited_claims"] == []
+
+
+def test_skips_fr_scaffolding():
+    """`**FR-001**: ...` is spec-kit scaffolding, not a prose claim."""
+    text = "**FR-001**: System shows 50% improvement."
+    result = citation_validator(CitationValidatorInput(
+        content_text=text,
+        reference_set=[],
+        mode="strict",
+    ))
+    assert result.ok
+    assert result.value["uncited_claims"] == []
+
+
+def test_skips_session_header():
+    """`### Session 2026-04-27` lines are scaffolding."""
+    text = "### Session 2026-04-27\nResults show 50%.\n"
+    result = citation_validator(CitationValidatorInput(
+        content_text="### Session 2026-04-27\n",
+        reference_set=[],
+        mode="strict",
+    ))
+    assert result.ok
+    assert result.value["uncited_claims"] == []
+    # Sanity: the second line in `text` would still count if we ran it - but
+    # the test scope is just "session header skipped".
+    del text
+
+
+def test_skips_field_scaffolding():
+    """`**Field**: shows 50%` is a scaffolding bullet, not a prose claim."""
+    text = "**Field**: shows 50%"
+    result = citation_validator(CitationValidatorInput(
+        content_text=text,
+        reference_set=[],
+        mode="strict",
+    ))
+    assert result.ok
+    assert result.value["uncited_claims"] == []
+
+
+def test_skips_run_n_of_n_scaffolding():
+    """`Run 1/3: shows 50%` is a verification-run tag, not a prose claim."""
+    text = "Run 1/3: shows 50%"
+    result = citation_validator(CitationValidatorInput(
+        content_text=text,
+        reference_set=[],
+        mode="strict",
+    ))
+    assert result.ok
+    assert result.value["uncited_claims"] == []
+
+
+def test_custom_skip_pattern_extends_defaults():
+    """Operator-supplied skip_patterns extend (not replace) the defaults."""
+    text = (
+        "**Custom**: shows 50% improvement.\n"
+        "**FR-002**: shows 75% improvement.\n"
+    )
+    result = citation_validator(CitationValidatorInput(
+        content_text=text,
+        reference_set=[],
+        mode="strict",
+        skip_patterns=[r"^\s*\*\*Custom\*\*"],
+    ))
+    assert result.ok
+    # Both lines should be skipped: custom regex catches the first,
+    # default FR-NNN pattern catches the second.
+    assert result.value["uncited_claims"] == []
+
+
+def test_invalid_custom_skip_pattern_returns_err():
+    """A skip_pattern that fails re.compile returns INPUT_INVALID."""
+    result = citation_validator(CitationValidatorInput(
+        content_text="anything",
+        reference_set=[],
+        mode="strict",
+        skip_patterns=["[unclosed"],
+    ))
+    assert not result.ok
+    assert result.error.kind == ErrorKind.INPUT_INVALID
+    assert "skip_pattern" in result.error.message
+
+
+def test_non_reflike_bracket_not_flagged_as_broken():
+    """`[all: 1440 1438 1445]` is prose, not a ref. Sentence is uncited."""
+    text = "Results show 42% [all: 1440 1438 1445]."
+    result = citation_validator(CitationValidatorInput(
+        content_text=text,
+        reference_set=[],
+        mode="strict",
+    ))
+    assert result.ok
+    # No broken ref - the bracket content does not look like a ref.
+    assert result.value["broken_refs"] == []
+    # The sentence has no real refs, so it counts as uncited.
+    assert len(result.value["uncited_claims"]) == 1
+
+
+def test_reflike_path_brackets_resolved(tmp_path):
+    """`[evidence.md]` is path-shaped; resolves cleanly when in reference_set."""
+    ref = tmp_path / "evidence.md"
+    ref.write_text("x")
+    text = "Results show 42% [evidence.md]."
+    result = citation_validator(CitationValidatorInput(
+        content_text=text,
+        reference_set=[str(ref)],
+        mode="strict",
+    ))
+    assert result.ok
+    assert result.value["broken_refs"] == []
+    assert len(result.value["well_supported_claims"]) == 1
+
+
+def test_anchor_brackets_treated_as_reflike():
+    """`[#section]` is anchor-shaped; flagged as broken when not in refs."""
+    text = "Results show 42% [#section]."
+    result = citation_validator(CitationValidatorInput(
+        content_text=text,
+        reference_set=[],
+        mode="strict",
+    ))
+    assert result.ok
+    # Anchor counts as a real ref candidate. With no refs configured, it
+    # resolves as broken.
+    assert len(result.value["broken_refs"]) == 1
+    assert result.value["broken_refs"][0]["ref"] == "#section"
+
+
+def test_explicit_ref_prefix(tmp_path):
+    """`[ref:my-evidence]` resolves against a reference named `my-evidence`."""
+    ref = tmp_path / "my-evidence.md"
+    ref.write_text("x")
+    text = "Results show 42% [ref:my-evidence]."
+    result = citation_validator(CitationValidatorInput(
+        content_text=text,
+        reference_set=[str(ref)],
+        mode="strict",
+    ))
+    assert result.ok
+    # The `ref:` prefix is stripped for resolution; `my-evidence` resolves
+    # by stem match against `my-evidence.md`.
+    assert result.value["broken_refs"] == []
+    assert len(result.value["well_supported_claims"]) == 1
+
+
 def test_output_validates_against_schema(tmp_path):
     pytest.importorskip("jsonschema")
     import jsonschema

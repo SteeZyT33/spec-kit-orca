@@ -9,8 +9,48 @@ This is a **lint check**, not formal validation of scientific or factual claims.
 ## Heuristics
 
 - **Assertion-shaped sentence:** sentences containing strong-claim verbs ("shows", "demonstrates", "proves", "confirms", "indicates", "establishes") OR numerical claims (percentages, double-digit numbers).
-- **Citation:** the `[ref]` bracket pattern at any position in the sentence. Each match is a candidate ref name to resolve against the `reference_set`.
-- **Broken ref:** any `[ref]` whose name does not resolve to a path in the `reference_set` by exact match, basename, or filename stem.
+- **Citation:** the `[ref]` bracket pattern at any position in the sentence. Each match is checked for ref-shape (see below) before being treated as a citation candidate.
+- **Broken ref:** any ref-shaped `[ref]` whose name does not resolve to a path in the `reference_set` by exact match, basename, or filename stem.
+
+### Markdown-aware preprocessing
+
+Before assertion detection runs, the validator strips chrome that is not prose:
+
+- **Fenced code blocks** (` ``` ` and ` ~~~ `, indented or not, with or without a language tag) are skipped wholesale. Line numbers in the output stay aligned because fenced lines are blanked, not removed. Unclosed fences at EOF are tolerated.
+- **Markdown table rows** (lines starting and ending with `|`) are skipped. Header separators like `| --- | --- |` skip too.
+- **Spec-kit scaffolding patterns** are skipped via a built-in regex list:
+  - `**FR-NNN**: ...` requirement bullets
+  - `### Session YYYY-MM-DD` log headers (2-5 hashes)
+  - `**Field**: value` style bullets (any `**Capitalized**:` label)
+  - `Run N/M: ...` verification-run tags
+- **Custom skip patterns** can be added via the `skip_patterns` input. Each entry is a Python regex matched per line; matches are skipped on top of the built-in list.
+
+### Ref-shape rules
+
+Bracket contents are classified before any resolution:
+
+- **Pure digits** (`[1]`, `[42]`) are footnote markers - the bracket counts as a citation but never produces a broken_ref.
+- **Path-like** (no whitespace, no colons): `[evidence.md]`, `[docs/foo]`, `[my-evidence]`. Resolved against the reference_set.
+- **Anchor** (`[#section]`): treated as a ref candidate; resolves only if the anchor name appears in the reference_set.
+- **Explicit `ref:NAME`** (`[ref:my-evidence]`): the `ref:` prefix is stripped for resolution, so the rest follows the path-like rules.
+- **Prose-shaped** (contains spaces, or contains `:` without the `ref:` prefix): for example `[all: 1440 1438 1445]`. These are ignored entirely - neither flagged as broken nor counted as citations. A sentence whose only brackets are prose-shaped is treated as having no refs at all (uncited if it is otherwise an assertion).
+
+### Example
+
+```markdown
+**FR-001**: System shows 50% improvement.   <- skipped (FR scaffolding)
+
+| Metric | Value |                          <- skipped (table row)
+| ------ | ----- |                          <- skipped (table row)
+| Speed  | 50%   |                          <- skipped (table row)
+
+```bash
+echo "Results show 99% throughput"          <- skipped (code fence)
+```
+
+Results show 42% improvement [evidence.md]. <- well-supported (path-like ref)
+Results show 42% [all: 1440 1438 1445].     <- uncited (prose-shaped bracket ignored)
+```
 
 ## Modes
 
@@ -19,7 +59,7 @@ This is a **lint check**, not formal validation of scientific or factual claims.
 
 ## Input
 
-See `schema/input.json`. Either `content_text` (inline string) OR `content_path` (file path), never both. `reference_set` is the list of paths against which `[ref]` brackets are resolved. `mode` defaults to `strict`.
+See `schema/input.json`. Either `content_text` (inline string) OR `content_path` (file path), never both. `reference_set` is the list of paths against which `[ref]` brackets are resolved. `mode` defaults to `strict`. Optional `skip_patterns` is a list of Python regex strings; matching lines are skipped on top of the built-in scaffolding patterns. Invalid regex strings produce `INPUT_INVALID`.
 
 ## Output
 
@@ -31,7 +71,7 @@ See `schema/output.json`.
 
 ## Errors
 
-- `INPUT_INVALID`: neither `content_text` nor `content_path` set; both set; bad mode value; non-existent `content_path`.
+- `INPUT_INVALID`: neither `content_text` nor `content_path` set; both set; bad mode value; non-existent `content_path`; uncompilable `skip_patterns` entry.
 
 ## Limitations (v1)
 
