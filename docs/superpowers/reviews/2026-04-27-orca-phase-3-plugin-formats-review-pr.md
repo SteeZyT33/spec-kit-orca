@@ -100,3 +100,27 @@ Working order (codex-blocking first, then non-blocking by impact):
 7. **#2 - cite reference set defaults** -> deferred; capability-level change. Backlog item 2.
 
 After dispositions, append a Round 2 with the remediation commits and final verdict.
+
+---
+
+## Round 2 - Disposition Verification
+
+**Commit:** `4bd6a7d` - `fix: review-pr round 1 disposition sweep`
+
+### Dispositions
+
+| # | Status | Notes |
+|---|--------|-------|
+| 1 | ADDRESSED | extension.yml renamed to speckit.orca.* form; spec-kit validator accepts. Slash invocation unchanged (decoupled per orca-main.sh:705). |
+| 2 | ISSUED Phase 3.2 #2 | cite default reference set; capability-level change |
+| 3 | ADDRESSED | AGENTS.md gained Live Backend Prerequisites block |
+| 4 | ADDRESSED | review-spec.md envelope path moved from /tmp to $FEATURE_DIR |
+| 5 | ISSUED Phase 3.2 #5 | ORCA_BASE_BRANCH as parsed flag; non-trivial slash-command parser change |
+| 6 | ADDRESSED | Round counting prose updated to match both hyphen and em-dash forms |
+| 7 | ADDRESSED | orca-main.sh post-install summary now lists gate + cite |
+
+### Final Verdict
+
+**READY** to merge after Phase 2 (PR #69) lands. Codex-blocking #1 cleared; remaining deferrals are scope-protective and tracked in `docs/superpowers/notes/2026-04-27-phase-3-2-backlog.md`.
+
+Test posture: 403 passing. CI green.
