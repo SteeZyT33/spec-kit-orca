@@ -35,6 +35,31 @@ numerical claims) and miss semantic claims. See
 - Read user input for `--write` (append to `<feature-dir>/cite-report.md`).
 - Invoke `orca-cli citation-validator` and render results.
 
+## Prerequisites
+
+The examples below assume `orca-cli` is on PATH. In a fresh host repo where
+spec-kit-orca is not installed as a tool, `uv run orca-cli` fails with
+`Failed to spawn: orca-cli`. Resolve the invocation up front:
+
+```bash
+if command -v orca-cli >/dev/null 2>&1; then
+  ORCA_RUN=(orca-cli)
+  ORCA_PY=(python -m orca.cli_output)
+elif [ -n "${ORCA_PROJECT:-}" ] && [ -d "$ORCA_PROJECT" ]; then
+  ORCA_RUN=(uv run --project "$ORCA_PROJECT" orca-cli)
+  ORCA_PY=(uv run --project "$ORCA_PROJECT" python -m orca.cli_output)
+elif [ -d "$HOME/spec-kit-orca" ]; then
+  ORCA_RUN=(uv run --project "$HOME/spec-kit-orca" orca-cli)
+  ORCA_PY=(uv run --project "$HOME/spec-kit-orca" python -m orca.cli_output)
+else
+  echo "orca-cli not found; install spec-kit-orca or set ORCA_PROJECT" >&2
+  exit 1
+fi
+```
+
+Use `"${ORCA_RUN[@]}"` in place of `orca-cli` and `"${ORCA_PY[@]}"` in place of
+`python -m orca.cli_output` in the bash blocks below when the bare forms fail.
+
 ## Outline
 
 1. Resolve `--content-path` from user input. Required.
@@ -48,6 +73,10 @@ numerical claims) and miss semantic claims. See
 4. Invoke `orca-cli citation-validator`. Resolve a base directory
    for command artifacts: use `$FEATURE_DIR` if a feature dir is
    resolvable, else fall back to the repo root (`.`):
+
+   (If `uv run orca-cli ...` fails with `Failed to spawn`, see the
+   Prerequisites section above and substitute `"${ORCA_RUN[@]}"` /
+   `"${ORCA_PY[@]}"` in the snippets below.)
 
    ```bash
    BASE_DIR="${FEATURE_DIR:-.}"

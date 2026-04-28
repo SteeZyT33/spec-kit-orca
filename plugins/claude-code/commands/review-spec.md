@@ -31,6 +31,31 @@ self-pass - spec review is adversarial by design.
 - If the spec has critical issues, record them and recommend revision
   before planning proceeds.
 
+## Prerequisites
+
+The examples below assume `orca-cli` is on PATH. In a fresh host repo where
+spec-kit-orca is not installed as a tool, `uv run orca-cli` fails with
+`Failed to spawn: orca-cli`. Resolve the invocation up front:
+
+```bash
+if command -v orca-cli >/dev/null 2>&1; then
+  ORCA_RUN=(orca-cli)
+  ORCA_PY=(python -m orca.cli_output)
+elif [ -n "${ORCA_PROJECT:-}" ] && [ -d "$ORCA_PROJECT" ]; then
+  ORCA_RUN=(uv run --project "$ORCA_PROJECT" orca-cli)
+  ORCA_PY=(uv run --project "$ORCA_PROJECT" python -m orca.cli_output)
+elif [ -d "$HOME/spec-kit-orca" ]; then
+  ORCA_RUN=(uv run --project "$HOME/spec-kit-orca" orca-cli)
+  ORCA_PY=(uv run --project "$HOME/spec-kit-orca" python -m orca.cli_output)
+else
+  echo "orca-cli not found; install spec-kit-orca or set ORCA_PROJECT" >&2
+  exit 1
+fi
+```
+
+Use `"${ORCA_RUN[@]}"` in place of `orca-cli` and `"${ORCA_PY[@]}"` in place of
+`python -m orca.cli_output` in the bash blocks below when the bare forms fail.
+
 ## Outline
 
 1. Resolve `<feature-dir>` from user input or current branch (e.g., `specs/001-foo/`).
@@ -40,6 +65,10 @@ self-pass - spec review is adversarial by design.
 3. Determine the next round number: count existing `### Round N - ` headers in `<feature-dir>/review-spec.md` (if it exists), N+1 is the new round; otherwise round 1.
 
 4. Invoke `orca-cli cross-agent-review` against the spec:
+
+   (If `uv run orca-cli ...` fails with `Failed to spawn`, see the
+   Prerequisites section above and substitute `"${ORCA_RUN[@]}"` /
+   `"${ORCA_PY[@]}"` in the snippets below.)
 
    ```bash
    uv run orca-cli cross-agent-review \
