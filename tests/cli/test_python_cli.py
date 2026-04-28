@@ -832,3 +832,20 @@ def test_build_review_prompt_kind_does_not_branch(capsys) -> None:
     out2 = capsys.readouterr().out
     assert out1 == out2
     assert rc1 == 0 and rc2 == 0
+
+
+def test_build_review_prompt_context_bullets(capsys) -> None:
+    """--context flags become bullet-list under 'Context:' header."""
+    from orca.python_cli import main
+
+    rc = main([
+        "build-review-prompt",
+        "--kind", "diff",
+        "--context", "stacked branch",
+        "--context", "WIP commit",
+    ])
+    out = capsys.readouterr().out
+    assert "Context:" in out
+    assert "- stacked branch" in out
+    assert "- WIP commit" in out
+    assert rc == 0
