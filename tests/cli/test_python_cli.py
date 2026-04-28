@@ -714,3 +714,81 @@ def test_cross_agent_review_empty_findings_file_flag_falls_through(
     assert envelope["ok"] is True
     assert "from fixture" in json.dumps(envelope["result"])
     assert rc == 0
+
+
+def test_parse_subagent_response_bare_json_array(capsys, monkeypatch) -> None:
+    """Bare JSON array on stdin emits same array on stdout."""
+    from orca.python_cli import main
+    import io
+
+    findings = [{
+        "id": "abc1234567890def",
+        "category": "correctness",
+        "severity": "high",
+        "confidence": "high",
+        "summary": "test",
+        "detail": "",
+        "evidence": [],
+        "suggestion": "",
+        "reviewer": "claude",
+    }]
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(findings)))
+    rc = main(["parse-subagent-response"])
+    out = capsys.readouterr().out
+    parsed = json.loads(out)
+    assert parsed == findings
+    assert rc == 0
+
+
+def test_parse_subagent_response_markdown_fenced(capsys, monkeypatch) -> None:
+    """JSON wrapped in markdown code fence is extracted."""
+    from orca.python_cli import main
+    import io
+
+    findings = [{
+        "id": "abc1234567890def",
+        "category": "correctness",
+        "severity": "high",
+        "confidence": "high",
+        "summary": "test",
+        "detail": "",
+        "evidence": [],
+        "suggestion": "",
+        "reviewer": "claude",
+    }]
+    raw = f"Here are my findings:\n\n```json\n{json.dumps(findings)}\n```\n\nLet me know if you need more."
+    monkeypatch.setattr("sys.stdin", io.StringIO(raw))
+    rc = main(["parse-subagent-response"])
+    out = capsys.readouterr().out
+    parsed = json.loads(out)
+    assert parsed == findings
+    assert rc == 0
+
+
+def test_parse_subagent_response_prose_only_fails(capsys, monkeypatch) -> None:
+    """Pure prose with no JSON array exits 1 with specific error."""
+    from orca.python_cli import main
+    import io
+
+    monkeypatch.setattr("sys.stdin", io.StringIO("I reviewed the diff and found no issues."))
+    rc = main(["parse-subagent-response"])
+    out = capsys.readouterr().out
+    envelope = json.loads(out)
+    assert envelope["ok"] is False
+    assert envelope["error"]["kind"] == "input_invalid"
+    msg = envelope["error"]["message"].lower()
+    assert "could not parse" in msg or "parse-subagent" in msg
+    assert rc == 1
+
+
+def test_parse_subagent_response_invalid_json_fails(capsys, monkeypatch) -> None:
+    """Malformed JSON-looking content exits 1."""
+    from orca.python_cli import main
+    import io
+
+    monkeypatch.setattr("sys.stdin", io.StringIO("[{not: 'valid json'}]"))
+    rc = main(["parse-subagent-response"])
+    out = capsys.readouterr().out
+    envelope = json.loads(out)
+    assert envelope["ok"] is False
+    assert rc == 1

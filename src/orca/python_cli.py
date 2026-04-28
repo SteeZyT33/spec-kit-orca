@@ -60,7 +60,8 @@ from orca.capabilities.worktree_overlap_check import (
 )
 from orca.core.errors import Error, ErrorKind
 from orca.core.result import Err
-from orca.core.reviewers._parse import validate_findings_array
+from orca.core.reviewers._parse import parse_findings_array, validate_findings_array
+from orca.core.reviewers.base import ReviewerError
 from orca.core.reviewers.claude import ClaudeReviewer
 from orca.core.reviewers.codex import CodexReviewer
 from orca.core.reviewers.file_backed import FileBackedReviewer
@@ -829,12 +830,76 @@ def _print_pretty_success(envelope: dict) -> None:
         print(json.dumps(envelope, indent=2))
 
 
+def _run_parse_subagent_response(args: list[str]) -> int:
+    """Validate raw subagent text on stdin, emit findings JSON on stdout.
+
+    Reuses parse_findings_array from the SDK adapter pipeline so schema
+    validation matches what the SDK adapter emits today. Failure path is
+    Err(INPUT_INVALID) envelope on stdout, exit 1.
+    """
+    parser = argparse.ArgumentParser(
+        prog="orca-cli parse-subagent-response",
+        description="Extract + validate findings JSON from raw subagent text",
+        exit_on_error=False,
+    )
+    parser.add_argument("--pretty", action="store_true",
+                        help="emit human-readable summary on success; default emits findings JSON")
+    try:
+        ns, unknown = parser.parse_known_args(args)
+    except argparse.ArgumentError as exc:
+        return _emit_envelope(
+            envelope=_err_envelope(
+                "parse-subagent-response", "0.1.0",
+                ErrorKind.INPUT_INVALID, f"argv parse error: {exc}",
+            ),
+            pretty=False,
+            exit_code=2,
+        )
+    except SystemExit as exc:
+        if exc.code == 0:
+            return 0
+        return _emit_envelope(
+            envelope=_err_envelope(
+                "parse-subagent-response", "0.1.0",
+                ErrorKind.INPUT_INVALID, "argv parse error (missing/invalid arguments)",
+            ),
+            pretty=False,
+            exit_code=2,
+        )
+    if unknown:
+        return _emit_envelope(
+            envelope=_err_envelope(
+                "parse-subagent-response", "0.1.0",
+                ErrorKind.INPUT_INVALID, f"unknown args: {unknown}",
+            ),
+            pretty=ns.pretty,
+            exit_code=2,
+        )
+
+    text = sys.stdin.read()
+    try:
+        findings = parse_findings_array(text, source="subagent-response")
+    except ReviewerError as exc:
+        return _emit_envelope(
+            envelope=_err_envelope(
+                "parse-subagent-response", "0.1.0",
+                ErrorKind.INPUT_INVALID, f"parse-subagent-response: {exc}",
+            ),
+            pretty=ns.pretty,
+            exit_code=1,
+        )
+
+    print(json.dumps(findings))
+    return 0
+
+
 _register("cross-agent-review", _run_cross_agent_review, CROSS_AGENT_REVIEW_VERSION)
 _register("worktree-overlap-check", _run_worktree_overlap_check, WORKTREE_OVERLAP_CHECK_VERSION)
 _register("flow-state-projection", _run_flow_state_projection, FLOW_STATE_PROJECTION_VERSION)
 _register("completion-gate", _run_completion_gate, COMPLETION_GATE_VERSION)
 _register("citation-validator", _run_citation_validator, CITATION_VALIDATOR_VERSION)
 _register("contradiction-detector", _run_contradiction_detector, CONTRADICTION_DETECTOR_VERSION)
+_register("parse-subagent-response", _run_parse_subagent_response, "0.1.0")
 
 
 if __name__ == "__main__":
