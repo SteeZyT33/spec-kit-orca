@@ -74,6 +74,49 @@ first unless the task is explicitly `--comments-only` or `--post-merge`.
 4. Check GitHub tool availability.
    - If unavailable, report that PR review automation cannot proceed and stop after writing local notes.
 
+## Cross-Pass Review
+
+If a cross-pass review is needed (per `--phase`, `--external-comments`, or
+the PR has substantive new diff since last review):
+
+1. Build the PR diff for review:
+
+   ```bash
+   gh pr diff "$PR_NUM" > "$FEATURE_DIR/.pr-pass-patch"
+   ```
+
+2. Determine the next round number from existing `### Round N - `
+   headers in `$FEATURE_DIR/review-pr.md`.
+
+3. Invoke `orca-cli cross-agent-review`:
+
+   ```bash
+   uv run orca-cli cross-agent-review \
+     --kind pr \
+     --target "$FEATURE_DIR/.pr-pass-patch" \
+     --feature-id "$(basename $FEATURE_DIR)" \
+     --reviewer cross \
+     --criteria "comment-disposition" \
+     --criteria "regression-risk" \
+     > "$FEATURE_DIR/.review-pr-envelope.json"
+   ```
+
+4. Translate to markdown table for disposition tracking:
+
+   ```bash
+   uv run python -m orca.cli_output render-review-pr \
+     --feature-id "$(basename $FEATURE_DIR)" \
+     --round <N> \
+     --envelope-file "$FEATURE_DIR/.review-pr-envelope.json" \
+     >> "$FEATURE_DIR/review-pr.md"
+   ```
+
+5. The rendered markdown includes a disposition column (`_pending_` by
+   default). After processing each comment / finding, edit the row's
+   Disposition cell to one of: `ADDRESSED`, `REJECTED`, `ISSUED #N`,
+   `CLARIFY`. The existing comment-response protocol governs which
+   disposition applies.
+
 ## PR Lifecycle
 
 ### Step 1: Ensure PR Context Exists
