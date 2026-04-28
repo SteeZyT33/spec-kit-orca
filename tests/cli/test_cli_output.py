@@ -5,6 +5,9 @@ import pytest
 from orca.cli_output import (
     render_error_block,
     render_metadata_footer,
+    render_review_code_markdown,
+    render_review_pr_markdown,
+    render_review_spec_markdown,
 )
 
 
@@ -124,3 +127,129 @@ def test_render_metadata_footer_preserves_two_space_breaks():
     out = render_metadata_footer(envelope)
     assert "_capability: cross-agent-review_  \n" in out
     assert "_version: 0.1.0_  \n" in out
+
+
+_CROSS_AGENT_REVIEW_ENVELOPE = {
+    "ok": True,
+    "result": {
+        "findings": [
+            {
+                "id": "0123456789abcdef",
+                "category": "correctness",
+                "severity": "high",
+                "confidence": "high",
+                "summary": "Off-by-one in loop",
+                "detail": "range(n) skips the last element.",
+                "evidence": ["src/foo.py:42"],
+                "suggestion": "Use range(n+1)",
+                "reviewer": "claude",
+                "reviewers": ["claude", "codex"],
+            }
+        ],
+        "partial": False,
+        "missing_reviewers": [],
+        "reviewer_metadata": {"claude": {}, "codex": {}},
+    },
+    "metadata": {"capability": "cross-agent-review", "version": "0.1.0", "duration_ms": 4567},
+}
+
+
+def test_render_review_spec_includes_round_header():
+    out = render_review_spec_markdown(
+        _CROSS_AGENT_REVIEW_ENVELOPE, round_num=1, feature_id="001-example",
+    )
+    assert "### Round 1 - Cross-Pass" in out
+    assert "001-example" in out
+    assert "Off-by-one in loop" in out
+    assert "[high]" in out
+
+
+def test_render_review_spec_no_findings():
+    envelope = {
+        "ok": True,
+        "result": {"findings": [], "partial": False, "missing_reviewers": [], "reviewer_metadata": {}},
+        "metadata": {"capability": "cross-agent-review", "version": "0.1.0", "duration_ms": 100},
+    }
+    out = render_review_spec_markdown(envelope, round_num=2, feature_id="x")
+    assert "### Round 2 - Cross-Pass" in out
+    assert "no findings" in out.lower()
+
+
+def test_render_review_spec_partial_surfaces_missing():
+    envelope = {
+        "ok": True,
+        "result": {
+            "findings": [],
+            "partial": True,
+            "missing_reviewers": ["codex"],
+            "reviewer_metadata": {"claude": {}},
+        },
+        "metadata": {"capability": "cross-agent-review", "version": "0.1.0", "duration_ms": 1000},
+    }
+    out = render_review_spec_markdown(envelope, round_num=1, feature_id="x")
+    assert "partial" in out.lower()
+    assert "codex" in out
+
+
+def test_render_review_spec_failure_uses_error_block():
+    envelope = {
+        "ok": False,
+        "error": {"kind": "backend_failure", "message": "all reviewers failed"},
+        "metadata": {"capability": "cross-agent-review", "version": "0.1.0", "duration_ms": 1000},
+    }
+    out = render_review_spec_markdown(envelope, round_num=1, feature_id="x")
+    assert "### Round 1 - FAILED" in out
+    assert "all reviewers failed" in out
+
+
+def test_render_review_code_groups_by_severity():
+    envelope = {
+        "ok": True,
+        "result": {
+            "findings": [
+                {
+                    "id": "aaa", "category": "c", "severity": "blocker",
+                    "confidence": "high", "summary": "blocker thing",
+                    "detail": "d", "evidence": ["x:1"], "suggestion": "s",
+                    "reviewer": "claude", "reviewers": ["claude"],
+                },
+                {
+                    "id": "bbb", "category": "c", "severity": "low",
+                    "confidence": "high", "summary": "low thing",
+                    "detail": "d", "evidence": ["x:2"], "suggestion": "s",
+                    "reviewer": "codex", "reviewers": ["codex"],
+                },
+            ],
+            "partial": False, "missing_reviewers": [], "reviewer_metadata": {},
+        },
+        "metadata": {"capability": "cross-agent-review", "version": "0.1.0", "duration_ms": 100},
+    }
+    out = render_review_code_markdown(envelope, round_num=1, feature_id="001-x")
+    # Severity grouping: blockers before lows
+    blocker_idx = out.index("blocker thing")
+    low_idx = out.index("low thing")
+    assert blocker_idx < low_idx
+    # Tier headers present
+    assert "#### Blocker" in out
+
+
+def test_render_review_pr_has_disposition_table():
+    envelope = {
+        "ok": True,
+        "result": {
+            "findings": [
+                {
+                    "id": "abc", "category": "c", "severity": "medium",
+                    "confidence": "high", "summary": "a comment",
+                    "detail": "d", "evidence": ["x:1"], "suggestion": "s",
+                    "reviewer": "claude", "reviewers": ["claude"],
+                }
+            ],
+            "partial": False, "missing_reviewers": [], "reviewer_metadata": {},
+        },
+        "metadata": {"capability": "cross-agent-review", "version": "0.1.0", "duration_ms": 100},
+    }
+    out = render_review_pr_markdown(envelope, round_num=1, feature_id="001-x")
+    # Pipe-separated columns present (markdown table)
+    assert "| id |" in out or "| Severity |" in out
+    assert "abc" in out

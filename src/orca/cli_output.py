@@ -77,6 +77,165 @@ def render_metadata_footer(envelope: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _severity_rank(severity: str) -> int:
+    """Lower rank = more severe; for sort ordering."""
+    return {"blocker": 0, "high": 1, "medium": 2, "low": 3, "nit": 4}.get(severity, 99)
+
+
+def _findings_sorted(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Stable severity-then-id sort so renderers produce deterministic output."""
+    return sorted(findings, key=lambda f: (_severity_rank(f.get("severity", "nit")), f.get("id", "")))
+
+
+def _render_finding_oneline(f: dict[str, Any]) -> str:
+    """One-line finding rendering for review-spec.
+
+    Shape: `- [severity] summary - evidence (reviewers)`. Hyphens, no em-dashes.
+    """
+    severity = f.get("severity", "?")
+    summary = f.get("summary", "?")
+    evidence = ", ".join(f.get("evidence", []))
+    reviewers = "+".join(f.get("reviewers", []))
+    suffix = f" ({reviewers})" if reviewers else ""
+    line = f"- [{severity}] {summary}"
+    if evidence:
+        line += f" - {evidence}"
+    return line + suffix
+
+
+def _render_partial_note(envelope: dict[str, Any]) -> str:
+    """If the envelope is a partial cross-mode run, note which reviewers failed."""
+    result = envelope.get("result", {})
+    if not result.get("partial"):
+        return ""
+    missing = result.get("missing_reviewers", [])
+    return f"\n_partial run: missing reviewers = {', '.join(missing)}_\n"
+
+
+def render_review_spec_markdown(
+    envelope: dict[str, Any], *, round_num: int, feature_id: str,
+) -> str:
+    """Render a cross-agent-review envelope as a review-spec.md round block.
+
+    Concise one-line per finding; suitable for spec-stage adversarial review
+    where operator scanning matters more than full diagnostic detail.
+    """
+    if not envelope.get("ok"):
+        return render_error_block(envelope, round_num=round_num)
+
+    result = envelope.get("result", {})
+    findings = _findings_sorted(result.get("findings", []))
+
+    lines = [
+        f"### Round {round_num} - Cross-Pass ({feature_id})",
+        "",
+    ]
+    if not findings:
+        lines.append("_no findings_")
+    else:
+        for f in findings:
+            lines.append(_render_finding_oneline(f))
+    partial = _render_partial_note(envelope)
+    if partial:
+        lines.append(partial)
+    lines.append("")
+    lines.append(render_metadata_footer(envelope))
+    return "\n".join(lines)
+
+
+def render_review_code_markdown(
+    envelope: dict[str, Any], *, round_num: int, feature_id: str,
+) -> str:
+    """Render a cross-agent-review envelope as a review-code.md round block.
+
+    Groups findings under severity-tier subheadings so operators can scan
+    blockers first. Each finding gets multi-line detail (summary, detail,
+    evidence, suggestion).
+    """
+    if not envelope.get("ok"):
+        return render_error_block(envelope, round_num=round_num)
+
+    result = envelope.get("result", {})
+    findings = _findings_sorted(result.get("findings", []))
+
+    lines = [
+        f"### Round {round_num} - Cross-Pass ({feature_id})",
+        "",
+    ]
+    if not findings:
+        lines.append("_no findings_")
+    else:
+        # Group by severity for operator scan-ability
+        by_severity: dict[str, list[dict[str, Any]]] = {}
+        for f in findings:
+            by_severity.setdefault(f.get("severity", "?"), []).append(f)
+        for severity in ("blocker", "high", "medium", "low", "nit"):
+            group = by_severity.get(severity)
+            if not group:
+                continue
+            lines.append(f"#### {severity.capitalize()}")
+            lines.append("")
+            for f in group:
+                summary = f.get("summary", "?")
+                detail = f.get("detail", "")
+                evidence = ", ".join(f.get("evidence", []))
+                suggestion = f.get("suggestion", "")
+                reviewers = "+".join(f.get("reviewers", []))
+                lines.append(f"- **{summary}** ({reviewers})")
+                if detail:
+                    lines.append(f"  - {detail}")
+                if evidence:
+                    lines.append(f"  - evidence: {evidence}")
+                if suggestion:
+                    lines.append(f"  - suggestion: {suggestion}")
+            lines.append("")
+
+    partial = _render_partial_note(envelope)
+    if partial:
+        lines.append(partial)
+    lines.append(render_metadata_footer(envelope))
+    return "\n".join(lines)
+
+
+def render_review_pr_markdown(
+    envelope: dict[str, Any], *, round_num: int, feature_id: str,
+) -> str:
+    """Render a cross-agent-review envelope as a review-pr.md round block.
+
+    Markdown table with id, severity, summary, reviewers, and a pending
+    Disposition column. Operator edits the Disposition cell after
+    processing each finding (ADDRESSED / REJECTED / ISSUED #N / CLARIFY).
+    """
+    if not envelope.get("ok"):
+        return render_error_block(envelope, round_num=round_num)
+
+    result = envelope.get("result", {})
+    findings = _findings_sorted(result.get("findings", []))
+
+    lines = [
+        f"### Round {round_num} - Cross-Pass ({feature_id})",
+        "",
+    ]
+    if not findings:
+        lines.append("_no findings_")
+    else:
+        lines.append("| id | Severity | Summary | Reviewers | Disposition |")
+        lines.append("|----|----------|---------|-----------|-------------|")
+        for f in findings:
+            fid = f.get("id", "?")
+            severity = f.get("severity", "?")
+            summary = f.get("summary", "?").replace("|", "\\|")
+            reviewers = "+".join(f.get("reviewers", []))
+            lines.append(f"| {fid} | {severity} | {summary} | {reviewers} | _pending_ |")
+
+    partial = _render_partial_note(envelope)
+    if partial:
+        lines.append(partial)
+    lines.append("")
+    lines.append(render_metadata_footer(envelope))
+    return "\n".join(lines)
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entrypoint: `python -m orca.cli_output render-{type} ...`.
 
