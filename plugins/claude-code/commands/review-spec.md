@@ -33,16 +33,48 @@ self-pass — spec review is adversarial by design.
 
 ## Outline
 
-1. Resolve the feature directory from the user input or current context.
-2. Read `spec.md` plus any supporting artifacts.
-3. Evaluate against:
-   - Cross-spec consistency (does this conflict with other specs?)
-   - Feasibility (can this actually be built with the stated approach?)
-   - Security implications (OWASP top 10, auth boundaries, data exposure)
-   - Dependency risks (upstream contracts consumed, downstream impact)
-   - Industry patterns (are there better-known approaches?)
-4. Write findings to `<feature-dir>/review-spec.md`.
-5. Report verdict: `ready`, `needs-revision`, or `blocked`.
+1. Resolve `<feature-dir>` from user input or current branch (e.g., `specs/001-foo/`).
+
+2. Resolve `<feature-id>` (basename of feature dir, e.g., `001-foo`).
+
+3. Determine the next round number: count existing `### Round N - ` headers in `<feature-dir>/review-spec.md` (if it exists), N+1 is the new round; otherwise round 1.
+
+4. Invoke `orca-cli cross-agent-review` against the spec:
+
+   ```bash
+   uv run orca-cli cross-agent-review \
+     --kind spec \
+     --target "<feature-dir>/spec.md" \
+     --feature-id "<feature-id>" \
+     --reviewer cross \
+     --criteria "cross-spec-consistency" \
+     --criteria "feasibility" \
+     --criteria "security" \
+     --criteria "dependencies" \
+     --criteria "industry-patterns" \
+     > /tmp/orca-review-spec-envelope.json
+   ```
+
+   Live mode (real LLM calls) requires `ORCA_LIVE=1`. For dry-run/testing
+   set `ORCA_FIXTURE_REVIEWER_CLAUDE` and `ORCA_FIXTURE_REVIEWER_CODEX`
+   to JSON fixture paths.
+
+5. Translate the JSON envelope into a markdown round-block:
+
+   ```bash
+   uv run python -m orca.cli_output render-review-spec \
+     --feature-id "<feature-id>" \
+     --round <N> \
+     --envelope-file /tmp/orca-review-spec-envelope.json \
+     >> "<feature-dir>/review-spec.md"
+   ```
+
+6. Read the resulting `review-spec.md` and report verdict to the user:
+   - `ready` if the round had no findings
+   - `needs-revision` if there are blocker/high findings
+   - `blocked` if the envelope was a failure (`ok: false`)
+
+7. If a handoff is appropriate, route via the existing `handoffs` block in this file's frontmatter.
 
 ## Guardrails
 
