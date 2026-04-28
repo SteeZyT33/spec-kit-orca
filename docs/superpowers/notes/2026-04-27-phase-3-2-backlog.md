@@ -6,7 +6,7 @@
 
 ## Capability-level work
 
-### 1. Citation validator over-flags non-prose content
+### 1. Citation validator over-flags non-prose content - DONE (2026-04-27)
 
 All three sessions flagged the same issue: `citation-validator` reports `Coverage: **6%**` against typical spec.md / README.md content because the heuristic treats:
 
@@ -22,6 +22,8 @@ All three sessions flagged the same issue: `citation-validator` reports `Coverag
 - Tightens the broken-ref detector to require `[ref:NAME]`, `[NAME.md]`, or `[#NAME]` form (not bare `[anything: with colons]`)
 
 **Tests to add:** fixture markdown files representing each false-positive class, asserting they don't appear in `uncited_claims` or `broken_refs`.
+
+**Resolution:** Added `_strip_code_fences` (handles backtick + tilde + indented + unclosed-at-EOF), `_is_table_row`, `_SCAFFOLDING_PATTERNS` (FR-NNN bullets with leading `- ` tolerated, session headers, `**Field**:` lines, Run N/M tags), `_is_reflike` ref-shape filter, and `skip_patterns` input field with re.compile error -> INPUT_INVALID. `_ref_resolves` strips `ref:` prefix. CLI gains `--skip-pattern`. 14 new tests; 32 total in `test_citation_validator.py`; 417 passing overall (commit `a7ea715`). Smoke against representative spec.md files showed uncited-claim counts dropping ~10x (e.g., `specs/006-orca-review-artifacts/spec.md`: 34 -> 9; `specs/003-cross-review-agent-selection/spec.md`: 26 -> 2).
 
 ### 2. Citation default reference set should auto-discover, not hardcode
 
