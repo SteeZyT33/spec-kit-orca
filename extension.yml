@@ -43,6 +43,10 @@ provides:
       file: "plugins/claude-code/commands/cite.md"
       description: "Validate citations and ref hygiene in synthesis text using rule-based heuristics. Wraps the orca citation-validator capability."
 
+    - name: "speckit.orca.doctor"
+      file: "plugins/claude-code/commands/doctor.md"
+      description: "Diagnose orca install: orca-cli, .specify, SKILL.md, reviewer backends. Exit 0 if healthy."
+
   config:
     - name: "orca-config.yml"
       template: "config-template.yml"
