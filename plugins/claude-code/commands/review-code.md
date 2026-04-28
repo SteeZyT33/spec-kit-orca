@@ -174,8 +174,35 @@ Use `"${ORCA_RUN[@]}"` in place of `orca-cli` and `"${ORCA_PY[@]}"` in place of
       backward compat) in `$FEATURE_DIR/review-code.md`. New round =
       count + 1.
 
-   c. Invoke `orca-cli cross-agent-review` against the diff. Both
-      reviewers run by default (`--reviewer cross`):
+   c. Build the cross-pass review prompt and dispatch the in-session Claude reviewer (Claude Code only):
+
+      (If `uv run orca-cli ...` fails with `Failed to spawn`, see the
+      Prerequisites section above and substitute `"${ORCA_RUN[@]}"` /
+      `"${ORCA_PY[@]}"` in the snippets below.)
+
+      ```bash
+      ORCA_PROMPT=$(uv run orca-cli build-review-prompt \
+        --kind diff \
+        --criteria correctness \
+        --criteria security \
+        --criteria maintainability)
+      ```
+
+      Dispatch a `Code Reviewer` subagent via the Agent tool with:
+      - description: `Cross-pass review of $(basename "$FEATURE_DIR") diff`
+      - prompt: `$ORCA_PROMPT` followed by the full content of `"$FEATURE_DIR/.cross-pass-patch"`
+
+      Capture the subagent's full response text. Then pipe it through
+      `parse-subagent-response` to validate and write the findings file:
+
+      ```bash
+      printf '%s' "$SUBAGENT_RESPONSE" | uv run orca-cli parse-subagent-response \
+        > "$FEATURE_DIR/.review-code-claude-findings.json"
+      ```
+
+      If `parse-subagent-response` exits non-zero, append a `### Round N - FAILED` block to `$FEATURE_DIR/review-code.md` describing the parse failure and STOP.
+
+   d. Invoke `orca-cli cross-agent-review` against the diff, providing the file-backed claude findings:
 
       ```bash
       uv run orca-cli cross-agent-review \
@@ -183,6 +210,7 @@ Use `"${ORCA_RUN[@]}"` in place of `orca-cli` and `"${ORCA_PY[@]}"` in place of
         --target "$FEATURE_DIR/.cross-pass-patch" \
         --feature-id "$(basename "$FEATURE_DIR")" \
         --reviewer cross \
+        --claude-findings-file "$FEATURE_DIR/.review-code-claude-findings.json" \
         --criteria "correctness" \
         --criteria "security" \
         --criteria "maintainability" \
@@ -192,12 +220,12 @@ Use `"${ORCA_RUN[@]}"` in place of `orca-cli` and `"${ORCA_PY[@]}"` in place of
       Live mode requires `ORCA_LIVE=1`. For dry-run set
       `ORCA_FIXTURE_REVIEWER_CLAUDE` / `_CODEX` to fixture paths.
 
-   d. If the envelope is a failure (`ok: false`), STOP and report it
+   e. If the envelope is a failure (`ok: false`), STOP and report it
       as a review-code blocker. Do NOT fall back to a same-agent
       second pass. Same-agent cross-passes are explicitly forbidden
       by the 012 contract.
 
-   e. Translate the envelope into a markdown round-block and append:
+   f. Translate the envelope into a markdown round-block and append:
 
       ```bash
       uv run python -m orca.cli_output render-review-code \
@@ -207,11 +235,11 @@ Use `"${ORCA_RUN[@]}"` in place of `orca-cli` and `"${ORCA_PY[@]}"` in place of
         >> "$FEATURE_DIR/review-code.md"
       ```
 
-   f. The artifact's `Round N` block contains all findings grouped by
+   g. The artifact's `Round N` block contains all findings grouped by
       severity tier (blocker / high / medium / low / nit). Self-pass
       findings stay in their own section above the round-block.
 
-   g. Both passes (self + cross-via-orca) MUST appear in the final
+   h. Both passes (self + cross-via-orca) MUST appear in the final
       review-code.md before the artifact is considered complete.
 
 ## Merge Conflict Resolution Protocol
