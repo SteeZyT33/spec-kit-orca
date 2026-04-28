@@ -128,67 +128,60 @@ feedback is handled by `/orca:review-pr`.
    - classify conflicts using the merge protocol below
    - record results in the review output
 
-8. **MANDATORY: Run the cross-harness cross-pass.** The self-pass alone is not
-   a complete review-code artifact per 012. Skipping this step produces an
-   incomplete artifact and is a contract violation.
+8. **MANDATORY: Run the cross-agent-review capability.**
 
-   a. Detect and export the active (author) agent. Prefer
-      `.specify/init-options.json`, then the `$ORCA_ACTIVE_AGENT` env var
-      (same convention as `scripts/bash/crossreview.sh`), then default to
-      `claude`:
+   The self-pass alone is not a complete review-code artifact per 012.
 
-      ```bash
-      ACTIVE_AGENT=$(
-        jq -r '.agent // empty' .specify/init-options.json 2>/dev/null \
-          || echo ""
-      )
-      : "${ACTIVE_AGENT:=${ORCA_ACTIVE_AGENT:-claude}}"
-      export ACTIVE_AGENT
-      ```
-
-   b. Select the cross-pass agent. matriarch's routing module was
-      removed in Phase 1 of the orca v1 rebuild; use the simple
-      alternate-agent rule until Phase 2 ships a richer
-      `cross-agent-review` capability:
-
-      ```bash
-      if [[ "$ACTIVE_AGENT" == "claude" ]]; then
-        CROSS_AGENT="codex"
-      else
-        CROSS_AGENT="claude"
-      fi
-      ```
-
-   c. Build the cross-pass patch file (diff of the implementation under review).
-      `$BASE_REF` is the merge-base with the target branch (default `main`):
+   a. Build the diff for the cross-pass. `$BASE_REF` is the merge-base
+      with the target branch (default `main`):
 
       ```bash
       BASE_REF=$(git merge-base "${ORCA_BASE_BRANCH:-main}" HEAD)
       git diff "$BASE_REF"...HEAD > "$FEATURE_DIR/.cross-pass-patch"
       ```
 
-   d. Invoke the cross-pass harness:
+   b. Determine the next round number from existing `### Round N - `
+      headers in `$FEATURE_DIR/review-code.md`. New round = count + 1.
+
+   c. Invoke `orca-cli cross-agent-review` against the diff. Both
+      reviewers run by default (`--reviewer cross`):
 
       ```bash
-      bash scripts/bash/crossreview.sh \
-        --harness "$CROSS_AGENT" \
-        --active-agent "$ACTIVE_AGENT" \
-        --output "$FEATURE_DIR/review-code-cross.json" \
-        --prompt-file "$FEATURE_DIR/.cross-pass-prompt.md" \
-        --patch-file "$FEATURE_DIR/.cross-pass-patch" \
-        --schema-file "templates/review-code-cross-schema.json"
+      uv run orca-cli cross-agent-review \
+        --kind diff \
+        --target "$FEATURE_DIR/.cross-pass-patch" \
+        --feature-id "$(basename $FEATURE_DIR)" \
+        --reviewer cross \
+        --criteria "correctness" \
+        --criteria "security" \
+        --criteria "maintainability" \
+        > "$FEATURE_DIR/.review-code-envelope.json"
       ```
 
-   e. If the cross-pass harness is unavailable, STOP and report it as a
-      review-code blocker. Do NOT fall back to a same-agent second pass.
-      Same-agent cross-passes are explicitly forbidden by the 012 contract.
+      Live mode requires `ORCA_LIVE=1`. For dry-run set
+      `ORCA_FIXTURE_REVIEWER_CLAUDE` / `_CODEX` to fixture paths.
 
-   f. Merge the cross-pass findings into `review-code.md` under a
-      `### Cross-Pass Review ({agent})` subsection. Keep self-pass findings
-      and cross-pass findings separate and clearly labeled.
+   d. If the envelope is a failure (`ok: false`), STOP and report it
+      as a review-code blocker. Do NOT fall back to a same-agent
+      second pass. Same-agent cross-passes are explicitly forbidden
+      by the 012 contract.
 
-   g. Both passes MUST appear in the final review-code.md before the
-      artifact is considered complete.
+   e. Translate the envelope into a markdown round-block and append:
+
+      ```bash
+      uv run python -m orca.cli_output render-review-code \
+        --feature-id "$(basename $FEATURE_DIR)" \
+        --round <N> \
+        --envelope-file "$FEATURE_DIR/.review-code-envelope.json" \
+        >> "$FEATURE_DIR/review-code.md"
+      ```
+
+   f. The artifact's `Round N` block contains all findings grouped by
+      severity tier (blocker / high / medium / low / nit). Self-pass
+      findings stay in their own section above the round-block.
+
+   g. Both passes (self + cross-via-orca) MUST appear in the final
+      review-code.md before the artifact is considered complete.
 
 ## Merge Conflict Resolution Protocol
 
