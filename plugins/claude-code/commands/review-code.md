@@ -230,7 +230,7 @@ Also flag:
 
 Run these passes sequentially and produce findings with file:line references.
 
-### Pass 1 — Spec Compliance
+### Pass 1 - Spec Compliance
 
 - verify acceptance scenarios from `spec.md`
 - verify functional requirements and user stories
@@ -238,14 +238,14 @@ Run these passes sequentially and produce findings with file:line references.
 - verify data model alignment when `data-model.md` exists
 - report scope creep
 
-### Pass 2 — Code Quality
+### Pass 2 - Code Quality
 
 - verify architecture alignment with `plan.md`
 - verify file organization and module placement
 - report obvious bugs, dead code, and missing error handling
 - report plan deviations
 
-### Pass 3 — Security
+### Pass 3 - Security
 
 Run when:
 
@@ -259,7 +259,7 @@ Check:
 - input validation
 - secrets handling
 
-### Pass 4 — Product Critique
+### Pass 4 - Product Critique
 
 Run only with `--critique`.
 
@@ -299,7 +299,7 @@ Write or append the detailed implementation review to
 Each section in `review-code.md` should include:
 
 ```markdown
-## Phase N Review — YYYY-MM-DD
+## Phase N Review - YYYY-MM-DD
 
 ### Merge Conflicts: PASS | FAIL
 - [conflict report]
