@@ -12,7 +12,7 @@ LLM-backed capabilities (`cross-agent-review`, `contradiction-detector`) produce
 
 ## CLI Surface
 
-The canonical entry point is `orca-cli`. Seven capabilities are available:
+The canonical entry point is `orca-cli`. Six capabilities are available:
 
 | Capability | What it does | README |
 |------------|--------------|--------|
@@ -22,9 +22,16 @@ The canonical entry point is `orca-cli`. Seven capabilities are available:
 | `completion-gate` | Decide whether a feature has cleared gates for a target stage (`plan-ready`, `implement-ready`, `pr-ready`, `merge-ready`) | `docs/capabilities/completion-gate/README.md` |
 | `citation-validator` | Rule-based detection of uncited claims and broken refs in synthesis text | `docs/capabilities/citation-validator/README.md` |
 | `contradiction-detector` | Cross-agent-review with a fixed contradiction prompt; surfaces conflicts between new content and prior evidence | `docs/capabilities/contradiction-detector/README.md` |
-| `parse-subagent-response` | Extract and validate the findings JSON array from raw subagent text on stdin; emits validated JSON on stdout, `Err(INPUT_INVALID)` envelope on failure. Used by in-session reviewer slash commands to pipe subagent output. | (see `src/orca/python_cli.py` `_run_parse_subagent_response`) |
 
 Each capability has an input schema (`docs/capabilities/<name>/schema/input.json`) and output schema (`docs/capabilities/<name>/schema/output.json`).
+
+## Utility Subcommands
+
+The following are not capabilities (no schema directory, no Result envelope on success) but are exposed via `orca-cli` for use by host harnesses (e.g., Claude Code slash commands):
+
+| Subcommand | Purpose | Source |
+|------------|---------|--------|
+| `parse-subagent-response` | Reads raw subagent text on stdin; extracts and validates JSON findings array; emits validated JSON on stdout (or `Err(INPUT_INVALID)` envelope on stdout, exit 1, on failure). Used by slash commands to validate subagent output before passing to `cross-agent-review --claude-findings-file`. | `src/orca/python_cli.py` `_run_parse_subagent_response` |
 
 ## Universal Result Envelope
 
