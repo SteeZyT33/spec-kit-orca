@@ -127,7 +127,7 @@ the PR has substantive new diff since last review):
 
 Suggested shape:
 
-- title: `Phase N: [phase name] — [feature branch name]`
+- title: `Phase N: [phase name] - [feature branch name]`
 - body: summary from the latest code review section
 - labels: phase number and review status if supported
 
@@ -146,10 +146,10 @@ Every PR comment gets exactly one disposition:
 
 | Status | Format | When to Use |
 |--------|--------|-------------|
-| ADDRESSED | `ADDRESSED in [commit SHA] — [brief description of fix]` | Fix applied and pushed |
-| REJECTED | `REJECTED — [reason with evidence from spec/plan/review]` | Comment is incorrect or conflicts with intended design |
-| ISSUED | `ISSUED #[issue number] — [why deferred]` | Valid but intentionally deferred |
-| CLARIFY | `CLARIFY — [specific question]` | Comment is ambiguous |
+| ADDRESSED | `ADDRESSED in [commit SHA] - [brief description of fix]` | Fix applied and pushed |
+| REJECTED | `REJECTED - [reason with evidence from spec/plan/review]` | Comment is incorrect or conflicts with intended design |
+| ISSUED | `ISSUED #[issue number] - [why deferred]` | Valid but intentionally deferred |
+| CLARIFY | `CLARIFY - [specific question]` | Comment is ambiguous |
 
 Rules:
 
@@ -202,7 +202,7 @@ When `--post-merge` is passed, or when explicitly running post-merge checks:
 Update or append to `FEATURE_DIR/review-pr.md` with PR-focused sections such as:
 
 ```markdown
-### PR: #[number] — [status]
+### PR: #[number] - [status]
 - Comments: [total] | Addressed: [n] | Rejected: [n] | Issued: [n] | Clarify: [n]
 
 ### External Comment Responses
