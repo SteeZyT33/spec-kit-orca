@@ -3,7 +3,7 @@ description: Cross-only adversarial review of a clarified spec. Validates cross-
 handoffs:
   - label: Revise The Spec
     agent: speckit.specify
-    prompt: Spec review found issues — revise the spec before planning
+    prompt: Spec review found issues - revise the spec before planning
 ---
 
 ## User Input
@@ -19,7 +19,7 @@ You **MUST** consider the user input before proceeding (if not empty).
 `review-spec` is 012's cross-only spec review. A different agent from the
 spec author examines the clarified `spec.md` for consistency, feasibility,
 security, dependencies, and industry-pattern alignment. There is no
-self-pass — spec review is adversarial by design.
+self-pass - spec review is adversarial by design.
 
 ## Workflow Contract
 
@@ -83,5 +83,5 @@ self-pass — spec review is adversarial by design.
   recommend routing to a different agent via the cross-pass mechanism.
 - Do not conflate spec review with code review. Spec review examines the
   DESIGN artifact, not implementation code.
-- If no `spec.md` exists for the target feature, stop and explain —
+- If no `spec.md` exists for the target feature, stop and explain;
   do not fabricate a review against missing input.
