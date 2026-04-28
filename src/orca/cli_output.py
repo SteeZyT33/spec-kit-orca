@@ -261,6 +261,120 @@ def render_review_pr_markdown(
     return "\n".join(lines)
 
 
+def render_completion_gate_markdown(
+    envelope: dict[str, Any], *, target_stage: str,
+) -> str:
+    """Render a completion-gate envelope as a Markdown report.
+
+    Used by /orca:gate slash command. Single-shot (not round-appended);
+    failure envelopes use round_num=0 in the error block.
+    """
+    if not envelope.get("ok"):
+        return render_error_block(envelope, round_num=0)
+
+    result = envelope.get("result", {})
+    status = result.get("status", "?")
+    gates = result.get("gates_evaluated", [])
+    blockers = result.get("blockers", [])
+    stale = result.get("stale_artifacts", [])
+
+    lines = [
+        f"## Completion Gate: {target_stage}",
+        "",
+        f"Status: **{status}**",
+    ]
+    if gates:
+        lines.append("")
+        lines.append("### Gates")
+        lines.append("")
+        for g in gates:
+            gate = g.get("gate", "?")
+            passed = g.get("passed", False)
+            reason = g.get("reason", "")
+            mark = "✓" if passed else "✗"
+            line = f"- {mark} `{gate}`"
+            if reason:
+                line += f" - {reason}"
+            lines.append(line)
+
+    if blockers:
+        lines.append("")
+        lines.append("### Blockers")
+        lines.append("")
+        for b in blockers:
+            lines.append(f"- `{b}`")
+
+    if stale:
+        lines.append("")
+        lines.append("### Stale Artifacts")
+        lines.append("")
+        for s in stale:
+            lines.append(f"- `{s}`")
+
+    lines.append("")
+    lines.append(render_metadata_footer(envelope))
+    return "\n".join(lines)
+
+
+def render_citation_markdown(
+    envelope: dict[str, Any], *, content_path: str,
+) -> str:
+    """Render a citation-validator envelope as a Markdown report.
+
+    Used by /orca:cite slash command. Single-shot (not round-appended);
+    failure envelopes use round_num=0 in the error block.
+    """
+    if not envelope.get("ok"):
+        return render_error_block(envelope, round_num=0)
+
+    result = envelope.get("result", {})
+    coverage = result.get("citation_coverage", 0)
+    uncited = result.get("uncited_claims", [])
+    broken = result.get("broken_refs", [])
+    well = result.get("well_supported_claims", [])
+
+    lines = [
+        f"## Citation Report: {content_path}",
+        "",
+        f"Coverage: **{coverage}**",
+        "",
+        f"- well-supported: {len(well)}",
+        f"- uncited: {len(uncited)}",
+        f"- broken refs: {len(broken)}",
+    ]
+
+    if uncited:
+        lines.append("")
+        lines.append("### Uncited Claims")
+        lines.append("")
+        for c in uncited:
+            text = c.get("text", "")
+            line = c.get("line", "?")
+            lines.append(f"- line {line}: {text}")
+
+    if broken:
+        lines.append("")
+        lines.append("### Broken Refs")
+        lines.append("")
+        for b in broken:
+            ref = b.get("ref", "?")
+            line = b.get("line", "?")
+            lines.append(f"- line {line}: `[{ref}]`")
+
+    if well:
+        lines.append("")
+        lines.append("### Well-Supported Claims")
+        lines.append("")
+        for w in well:
+            text = w.get("text", "")
+            line = w.get("line", "?")
+            lines.append(f"- line {line}: {text}")
+
+    lines.append("")
+    lines.append(render_metadata_footer(envelope))
+    return "\n".join(lines)
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entrypoint: `python -m orca.cli_output render-{type} ...`.
 

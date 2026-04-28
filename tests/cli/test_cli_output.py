@@ -369,3 +369,160 @@ def test_render_review_pr_no_double_blank_populated():
         _populated_cross_agent_envelope(), round_num=1, feature_id="x",
     )
     _assert_no_double_blank_before_footer(out)
+
+
+from orca.cli_output import (
+    render_completion_gate_markdown,
+    render_citation_markdown,
+)
+
+
+def test_render_completion_gate_pass():
+    envelope = {
+        "ok": True,
+        "result": {
+            "status": "pass",
+            "gates_evaluated": [
+                {"gate": "spec_exists", "passed": True, "reason": ""},
+                {"gate": "no_unclarified", "passed": True, "reason": ""},
+            ],
+            "blockers": [],
+            "stale_artifacts": [],
+        },
+        "metadata": {"capability": "completion-gate", "version": "0.1.0", "duration_ms": 50},
+    }
+    out = render_completion_gate_markdown(envelope, target_stage="plan-ready")
+    assert "## Completion Gate: plan-ready" in out
+    assert "Status: **pass**" in out
+    assert "spec_exists" in out
+    assert "✓" in out
+
+
+def test_render_completion_gate_blocked():
+    envelope = {
+        "ok": True,
+        "result": {
+            "status": "blocked",
+            "gates_evaluated": [
+                {"gate": "spec_exists", "passed": False, "reason": ""},
+                {"gate": "no_unclarified", "passed": False, "reason": "spec.md missing"},
+            ],
+            "blockers": ["spec_exists", "no_unclarified"],
+            "stale_artifacts": [],
+        },
+        "metadata": {"capability": "completion-gate", "version": "0.1.0", "duration_ms": 50},
+    }
+    out = render_completion_gate_markdown(envelope, target_stage="plan-ready")
+    assert "Status: **blocked**" in out
+    assert "spec_exists" in out
+    # blocker reasons surfaced
+    assert "spec.md missing" in out
+    assert "✗" in out
+
+
+def test_render_completion_gate_stale():
+    envelope = {
+        "ok": True,
+        "result": {
+            "status": "stale",
+            "gates_evaluated": [],
+            "blockers": [],
+            "stale_artifacts": ["spec.md"],
+        },
+        "metadata": {"capability": "completion-gate", "version": "0.1.0", "duration_ms": 50},
+    }
+    out = render_completion_gate_markdown(envelope, target_stage="plan-ready")
+    assert "Status: **stale**" in out
+    assert "spec.md" in out
+
+
+def test_render_completion_gate_failure():
+    envelope = {
+        "ok": False,
+        "error": {"kind": "input_invalid", "message": "feature_dir does not exist"},
+        "metadata": {"capability": "completion-gate", "version": "0.1.0", "duration_ms": 0},
+    }
+    out = render_completion_gate_markdown(envelope, target_stage="plan-ready")
+    # Re-uses error block (round 0 since it's a single-shot, not appended round)
+    assert "FAILED" in out
+    assert "feature_dir does not exist" in out
+
+
+def test_render_citation_full_coverage():
+    envelope = {
+        "ok": True,
+        "result": {
+            "uncited_claims": [],
+            "broken_refs": [],
+            "well_supported_claims": [
+                {"text": "Tests prove [evidence].", "line": 3},
+            ],
+            "citation_coverage": 1.0,
+        },
+        "metadata": {"capability": "citation-validator", "version": "0.1.0", "duration_ms": 30},
+    }
+    out = render_citation_markdown(envelope, content_path="synthesis.md")
+    assert "## Citation Report: synthesis.md" in out
+    assert "Coverage: **1.0**" in out
+    assert "Tests prove" in out
+
+
+def test_render_citation_with_uncited_and_broken():
+    envelope = {
+        "ok": True,
+        "result": {
+            "uncited_claims": [{"text": "Results show 42% gain.", "line": 1}],
+            "broken_refs": [{"ref": "missing-doc", "line": 2}],
+            "well_supported_claims": [],
+            "citation_coverage": 0.5,
+        },
+        "metadata": {"capability": "citation-validator", "version": "0.1.0", "duration_ms": 30},
+    }
+    out = render_citation_markdown(envelope, content_path="synthesis.md")
+    assert "Coverage: **0.5**" in out
+    assert "### Uncited Claims" in out
+    assert "line 1" in out
+    assert "### Broken Refs" in out
+    assert "missing-doc" in out
+
+
+def test_render_citation_failure():
+    envelope = {
+        "ok": False,
+        "error": {"kind": "input_invalid", "message": "content_path does not exist: /nope"},
+        "metadata": {"capability": "citation-validator", "version": "0.1.0", "duration_ms": 0},
+    }
+    out = render_citation_markdown(envelope, content_path="/nope")
+    assert "FAILED" in out
+    assert "content_path does not exist" in out
+
+
+def test_render_completion_gate_no_double_blank_populated():
+    """Same whitespace invariant as review renderers."""
+    envelope = {
+        "ok": True,
+        "result": {
+            "status": "blocked",
+            "gates_evaluated": [{"gate": "spec_exists", "passed": False, "reason": "missing"}],
+            "blockers": ["spec_exists"],
+            "stale_artifacts": ["spec.md"],
+        },
+        "metadata": {"capability": "completion-gate", "version": "0.1.0", "duration_ms": 50},
+    }
+    out = render_completion_gate_markdown(envelope, target_stage="plan-ready")
+    _assert_no_double_blank_before_footer(out)
+
+
+def test_render_citation_no_double_blank_populated():
+    envelope = {
+        "ok": True,
+        "result": {
+            "uncited_claims": [{"text": "Results show 42% gain.", "line": 1}],
+            "broken_refs": [{"ref": "missing-doc", "line": 2}],
+            "well_supported_claims": [{"text": "Tests prove [e].", "line": 3}],
+            "citation_coverage": 0.66,
+        },
+        "metadata": {"capability": "citation-validator", "version": "0.1.0", "duration_ms": 30},
+    }
+    out = render_citation_markdown(envelope, content_path="synthesis.md")
+    _assert_no_double_blank_before_footer(out)
