@@ -658,6 +658,10 @@ def _run_contradiction_detector(args: list[str]) -> int:
     parser.add_argument("--prior-evidence", action="append", required=True, default=[],
                         help="path to prior evidence file (repeatable, at least one required)")
     parser.add_argument("--reviewer", default="cross", choices=["claude", "codex", "cross"])
+    parser.add_argument("--claude-findings-file", default=None,
+                        help="path to a JSON file with pre-authored claude findings; bypasses SDK")
+    parser.add_argument("--codex-findings-file", default=None,
+                        help="path to a JSON file with pre-authored codex findings; bypasses SDK")
     parser.add_argument("--pretty", action="store_true",
                         help="emit human-readable summary instead of JSON envelope")
 
@@ -694,6 +698,24 @@ def _run_contradiction_detector(args: list[str]) -> int:
             exit_code=2,
         )
 
+    # Pre-flight validation for findings-file flags (mirrors cross-agent-review).
+    for slot, path_str in (
+        ("claude-findings-file", ns.claude_findings_file),
+        ("codex-findings-file", ns.codex_findings_file),
+    ):
+        if not path_str:
+            continue
+        err_msg = _validate_findings_file_eagerly(path_str)
+        if err_msg is not None:
+            return _emit_envelope(
+                envelope=_err_envelope(
+                    "contradiction-detector", CONTRADICTION_DETECTOR_VERSION,
+                    ErrorKind.INPUT_INVALID, f"{slot}: {err_msg}",
+                ),
+                pretty=ns.pretty,
+                exit_code=1,
+            )
+
     inp = ContradictionDetectorInput(
         new_content=ns.new_content,
         prior_evidence=ns.prior_evidence,
@@ -701,7 +723,10 @@ def _run_contradiction_detector(args: list[str]) -> int:
     )
 
     started = time.monotonic()
-    reviewers = _load_reviewers()
+    reviewers = _load_reviewers(
+        claude_findings_file=ns.claude_findings_file,
+        codex_findings_file=ns.codex_findings_file,
+    )
     result = contradiction_detector(inp, reviewers=reviewers)
     duration_ms = round((time.monotonic() - started) * 1000, 1)  # float, 0.1ms precision
 

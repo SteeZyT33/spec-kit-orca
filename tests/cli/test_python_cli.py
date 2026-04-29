@@ -477,6 +477,186 @@ def test_cli_contradiction_detector_single_reviewer(tmp_path, capsys, monkeypatc
     assert env["result"]["missing_reviewers"] == []
 
 
+def test_contradiction_detector_claude_findings_file(tmp_path: Path, capsys) -> None:
+    """--claude-findings-file uses FileBackedReviewer instead of SDK."""
+    new = tmp_path / "synthesis.md"
+    new.write_text("X is fast.")
+    prior = tmp_path / "evidence.md"
+    prior.write_text("X measured slow.")
+
+    findings = [{
+        "id": "abc1234567890def",
+        "category": "contradiction",
+        "severity": "high",
+        "confidence": "high",
+        "summary": "X is fast",
+        "detail": "conflicts with prior measurements",
+        "evidence": ["evidence.md"],
+        "suggestion": "re-measure",
+        "reviewer": "claude",
+    }]
+    findings_file = tmp_path / "claude-findings.json"
+    findings_file.write_text(json.dumps(findings), encoding="utf-8")
+
+    rc = cli_main([
+        "contradiction-detector",
+        "--new-content", str(new),
+        "--prior-evidence", str(prior),
+        "--reviewer", "claude",
+        "--claude-findings-file", str(findings_file),
+    ])
+    out = capsys.readouterr().out
+    env = json.loads(out)
+    assert env["ok"] is True
+    assert "X is fast" in json.dumps(env["result"])
+    assert rc == 0
+
+
+def test_contradiction_detector_codex_findings_file(tmp_path: Path, capsys) -> None:
+    """--codex-findings-file uses FileBackedReviewer for codex slot."""
+    new = tmp_path / "synthesis.md"
+    new.write_text("X is fast.")
+    prior = tmp_path / "evidence.md"
+    prior.write_text("X measured slow.")
+
+    codex_findings = [{
+        "id": "fed4321098765432",
+        "category": "contradiction",
+        "severity": "medium",
+        "confidence": "high",
+        "summary": "codex-specific claim",
+        "detail": "from codex file",
+        "evidence": ["evidence.md"],
+        "suggestion": "",
+        "reviewer": "codex",
+    }]
+    codex_file = tmp_path / "codex-findings.json"
+    codex_file.write_text(json.dumps(codex_findings), encoding="utf-8")
+
+    claude_file = tmp_path / "claude-findings.json"
+    claude_file.write_text(json.dumps([]), encoding="utf-8")
+
+    rc = cli_main([
+        "contradiction-detector",
+        "--new-content", str(new),
+        "--prior-evidence", str(prior),
+        "--reviewer", "cross",
+        "--claude-findings-file", str(claude_file),
+        "--codex-findings-file", str(codex_file),
+    ])
+    out = capsys.readouterr().out
+    env = json.loads(out)
+    assert env["ok"] is True
+    contradictions = env["result"]["contradictions"]
+    assert len(contradictions) == 1
+    assert contradictions[0]["new_claim"] == "codex-specific claim"
+    assert contradictions[0]["reviewers"] == ["codex"]
+    assert rc == 0
+
+
+def test_contradiction_detector_claude_findings_file_missing(tmp_path: Path, capsys) -> None:
+    """Missing file flag returns Err(INPUT_INVALID, claude-findings-file: ...)."""
+    new = tmp_path / "synthesis.md"
+    new.write_text("X.")
+    prior = tmp_path / "evidence.md"
+    prior.write_text("Y.")
+
+    rc = cli_main([
+        "contradiction-detector",
+        "--new-content", str(new),
+        "--prior-evidence", str(prior),
+        "--reviewer", "claude",
+        "--claude-findings-file", str(tmp_path / "does-not-exist.json"),
+    ])
+    out = capsys.readouterr().out
+    env = json.loads(out)
+    assert env["ok"] is False
+    assert env["error"]["kind"] == "input_invalid"
+    assert env["error"]["message"].startswith("claude-findings-file:")
+    assert "file not found" in env["error"]["message"]
+    assert rc == 1
+
+
+def test_contradiction_detector_claude_findings_file_symlink_rejected(tmp_path: Path, capsys) -> None:
+    """Symlink target is rejected with INPUT_INVALID per spec."""
+    new = tmp_path / "synthesis.md"
+    new.write_text("X.")
+    prior = tmp_path / "evidence.md"
+    prior.write_text("Y.")
+
+    real = tmp_path / "real.json"
+    real.write_text("[]", encoding="utf-8")
+    link = tmp_path / "link.json"
+    link.symlink_to(real)
+
+    rc = cli_main([
+        "contradiction-detector",
+        "--new-content", str(new),
+        "--prior-evidence", str(prior),
+        "--reviewer", "claude",
+        "--claude-findings-file", str(link),
+    ])
+    out = capsys.readouterr().out
+    env = json.loads(out)
+    assert env["ok"] is False
+    assert env["error"]["kind"] == "input_invalid"
+    assert env["error"]["message"].startswith("claude-findings-file:")
+    assert "symlinks rejected" in env["error"]["message"]
+    assert rc == 1
+
+
+def test_contradiction_detector_claude_findings_file_invalid_json(tmp_path: Path, capsys) -> None:
+    """Malformed JSON surfaces as INPUT_INVALID, not BACKEND_FAILURE."""
+    new = tmp_path / "synthesis.md"
+    new.write_text("X.")
+    prior = tmp_path / "evidence.md"
+    prior.write_text("Y.")
+
+    bad = tmp_path / "bad.json"
+    bad.write_text("{not json", encoding="utf-8")
+
+    rc = cli_main([
+        "contradiction-detector",
+        "--new-content", str(new),
+        "--prior-evidence", str(prior),
+        "--reviewer", "claude",
+        "--claude-findings-file", str(bad),
+    ])
+    out = capsys.readouterr().out
+    env = json.loads(out)
+    assert env["ok"] is False
+    assert env["error"]["kind"] == "input_invalid"
+    assert env["error"]["message"].startswith("claude-findings-file:")
+    assert "invalid JSON" in env["error"]["message"]
+    assert rc == 1
+
+
+def test_contradiction_detector_claude_findings_file_not_array(tmp_path: Path, capsys) -> None:
+    """Non-array top-level JSON surfaces as INPUT_INVALID."""
+    new = tmp_path / "synthesis.md"
+    new.write_text("X.")
+    prior = tmp_path / "evidence.md"
+    prior.write_text("Y.")
+
+    obj = tmp_path / "obj.json"
+    obj.write_text('{"findings": []}', encoding="utf-8")
+
+    rc = cli_main([
+        "contradiction-detector",
+        "--new-content", str(new),
+        "--prior-evidence", str(prior),
+        "--reviewer", "claude",
+        "--claude-findings-file", str(obj),
+    ])
+    out = capsys.readouterr().out
+    env = json.loads(out)
+    assert env["ok"] is False
+    assert env["error"]["kind"] == "input_invalid"
+    assert env["error"]["message"].startswith("claude-findings-file:")
+    assert "expected JSON array" in env["error"]["message"]
+    assert rc == 1
+
+
 def test_cross_agent_review_claude_findings_file(tmp_path: Path, capsys, monkeypatch) -> None:
     """--claude-findings-file uses FileBackedReviewer instead of SDK."""
     findings = [{
