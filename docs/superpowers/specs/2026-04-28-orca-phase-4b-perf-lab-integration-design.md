@@ -24,7 +24,7 @@ Phase 4b ships a **spec contribution PR** to the perf-lab repo (no running code)
 - Implementation tasks block in `perf-lab/specs/010-self-organizing-research-runtime/tasks.md`, blocked on T000i (perf-event skill foundation)
 - Reference to a parallel orca-repo prerequisite block (Phase 4b-pre) that must merge before T0Z03/04/05 in perf-lab
 
-Phase 4b deliberately does NOT ship running code in the perf-lab repo. perf-lab v6 is mid-build (T000a-T000j unfinished); the perf-lab side waits on T000i. Phase 4b also adds **prerequisite tasks to the orca repo** (the three load-bearing flags below), which CAN ship now and unblock perf-lab T0Z when v6 reaches T000i.
+Phase 4b deliberately does NOT ship running code in the perf-lab repo. perf-lab v6 is mid-build (T000a-T000j unfinished); the perf-lab side waits on T000i. Phase 4b also adds **five prerequisite tasks to the orca repo** (Phase 4b-pre-1 through pre-5 below), which CAN ship now and unblock perf-lab T0Z when v6 reaches T000i.
 
 ## Context
 
@@ -173,6 +173,8 @@ The proposed FR-008 amendment thus updates the canonical event taxonomy to:
 
 All four types must land in `perf-event`'s FR-008 canonical list **before** any skill emits them — `perf-event` rejects unknown types with exit 3. Implementation tasks enforce this ordering: T0Z02 (FR-008 amendment) is a hard prerequisite for T0Z03/04/05 (skill emissions).
 
+**On `claim_id` in event-binding gates:** `claim_id` is carried on the `perf-event` envelope's standard fields (alongside `event_id`, `timestamp`, `harness`, `image_digest`), NOT inside the per-event payload. Gate verification reads `claim_id` from the envelope. The same applies to `cross_review_summary` events satisfying `review_required`: the gate checks the envelope's `claim_id` matches the active claim, plus the payload's `target_sha256` and `criteria_hash` match the gate's binding fields. Adding `claim_id` to the payload would duplicate envelope state; the spec leaves it on the envelope only.
+
 ### Unified-diff replacement of existing spec.md text
 
 The existing perf-lab `spec.md` Future Integration Notes section (lines 420-451) currently says the shim lives in the orca repo. v2 directly contradicts that, so the spec PR replaces the section. The diff is part of the deliverable:
@@ -268,7 +270,7 @@ Field semantics (all optional, defaults null/disabled):
 
 - **`cite_threshold`**: float in [0.0, 1.0]; default 1.0.
 
-- **`cite_reference_set`**: list of relative paths from claim's feature dir; if unset, `perf-cite` auto-discovers per Phase 3.2 item 2 conventions.
+- **`cite_reference_set`**: list of relative paths from claim's feature dir; if unset, `perf-cite` auto-discovers per Phase 3.2 backlog item 2 (`docs/superpowers/notes/2026-04-27-phase-3-2-backlog.md` § "Citation default reference set should auto-discover").
 
 - **`model_tier_floor`**: one of `cheap/standard/strong`; default `cheap`. The host-side dispatch wrapper MUST honor this when selecting the subagent reviewer model. A `cheap`-tier worker invoking `perf-review` MUST NOT escalate to a `strong` reviewer unless `model_tier_floor` is set to `strong` (per existing spec.md line 450).
 
@@ -333,11 +335,14 @@ Phase 4a uses `<feature-dir>/.<command>-<reviewer>-findings.json` for in-repo ru
 /shared/orca/
   <claim_id>/
     <round_id>/
-      contradict-findings-<timestamp>.json
-      review-<kind>-findings-<timestamp>.json
-      <skill>-envelope-<timestamp>.json     # raw orca-cli output
+      cite-findings-<timestamp>.json         # perf-cite (when LLM-backed mode lands)
+      contradict-findings-<timestamp>.json   # perf-contradict
+      review-findings-<timestamp>.json       # perf-review (perf-review --kind value lives in event payload, not filename)
+      <skill>-envelope-<timestamp>.json      # raw orca-cli output
       <skill>-stderr-<timestamp>.log
 ```
+
+The `<kind>` segment in the path-safety contract Class C shape (`<kind>-findings-<timestamp>.json`) corresponds to the **skill shortname** (`cite`/`contradict`/`review`), not to perf-review's `--kind` argument. perf-review's `--kind` value (one of `spec`/`diff`/`pr`/`artifact`) is captured in the `cross_review_summary` event payload, not in the filename. Avoids namespace collision between two different `kind` concepts.
 
 - **Owner of `<claim_id>/`**: `perf-claim`'s claim-create flow MUST create `/shared/orca/<claim_id>/` with mode 0775 (group write for the claim's worker UID). `perf-claim` close flow tars `/shared/orca/<claim_id>/` to the claim's archive dir and removes the live directory.
 - **Owner of `<round_id>/`**: `perf-claim`'s round-increment flow MUST create `/shared/orca/<claim_id>/<round_id>/` with mode 0775 atomically when the round counter advances. Skills NEVER create round subdirs themselves — they assert existence and fail with `INPUT_INVALID` if absent (which indicates round-counter desync). Round ID comes from perf-claim's round counter (zero-padded integer, e.g., `r0001`).
@@ -351,7 +356,7 @@ Phase 4a uses `<feature-dir>/.<command>-<reviewer>-findings.json` for in-repo ru
 
 ```dockerfile
 # Option A: PyPI install once orca publishes there
-# (As of 2026-04-29 spec-kit-orca is NOT on PyPI; T0Z11 verifies before this lands)
+# (As of 2026-04-29 spec-kit-orca is NOT on PyPI; Phase 4b-pre-3 decides before this lands)
 RUN pip install --no-cache-dir uv && \
     uv tool install spec-kit-orca==<version-pin>
 
@@ -360,7 +365,7 @@ ENV ORCA_PROJECT=/opt/orca
 # (perf-lab compose file mounts host orca tree at /opt/orca read-only)
 ```
 
-T0Z11 must verify which path is real. `spec-kit-orca` may need to be published to PyPI as a Phase 4b prerequisite (orca repo task; see Orca Repo Prerequisites below).
+Phase 4b-pre-3 (orca repo) decides the publication strategy; T0Z11 (perf-lab repo) implements whichever path was chosen. See Orca Repo Prerequisites below.
 
 `<version-pin>` is the orca git tag at perf-lab v6 release time. Pinning forces explicit Dockerfile bumps for orca upgrades; combined with the compatibility contract below, this gives operators a predictable upgrade path.
 
@@ -445,7 +450,7 @@ Block T0Z (orca integration), all blocked on T000i (skill foundation):
 - T0Z03: Implement `perf-cite` skill (entry.sh + SKILL.md + Bats tests).
 - T0Z04: Implement `perf-contradict` skill (entry.sh + SKILL.md + Bats tests).
 - T0Z05: Implement `perf-review` skill (entry.sh + SKILL.md + Bats tests).
-- T0Z06: Implement host-side dispatch wrappers (`scripts/perf-lab/orca-dispatch-{contradict,review}.sh`) and corresponding slash commands for Claude Code; document Codex equivalent.
+- T0Z06: Implement host-side dispatch wrappers `scripts/perf-lab/orca-dispatch-{contradict,review}.sh` plus the shared helper `scripts/perf-lab/orca-dispatch-lib.sh` (intra-perf-lab; implements stall detection + hard timeout + sentinel findings-file format per orca's `docs/superpowers/contracts/dispatch-algorithm.md`). Add corresponding slash commands for Claude Code; document Codex equivalent.
 - T0Z07: Extend claim config schema for `orca_policy` block (validator + tests, including `review_required` binding fields).
 - T0Z08: Wire `synthesis_validators` policy into `perf-synthesis` commit flow with the lock-window discipline (validators outside lock).
 - T0Z09: Wire `lease_overlap_check` policy into `scripts/runtime-v6/lease.sh` (NOT into `perf-lease` worker skill).

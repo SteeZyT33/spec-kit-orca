@@ -170,3 +170,46 @@ Two narrow blockers (N1 + N2) plus four mediums/lows. None require restructuring
 7. Fix T0Z10/T0Z11 cross-reference at line 354.
 
 After fixes, spec is ready for writing-plans. No third review round required for this scale of edit.
+
+---
+
+## Round 3 - Cross-Pass (v2.1 spec, post round-2 fixes)
+
+**Spec under review:** v2.1 (commit `806877e`)
+**Reviewer:** Code Reviewer subagent
+**Date:** 2026-04-29
+**Verdict:** **NEEDS-REVISION (minor)** — addressed inline same session as v2.2
+
+### Round 2 N-findings disposition
+
+| # | Disposition |
+|---|-------------|
+| N1 | ADDRESSED — Phase 4b-pre-5 added; T0Z00 wait gate updated |
+| N2 | ADDRESSED — `criteria_hash` in skill contract + Event Types table |
+| N3 | ADDRESSED — Path Validation defers to contract Class B/C |
+| N4 | ADDRESSED — `<round_id>/` owner is perf-claim round-increment |
+| N5 | ADDRESSED — pre-4 reframed as algorithm-spec doc; no cross-repo helper |
+| N6 | PARTIALLY ADDRESSED — first occurrence fixed; second (line 269) missed → **N12** |
+| N7 | ADDRESSED — T0Z11 cross-reference fixed |
+
+### New findings introduced by Round 2 edits
+
+- **N8 (LOW):** Line 27 stale "three load-bearing flags" → should be "five orca-repo prerequisites".
+- **N9 (MEDIUM):** Line 354 — "T0Z11 verifies before this lands" creates a self-reference (T0Z11 IS the install task). Should reference Phase 4b-pre-3 (decides) and Phase 4b-pre-3 only.
+- **N10 (MEDIUM):** Path-shape namespace collision. `/shared/orca/<claim_id>/<round_id>/review-<kind>-findings-<timestamp>.json` overloads `<kind>` between skill-name kind (cite/contradict/review) and perf-review's `--kind` argument (spec/diff/pr/artifact). Path-safety contract Class C says `<kind>-findings-<timestamp>.json` (single segment).
+- **N11 (MEDIUM):** `cross_review_summary` payload (lines 152, 171) does not carry `claim_id`, but `review_required.claim_id` is a binding field. Either `claim_id` is on the perf-event envelope (likely true; spec should say so) or it must be added to the payload.
+- **N12 (LOW):** Line 269 still says "Phase 3.2 item 2 conventions" without path link — second occurrence of N6 was missed.
+- **N13 (LOW):** T0Z06 task description (line 448) does not mention `orca-dispatch-lib.sh` introduced at line 314.
+
+### v2.2 fixes (this session, commit forthcoming)
+
+- N8: Line 27 reworded to "five orca-repo prerequisites (Phase 4b-pre-1 through pre-5)".
+- N9: Dockerfile comment + paragraph below now reference Phase 4b-pre-3 (the decision) and T0Z11 (the implementation) separately, no self-reference.
+- N10: Path conventions now use skill-shortname (`cite-findings-...`, `contradict-findings-...`, `review-findings-...`) consistently; perf-review's `--kind` value lives in the event payload, not the filename. Explanatory paragraph added.
+- N11: Added explicit clarification that `claim_id` lives on the `perf-event` envelope (alongside event_id/timestamp/harness/image_digest) and gates verify it from there, not from the per-event payload. Avoids state duplication.
+- N12: Second occurrence (line 269) now carries the same path link as line 99.
+- N13: T0Z06 description extended to include `orca-dispatch-lib.sh` and cite the dispatch-algorithm contract by path.
+
+### Verdict (v2.2)
+
+After these fixes, all flagged issues from Rounds 1, 2, and 3 are addressed. Spec is ready to drive subagent-driven implementation of Plan 1 (orca prereqs). No further review round needed before execution.
