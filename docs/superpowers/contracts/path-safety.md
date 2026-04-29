@@ -150,5 +150,6 @@ A shared helper module (`orca.core.path_safety`) is the recommended implementati
 
 - **Phase 4a design** (`docs/superpowers/specs/2026-04-28-orca-phase-4a-in-session-reviewer-design.md`) — established the file-backed reviewer pattern that path Class C codifies.
 - **Phase 4b v2 design** (`docs/superpowers/specs/2026-04-28-orca-phase-4b-perf-lab-integration-design.md`) — references this contract for `/shared/`-class paths.
+- **See also:** `docs/superpowers/contracts/dispatch-algorithm.md` — the host-side subagent-dispatch contract that consumes Class C findings-file paths and defines the sentinel shape returned on dispatch failure.
 - **Symphony SPEC §9.5** (`~/symphony/SPEC.md`) — the original three-invariant statement adapted here.
 - **v1 north-star** (`docs/superpowers/specs/2026-04-26-orca-toolchest-v1-design.md`) § "Composition with Outer-Loop Runtimes" — explains why this contract exists (consistent behavior across outer-loop runtimes).
