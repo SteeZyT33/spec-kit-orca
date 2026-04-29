@@ -1049,3 +1049,27 @@ def test_build_review_prompt_context_bullets(capsys) -> None:
     assert "- stacked branch" in out
     assert "- WIP commit" in out
     assert rc == 0
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "spec",
+        "code",
+        "pr",
+        "diff",
+        "contradiction",
+        "artifact",
+        "experimental-kind-x",
+        "snake_case_kind",
+        "kind-with-dashes",
+    ],
+)
+def test_build_review_prompt_accepts_arbitrary_kind(capsys, kind: str) -> None:
+    """Regression: --kind accepts any non-empty string (no host-side branching)."""
+    from orca.python_cli import main
+
+    rc = main(["build-review-prompt", "--kind", kind, "--criteria", "factual-accuracy"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert out.strip() != ""
