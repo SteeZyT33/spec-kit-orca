@@ -96,7 +96,7 @@ perf-cite --content-path <path> [--reference-set <path>]... [--mode strict|lenie
 Wraps `orca-cli citation-validator`. Validates citation hygiene in synthesis text. No subagent dispatch (citation-validator is purely mechanical).
 
 - Required: `--content-path` (markdown file inside `/shared/` to validate; symlinks rejected)
-- Optional: `--reference-set` (repeatable; defaults to claim feature dir auto-discovery per Phase 3.2 backlog item 2)
+- Optional: `--reference-set` (repeatable; defaults to claim feature dir auto-discovery per Phase 3.2 backlog item 2 (`docs/superpowers/notes/2026-04-27-phase-3-2-backlog.md` § "Citation default reference set should auto-discover"))
 - Optional: `--mode strict|lenient` (default `strict`)
 
 Behavior:
@@ -149,7 +149,7 @@ Behavior:
 2. Verify `--findings-file` exists and parses.
 3. Detect host harness; pick correct flag.
 4. Shell to `orca-cli cross-agent-review --claude-findings-file <path> --kind ... --target ... --feature-id ... [--criteria ...]`.
-5. Parse envelope; emit **`cross_review_summary`** event (not `quality_gate` — see Event Types below). Payload: `{capability: "cross-agent-review", capability_version, duration_ms, kind, finding_count, severity_breakdown: {blocker, high, medium, low, nit}, exit_status, target_sha256}`.
+5. Parse envelope; emit **`cross_review_summary`** event (not `quality_gate` — see Event Types below). Payload: `{capability: "cross-agent-review", capability_version, duration_ms, kind, finding_count, severity_breakdown: {blocker, high, medium, low, nit}, exit_status, target_sha256, criteria_hash}`. The `criteria_hash` is required for `review_required` gate satisfaction (see Claim Config Additions); skill computes it as `sha256` of the sorted, joined criteria list.
 6. Exit 0 always (review is informational; agent reads findings and decides).
 
 Concurrency: `flock /shared/locks/review.lock` for shared writes only.
@@ -168,7 +168,7 @@ The proposed FR-008 amendment thus updates the canonical event taxonomy to:
 |------|---------------------------|------------|
 | `synthesis_validated` | `uncited_spans`, `broken_refs`, `citation_coverage` + runtime: `capability`, `capability_version`, `duration_ms`, `threshold`, `exit_status` | `perf-cite` (always); `perf-synthesis` (if `orca_policy.synthesis_validators` includes `cite`) |
 | `contradiction_detected` | `contradictions[]` + runtime: `capability`, `capability_version`, `duration_ms`, `contradiction_count`, `exit_status` | `perf-contradict` (always); `perf-synthesis` (if `orca_policy.synthesis_validators` includes `contradict`) |
-| `cross_review_summary` | `kind`, `finding_count`, `severity_breakdown`, `target_sha256` + runtime fields | `perf-review` (always) |
+| `cross_review_summary` | `kind`, `finding_count`, `severity_breakdown`, `target_sha256`, `criteria_hash` + runtime fields | `perf-review` (always) |
 | `quality_gate` | `gate_result_ref`, `blockers`, `target_stage` | (RESERVED for future `orca:completion-gate` integration; not emitted in Phase 4b) |
 
 All four types must land in `perf-event`'s FR-008 canonical list **before** any skill emits them — `perf-event` rejects unknown types with exit 3. Implementation tasks enforce this ordering: T0Z02 (FR-008 amendment) is a hard prerequisite for T0Z03/04/05 (skill emissions).
@@ -226,6 +226,8 @@ The existing perf-lab `spec.md` Future Integration Notes section (lines 420-451)
 ```
 
 (The implementation plan instructs the implementer to land this diff verbatim alongside the new `orca-integration.md`. If perf-lab's spec.md has drifted by then, the implementer reconciles by hand; the contract is that the new text is what survives.)
+
+The `### Constraints` subsection in perf-lab spec.md (currently lines 446-451) is **NOT touched** by this diff — those constraints (timeouts, model-tier inheritance, host-only invocation) remain in force and Phase 4b's policies are additive on top of them.
 
 ## Claim Config Additions
 
@@ -309,17 +311,17 @@ The host-side dispatch wrapper has its own timeout for the subagent call (defaul
 
 Borrowed from Symphony SPEC §10.6: the host-side dispatch wrapper enforces a stall timeout (default 300s, override via `ORCA_DISPATCH_STALL_TIMEOUT`) measuring time-since-last-event from the subagent. If no Agent-tool events arrive for the stall window, the wrapper kills the subagent and writes a sentinel findings file `{ok: false, error: {kind: "DISPATCH_STALL", elapsed_seconds: N}}`. This complements the hard timeout above: a hung subagent that emits zero events trips the stall timer well before the 600s hard cap, freeing the dispatch slot faster.
 
-Stall detection is a host-side dispatch wrapper concern, not a skill concern. Adding it as **Phase 4b-pre-4** (orca repo task) ensures the dispatch wrappers for both `orca-dispatch-contradict.sh` and `orca-dispatch-review.sh` share the same stall-detection implementation.
+Stall detection is a host-side dispatch wrapper concern, not a skill concern. The implementation lives in the perf-lab repo alongside the dispatch wrappers (`scripts/perf-lab/orca-dispatch-lib.sh`, sourced by both `orca-dispatch-contradict.sh` and `orca-dispatch-review.sh`). Phase 4b-pre-4 ships only the **algorithm specification** (event-monitoring loop, default timeout, sentinel findings-file format) in orca's docs; perf-lab's T0Z06 implements the bash helper and Claude Code's slash commands implement an equivalent in their own runtime. Cross-repo bash sourcing is avoided.
 
 ## Path Validation
 
 All path-accepting flags in `perf-cite`, `perf-contradict`, `perf-review` and their underlying orca-cli capabilities follow the **path-safety contract** at `docs/superpowers/contracts/path-safety.md`. That contract is canonical; this spec does not duplicate the rules.
 
-In Phase 4b's context specifically:
-- `--content-path`, `--evidence-path`, `--target` are **Class B** (shared paths): must resolve inside `/shared/` (or `$SHARED_ROOT`).
-- `--findings-file` (and `--claude-findings-file` / `--codex-findings-file` once Phase 4b-pre-1 lands) is **Class C** (findings-file paths): must resolve inside `/shared/orca/<claim_id>/`.
-- `--reference-set` for `perf-cite` is **Class A** within a feature dir: must resolve inside the claim's feature directory.
-- `CLAIM_ID`, `--feature-id` are **Class D** identifiers: sanitized to `[A-Za-z0-9._-]+`.
+In Phase 4b's context specifically (see contract for full rules per class):
+- `--content-path`, `--evidence-path`, `--target` are **Class B** (shared paths). Contract Class B requires CLAIM_ID env-match for reads under `/shared/orca/`; this applies to the dispatch wrappers writing findings files and the skills consuming them.
+- `--findings-file` (and `--claude-findings-file` / `--codex-findings-file` once Phase 4b-pre-1 lands) is **Class C** (findings-file paths). Contract Class C requires the full path shape `/shared/orca/<claim_id>/<round_id>/<kind>-findings-<timestamp>.json`; v2 defers to the contract for the depth and naming convention rather than restating.
+- `--reference-set` for `perf-cite` is **Class A** within the claim's feature directory.
+- `CLAIM_ID`, `--feature-id` are **Class D** identifiers.
 
 Skill failure on any path-safety violation: emit the skill's event with `payload.error = {kind: "INPUT_INVALID", rule_violated: "...", field: "..."}` per the contract's error-reporting shape, and exit 1. No traversal attempts reach orca-cli.
 
@@ -337,8 +339,8 @@ Phase 4a uses `<feature-dir>/.<command>-<reviewer>-findings.json` for in-repo ru
       <skill>-stderr-<timestamp>.log
 ```
 
-- **Owner**: `perf-claim`'s claim-create flow MUST create `/shared/orca/<claim_id>/` with mode 0775 (group write for the claim's worker UID). `perf-claim` close flow tars `/shared/orca/<claim_id>/` to the claim's archive dir and removes the live directory.
-- **Round-scoping**: each round of synthesis/review writes under `<round_id>/`. Round ID comes from the perf-claim round counter.
+- **Owner of `<claim_id>/`**: `perf-claim`'s claim-create flow MUST create `/shared/orca/<claim_id>/` with mode 0775 (group write for the claim's worker UID). `perf-claim` close flow tars `/shared/orca/<claim_id>/` to the claim's archive dir and removes the live directory.
+- **Owner of `<round_id>/`**: `perf-claim`'s round-increment flow MUST create `/shared/orca/<claim_id>/<round_id>/` with mode 0775 atomically when the round counter advances. Skills NEVER create round subdirs themselves — they assert existence and fail with `INPUT_INVALID` if absent (which indicates round-counter desync). Round ID comes from perf-claim's round counter (zero-padded integer, e.g., `r0001`).
 - **Timestamp suffix**: ISO-8601 millis (`20260429T143000123Z`) avoids overwrite collisions when a single round runs multiple validators.
 - **Cleanup**: `perf-claim close` is the canonical cleanup hook. No skill runs `rm` directly.
 - **Concurrent writes**: writes within a single round are serialized by the per-skill flock (`/shared/locks/<skill>.lock`).
@@ -349,7 +351,7 @@ Phase 4a uses `<feature-dir>/.<command>-<reviewer>-findings.json` for in-repo ru
 
 ```dockerfile
 # Option A: PyPI install once orca publishes there
-# (As of 2026-04-29 spec-kit-orca is NOT on PyPI; T0Z10 verifies before this lands)
+# (As of 2026-04-29 spec-kit-orca is NOT on PyPI; T0Z11 verifies before this lands)
 RUN pip install --no-cache-dir uv && \
     uv tool install spec-kit-orca==<version-pin>
 
@@ -358,7 +360,7 @@ ENV ORCA_PROJECT=/opt/orca
 # (perf-lab compose file mounts host orca tree at /opt/orca read-only)
 ```
 
-T0Z10 must verify which path is real. `spec-kit-orca` may need to be published to PyPI as a Phase 4b prerequisite (orca repo task; see Orca Repo Prerequisites below).
+T0Z11 must verify which path is real. `spec-kit-orca` may need to be published to PyPI as a Phase 4b prerequisite (orca repo task; see Orca Repo Prerequisites below).
 
 `<version-pin>` is the orca git tag at perf-lab v6 release time. Pinning forces explicit Dockerfile bumps for orca upgrades; combined with the compatibility contract below, this gives operators a predictable upgrade path.
 
@@ -437,7 +439,7 @@ These run after T000i lands and the actual skills are implemented:
 
 Block T0Z (orca integration), all blocked on T000i (skill foundation):
 
-- T0Z00: **Wait gate** — confirm orca repo prerequisites (Phase 4b-pre-1/2/3 below) have merged before starting T0Z03.
+- T0Z00: **Wait gate** — confirm orca repo prerequisites (Phase 4b-pre-1 through Phase 4b-pre-5 below) have merged before starting T0Z03.
 - T0Z01: Author `perf-lab/specs/010-.../orca-integration.md` (the spec contribution itself).
 - T0Z02: **(prerequisite for T0Z03+)** Add `synthesis_validated`, `contradiction_detected`, `cross_review_summary` to FR-008 canonical event list in spec.md and corresponding payload schemas in `data-model.md`. Reserve `quality_gate` for future completion-gate integration. Block T0Z03/04/05 on this task.
 - T0Z03: Implement `perf-cite` skill (entry.sh + SKILL.md + Bats tests).
@@ -461,9 +463,10 @@ These tasks land in the **orca repo** before perf-lab T0Z03 can begin. They are 
 - **Phase 4b-pre-1**: Add `--claude-findings-file` and `--codex-findings-file` to `orca-cli contradiction-detector`. Mirror Phase 4a's `cross-agent-review` implementation: file-backed reviewer adapter, INPUT_INVALID preflight, fixture tests. Estimated 1 task in orca's plan.
 - **Phase 4b-pre-2**: Add `orca-cli --version` top-level flag. Print `spec-kit-orca <semver>` and exit 0. Tested by adding `--version` to the existing CLI smoke tests. ~30 min of work.
 - **Phase 4b-pre-3**: Decide and execute the PyPI publication strategy for `spec-kit-orca`. Either (a) publish to PyPI under `spec-kit-orca`, (b) publish under a different name and update Phase 4b spec, or (c) commit to bind-mount-only and document it as the Phase 4b install path. T0Z11 cannot proceed without this decision.
-- **Phase 4b-pre-4**: Build a shared host-side dispatch helper module that implements subagent dispatch with stall detection (per Symphony SPEC §10.6). Lives in orca repo as `scripts/orca-dispatch-helper.sh` (or equivalent Python helper). Both `orca-dispatch-contradict.sh` and `orca-dispatch-review.sh` source it. Estimated half-day; reuses Phase 4a's parse-subagent-response wiring.
+- **Phase 4b-pre-4**: Document the host-side subagent-dispatch algorithm with stall detection (per Symphony SPEC §10.6) in orca's docs as `docs/superpowers/contracts/dispatch-algorithm.md`. Specifies: event-monitoring loop semantics, default timeouts (300s stall, 600s hard), sentinel findings-file format on timeout/stall, error envelope shape. Each consumer (perf-lab bash wrappers, Claude Code slash commands, future Codex hosts) implements the algorithm in its own runtime — no shared bash helper crosses repos. Estimated half-day of doc work.
+- **Phase 4b-pre-5**: Add a regression test asserting `orca-cli build-review-prompt --kind <arbitrary-string>` succeeds for any non-empty string (current behavior is documented as "accepts any kind without branching"; this fixes the contract by codifying it). Trivial: one test file, one assertion. Required so Phase 4b's `orca-dispatch-contradict.sh` can rely on `--kind contradiction` not failing in some future orca version that adds kind-validation.
 
-These four are merge prerequisites for the perf-lab spec PR. The spec PR explicitly cites the orca SHAs that satisfy them in its description.
+These five are merge prerequisites for the perf-lab spec PR. The spec PR explicitly cites the orca SHAs that satisfy them in its description.
 
 ## Cross-Repo Considerations
 
@@ -494,7 +497,7 @@ Phase 4b lands in perf-lab repo. orca repo gets the three prerequisite tasks abo
 - **Per-capability timeouts** with `feedback_needed` fallback per existing spec.md line 449.
 - **Model-tier inheritance via `orca_policy.model_tier_floor`** per existing spec.md line 450.
 - **`review_required` binds to content** via `target_sha256`, `criteria_hash`, `claim_id` (prevents stale-event gate satisfaction).
-- **Orca repo prerequisites called out explicitly** as merge gates: Phase 4b-pre-1/2/3.
+- **Orca repo prerequisites called out explicitly** as merge gates: Phase 4b-pre-1 through Phase 4b-pre-5.
 - **Test plan split**: spec-PR review checks (markdown lint etc.) vs downstream implementation tests (Bats, schema validation, etc.).
 - **Codex-host dispatch limitation documented**, not silenced. Operators get a clear error message and three explicit paths.
 
@@ -502,7 +505,7 @@ Phase 4b lands in perf-lab repo. orca repo gets the three prerequisite tasks abo
 
 Phase 4b spec contribution PR (this design): **~1 day** of focused work on the perf-lab side (one ~600-line `orca-integration.md` plus the unified-diff replacement and tasks-list additions). v2 is meaningfully larger than v1 because the gaps surfaced by review need addressing in spec rather than in plan.
 
-The orca-repo prerequisites (Phase 4b-pre-1/2/3) are **~half a day** combined: the `--claude-findings-file` flag for contradiction-detector mirrors Phase 4a's cross-agent-review work; `--version` is trivial; PyPI publication decision is non-coding but blocks T0Z11.
+The orca-repo prerequisites (Phase 4b-pre-1 through Phase 4b-pre-5) are **~half a day** combined: the `--claude-findings-file` flag for contradiction-detector mirrors Phase 4a's cross-agent-review work; `--version` is trivial; PyPI publication is a non-coding decision; the dispatch-algorithm doc and the `build-review-prompt --kind` regression test are both small.
 
 The downstream perf-lab v6 implementation of orca skills (T0Z03-T0Z13) is a separate project, blocks on perf-lab's T000i, and is out of scope for Phase 4b.
 
@@ -513,7 +516,7 @@ What Phase 4b uniquely delivers:
 1. **Locks the integration contract** before perf-lab v6 builds its skill foundation. When T000i lands, T0Z work has a clear target that's been cross-reviewed and reconciled with existing spec.md text.
 2. **Forces clarity on opt-in semantics**: "perf-lab v1 must work without orca" is a documented, probe-enforced constraint, not just a hope.
 3. **Reuses Phase 4a's subagent dispatch correctly**, with the three-layer split that v1 missed.
-4. **Surfaces the orca-repo work that has to ship anyway** (Phase 4b-pre-1/2/3) — these prerequisites land independent of perf-lab v6 timing.
+4. **Surfaces the orca-repo work that has to ship anyway** (Phase 4b-pre-1 through Phase 4b-pre-5) — these prerequisites land independent of perf-lab v6 timing.
 
 What Phase 4b does NOT deliver:
 
