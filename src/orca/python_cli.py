@@ -24,6 +24,7 @@ import os
 import sys
 import time
 from collections.abc import Sequence
+from importlib.metadata import version as _pkg_version
 from pathlib import Path
 
 from orca.capabilities.citation_validator import (
@@ -90,6 +91,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if argv[0] in ("-h", "--help"):
         _print_help()
+        return 0
+
+    if argv[0] in ("--version", "-V"):
+        print(f"orca {_pkg_version('orca')}")
         return 0
 
     capability = argv[0]

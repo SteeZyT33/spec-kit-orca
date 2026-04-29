@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
+from importlib.metadata import version as _pkg_version
 from pathlib import Path
 
 import pytest
@@ -34,6 +36,24 @@ def test_cli_help_flag_prints_help(capsys):
     out = capsys.readouterr().out
     assert rc == 0
     assert "cross-agent-review" in out
+
+
+def test_cli_version_flag_prints_package_version(capsys):
+    rc = cli_main(["--version"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    expected = _pkg_version("orca")
+    assert out.strip() == f"orca {expected}"
+    assert re.match(r"orca \d+\.\d+\.\d+", out.strip())
+
+
+def test_cli_version_short_flag_prints_package_version(capsys):
+    rc = cli_main(["-V"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    expected = _pkg_version("orca")
+    assert out.strip() == f"orca {expected}"
+    assert re.match(r"orca \d+\.\d+\.\d+", out.strip())
 
 
 def test_cli_cross_agent_review_with_fixture_reviewer(tmp_path, capsys, monkeypatch):
