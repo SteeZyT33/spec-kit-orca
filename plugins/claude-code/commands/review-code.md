@@ -103,7 +103,19 @@ Use `"${ORCA_RUN[@]}"` in place of `orca-cli` and `"${ORCA_PY[@]}"` in place of
 
 ## Outline
 
-1. Run `{SCRIPT}` from repo root and parse `FEATURE_DIR` and `AVAILABLE_DOCS`.
+1. Run `{SCRIPT}` from repo root to obtain `FEATURE_ID` (and optionally
+   `AVAILABLE_DOCS`). The script's job is only to identify the feature;
+   path resolution happens via the host-aware adapter:
+
+   ```bash
+   FEATURE_DIR="$(orca-cli resolve-path --kind feature-dir --feature-id "$FEATURE_ID")"
+   ```
+
+   This honors `.orca/adoption.toml` if present; otherwise auto-detects
+   the host's spec system. If `{SCRIPT}` already returns a resolved
+   feature dir, parse `FEATURE_ID="$(basename "$FEATURE_DIR")"` first
+   and re-resolve through `orca-cli resolve-path` to guarantee adapter
+   consistency.
 
 2. Parse arguments:
    - `--security`: force the security pass

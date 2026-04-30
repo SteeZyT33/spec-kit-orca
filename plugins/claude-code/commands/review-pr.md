@@ -64,7 +64,16 @@ Use `"${ORCA_RUN[@]}"` in place of `orca-cli` and `"${ORCA_PY[@]}"` in place of
 
 ## Outline
 
-1. Run `{SCRIPT}` from repo root and parse `FEATURE_DIR` and `AVAILABLE_DOCS`.
+1. Run `{SCRIPT}` from repo root to obtain `FEATURE_ID` (and optionally
+   `AVAILABLE_DOCS`). Resolve `FEATURE_DIR` via the host-aware adapter:
+
+   ```bash
+   FEATURE_DIR="$(orca-cli resolve-path --kind feature-dir --feature-id "$FEATURE_ID")"
+   ```
+
+   Honors `.orca/adoption.toml` if present; otherwise auto-detects the
+   host's spec system. If `{SCRIPT}` returns a resolved feature dir,
+   parse `FEATURE_ID="$(basename "$FEATURE_DIR")"` first and re-resolve.
 
 2. Parse arguments:
    - `--comments-only`: skip code-quality review work and process only new PR comments
