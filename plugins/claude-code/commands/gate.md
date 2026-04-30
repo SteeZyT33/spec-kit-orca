@@ -63,7 +63,14 @@ Use `"${ORCA_RUN[@]}"` in place of `orca-cli` and `"${ORCA_PY[@]}"` in place of
 
 ## Outline
 
-1. Resolve `<feature-dir>` from user input or current branch.
+1. Resolve `<feature-id>` from user input or current branch, then resolve
+   `<feature-dir>` via the host-aware adapter:
+
+   ```bash
+   FEATURE_DIR="$(orca-cli resolve-path --kind feature-dir --feature-id "$FEATURE_ID")"
+   ```
+
+   Honors `.orca/adoption.toml` if present; otherwise auto-detects.
 
 2. Determine `--target-stage` from user input (default `plan-ready`).
 
