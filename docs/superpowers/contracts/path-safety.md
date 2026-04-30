@@ -29,7 +29,7 @@ Orca distinguishes four path classes. Each has its own root and rules.
 
 ### Class A: repo paths (in-repo, in-session use)
 
-**Roots:** the user's git repository root (`git rev-parse --show-toplevel`) OR a specific feature directory (`<repo>/specs/<feature-id>/` or `<repo>/openspec/changes/<feature-id>/`).
+**Roots:** the user's git repository root (`git rev-parse --show-toplevel`) OR a feature directory resolved via `host_layout.resolve_feature_dir(feature_id)` per the host repo's adoption manifest. The manifest's `host.system` determines the convention: spec-kit (`<repo>/specs/<feature-id>/`), openspec (`<repo>/openspec/changes/<feature-id>/`), superpowers (`<repo>/docs/superpowers/specs/<feature-id>/`), or bare (`<repo>/docs/orca-specs/<feature-id>/`). See `docs/superpowers/specs/2026-04-29-orca-spec-015-brownfield-adoption-design.md`.
 
 **Used by:** Phase 4a slash commands (`/orca:review-spec`, `/orca:review-code`, `/orca:review-pr`), citation-validator's `--reference-set`, contradiction-detector when invoked from in-repo flows.
 
