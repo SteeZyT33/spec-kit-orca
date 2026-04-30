@@ -55,3 +55,40 @@ def test_bare_layout_agents_md_path_default(bare_repo: Path) -> None:
 def test_bare_layout_review_artifact_dir(bare_repo: Path) -> None:
     layout = BareLayout(repo_root=bare_repo)
     assert layout.review_artifact_dir() == bare_repo / "docs" / "orca-specs" / "_reviews"
+
+
+from orca.core.host_layout import SpecKitLayout
+
+
+@pytest.fixture
+def spec_kit_repo(tmp_path: Path) -> Path:
+    (tmp_path / ".specify" / "memory").mkdir(parents=True)
+    (tmp_path / ".specify" / "memory" / "constitution.md").write_text("# constitution\n")
+    (tmp_path / "specs" / "001-example").mkdir(parents=True)
+    (tmp_path / "specs" / "002-other").mkdir(parents=True)
+    return tmp_path
+
+
+def test_spec_kit_layout_resolve_feature_dir(spec_kit_repo: Path) -> None:
+    layout = SpecKitLayout(repo_root=spec_kit_repo)
+    assert layout.resolve_feature_dir("001-example") == spec_kit_repo / "specs" / "001-example"
+
+
+def test_spec_kit_layout_list_features(spec_kit_repo: Path) -> None:
+    layout = SpecKitLayout(repo_root=spec_kit_repo)
+    assert sorted(layout.list_features()) == ["001-example", "002-other"]
+
+
+def test_spec_kit_layout_constitution_present(spec_kit_repo: Path) -> None:
+    layout = SpecKitLayout(repo_root=spec_kit_repo)
+    assert layout.constitution_path() == spec_kit_repo / ".specify" / "memory" / "constitution.md"
+
+
+def test_spec_kit_layout_constitution_missing_returns_none(tmp_path: Path) -> None:
+    layout = SpecKitLayout(repo_root=tmp_path)
+    assert layout.constitution_path() is None
+
+
+def test_spec_kit_layout_review_artifact_dir(spec_kit_repo: Path) -> None:
+    layout = SpecKitLayout(repo_root=spec_kit_repo)
+    assert layout.review_artifact_dir() == spec_kit_repo / "specs"
