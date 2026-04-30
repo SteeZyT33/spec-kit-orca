@@ -58,9 +58,19 @@ Use `"${ORCA_RUN[@]}"` in place of `orca-cli` and `"${ORCA_PY[@]}"` in place of
 
 ## Outline
 
-1. Resolve `<feature-dir>` from user input or current branch (e.g., `specs/001-foo/`).
+1. Resolve `<feature-id>` from user input or current branch.
+   - If user passed `--feature <id>`, use that.
+   - Else infer from branch name (e.g., `001-foo` from branch `001-foo`).
 
-2. Resolve `<feature-id>` (basename of feature dir, e.g., `001-foo`).
+2. Resolve `<feature-dir>` via host-aware adapter:
+
+   ```bash
+   FEATURE_DIR="$(orca-cli resolve-path --kind feature-dir --feature-id "$FEATURE_ID")"
+   ```
+
+   This honors `.orca/adoption.toml` if present; otherwise auto-detects
+   the host's spec system (spec-kit, openspec, superpowers, or bare).
+   For host repos that haven't run `orca-cli adopt`, this still works.
 
 3. Determine the next round number: count existing `### Round N - ` or `### Round N — ` headers (em-dash legacy form supported for backward compat) in `<feature-dir>/review-spec.md` (if it exists), N+1 is the new round; otherwise round 1.
 
