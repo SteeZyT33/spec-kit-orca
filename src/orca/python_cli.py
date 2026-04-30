@@ -59,6 +59,9 @@ from orca.capabilities.worktree_overlap_check import (
     WorktreeOverlapInput,
     worktree_overlap_check,
 )
+from orca.core.adoption.apply import apply as adoption_apply
+from orca.core.adoption.revert import revert as adoption_revert
+from orca.core.adoption.wizard import run_adopt
 from orca.core.errors import Error, ErrorKind
 from orca.core.result import Err
 from orca.core.reviewers._parse import parse_findings_array, validate_findings_array
@@ -991,6 +994,109 @@ def _run_build_review_prompt(args: list[str]) -> int:
     return 0
 
 
+def _run_adopt(args: list[str]) -> int:
+    """Run the adoption wizard: detect host, write `.orca/adoption.toml`.
+
+    Plain stdout/exit-code surface (no Result envelope) — adoption is a
+    side-effecting installer step rather than a queryable capability.
+    """
+    parser = argparse.ArgumentParser(
+        prog="orca-cli adopt",
+        exit_on_error=False,
+    )
+    parser.add_argument("--host", default=None,
+                        choices=["spec-kit", "openspec", "superpowers", "bare"])
+    parser.add_argument("--plan-only", action="store_true")
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--reset", action="store_true")
+    parser.add_argument("--repo-root", default=None,
+                        help="path to repo root (default: cwd)")
+    try:
+        ns, unknown = parser.parse_known_args(args)
+    except argparse.ArgumentError as exc:
+        print(f"argv parse error: {exc}", file=sys.stderr)
+        return 2
+    except SystemExit as exc:
+        if exc.code == 0:
+            return 0
+        return 2
+
+    if unknown:
+        print(f"unknown args: {unknown}", file=sys.stderr)
+        return 2
+
+    repo_root = Path(ns.repo_root).resolve() if ns.repo_root else Path.cwd().resolve()
+    try:
+        manifest_path = run_adopt(
+            repo_root=repo_root,
+            host_override=ns.host,
+            plan_only=ns.plan_only,
+            force=ns.force,
+            reset=ns.reset,
+        )
+    except (ValueError, FileExistsError) as exc:
+        print(f"adopt failed: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"manifest written: {manifest_path}")
+    if not ns.plan_only:
+        try:
+            adoption_apply(repo_root=repo_root)
+        except Exception as exc:
+            print(f"apply after adopt failed: {exc}", file=sys.stderr)
+            return 1
+        print(f"applied; state: {repo_root}/.orca/adoption-state.json")
+    return 0
+
+
+def _run_apply(args: list[str]) -> int:
+    """Execute (or revert / preview) the manifest at `.orca/adoption.toml`."""
+    parser = argparse.ArgumentParser(
+        prog="orca-cli apply",
+        exit_on_error=False,
+    )
+    parser.add_argument("--revert", action="store_true")
+    parser.add_argument("--keep-state", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--repo-root", default=None,
+                        help="path to repo root (default: cwd)")
+    try:
+        ns, unknown = parser.parse_known_args(args)
+    except argparse.ArgumentError as exc:
+        print(f"argv parse error: {exc}", file=sys.stderr)
+        return 2
+    except SystemExit as exc:
+        if exc.code == 0:
+            return 0
+        return 2
+
+    if unknown:
+        print(f"unknown args: {unknown}", file=sys.stderr)
+        return 2
+
+    repo_root = Path(ns.repo_root).resolve() if ns.repo_root else Path.cwd().resolve()
+    try:
+        if ns.revert:
+            adoption_revert(repo_root=repo_root, keep_state=ns.keep_state)
+            print("reverted")
+            return 0
+        if ns.dry_run:
+            # Read manifest; print what WOULD be applied; no writes.
+            from orca.core.adoption.manifest import load_manifest
+            manifest = load_manifest(repo_root / ".orca" / "adoption.toml")
+            print(f"would apply manifest at {repo_root / '.orca' / 'adoption.toml'}")
+            print(f"  host.system = {manifest.host.system}")
+            print(f"  agents_md_path = {manifest.host.agents_md_path}")
+            print(f"  claude_md.policy = {manifest.claude_md.policy}")
+            return 0
+        adoption_apply(repo_root=repo_root)
+        print(f"applied; state: {repo_root}/.orca/adoption-state.json")
+        return 0
+    except Exception as exc:
+        print(f"apply failed: {exc}", file=sys.stderr)
+        return 1
+
+
 _register("cross-agent-review", _run_cross_agent_review, CROSS_AGENT_REVIEW_VERSION)
 _register("worktree-overlap-check", _run_worktree_overlap_check, WORKTREE_OVERLAP_CHECK_VERSION)
 _register("flow-state-projection", _run_flow_state_projection, FLOW_STATE_PROJECTION_VERSION)
@@ -999,6 +1105,8 @@ _register("citation-validator", _run_citation_validator, CITATION_VALIDATOR_VERS
 _register("contradiction-detector", _run_contradiction_detector, CONTRADICTION_DETECTOR_VERSION)
 _register("parse-subagent-response", _run_parse_subagent_response, "0.1.0")
 _register("build-review-prompt", _run_build_review_prompt, "0.1.0")
+_register("adopt", _run_adopt, "1.0.0")
+_register("apply", _run_apply, "1.0.0")
 
 
 if __name__ == "__main__":
