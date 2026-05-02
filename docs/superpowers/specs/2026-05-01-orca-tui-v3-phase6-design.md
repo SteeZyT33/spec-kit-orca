@@ -36,7 +36,7 @@ Make the TUI **answer real operator questions interactively**:
 
 ## What changes
 
-### 1. Empty state
+### 1. Empty state + initialization bugs (confirmed from live render)
 
 When `collect_fleet` returns `[]`, FleetTable renders a single placeholder row:
 
@@ -44,9 +44,13 @@ When `collect_fleet` returns `[]`, FleetTable renders a single placeholder row:
   ·     -      (no lanes — press n to create one, or d for doctor)
 ```
 
-Status line still renders even when rows are empty: `host: <host> · 0 lanes · last refresh: 0s ago`. Fix the signature short-circuit so the first call with `()` signature still calls `_update_status_line()` once.
+**Status-line short-circuit bug**: the first `set_rows([])` call hits the `()`-equals-`()` early return and `_update_status_line()` is never called. Fix: in `FleetApp.set_rows`, always call `_update_status_line()` regardless of signature change (it's cheap and the status line legitimately changes on first render).
 
-**Files**: `src/orca/tui/fleet.py`, `src/orca/tui/app.py`.
+**`last refresh: -` on initial render**: `_last_refresh_at` is None until `_collect_and_set` finishes once. Set it BEFORE rendering or render `0s ago` as the default.
+
+**`◯` (merged) state false-positive on brand-new branches**: a freshly-created branch with 0 commits ahead of `main` is technically reachable from `main`, so `git branch --merged` lists it. State derivation should require ≥1 commit ahead before considering a branch "merged-needs-cleanup." Add ahead-count check to `branch_merged` probe (true only if branch is reachable AND has ≥1 commit beyond base).
+
+**Files**: `src/orca/tui/fleet.py`, `src/orca/tui/app.py`, `src/orca/tui/actions.py` (branch_merged probe).
 
 ### 2. Git log in drill-down
 
