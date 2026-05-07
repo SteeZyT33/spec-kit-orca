@@ -43,6 +43,7 @@ class FleetApp(App):
 
     def compose(self) -> ComposeResult:  # type: ignore[override]
         yield FleetTable(id="fleet")
+        yield Static("", id="event-tail")
         yield Static("", id="status-line")
         yield Footer()
 
@@ -53,6 +54,7 @@ class FleetApp(App):
         # Always refresh the status line — its content (lane counts,
         # last-refresh timer) changes regardless of row signature.
         self._update_status_line()
+        self._update_event_tail()
 
     def _update_status_line(self) -> None:
         n = len(self._rows)
@@ -63,6 +65,11 @@ class FleetApp(App):
         line = (f"  host: {host} · {n} lanes · {stale} stale · "
                 f"{merged} ready-to-merge · last refresh: {refresh}")
         self.query_one("#status-line", Static).update(line)
+
+    def _update_event_tail(self) -> None:
+        from orca.tui.collect import latest_event_summary
+        text = latest_event_summary(self.repo_root)
+        self.query_one("#event-tail", Static).update(text)
 
     def _host_system_label(self) -> str:
         try:

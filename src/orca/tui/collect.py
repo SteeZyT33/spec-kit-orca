@@ -6,6 +6,7 @@ git/tmux environment.
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
@@ -23,6 +24,33 @@ from orca.tui.timefmt import format_age
 
 
 _STATE_RANK = {"live": 0, "stale": 1, "merged": 2, "failed": 3, "idle": 4}
+
+
+def latest_event_summary(repo_root: Path) -> str:
+    """One-line summary of the most recent event in events.jsonl.
+    Dim placeholder when no events file exists."""
+    path = repo_root / ".orca" / "worktrees" / "events.jsonl"
+    if not path.exists():
+        return "  last: (no events)"
+    last: dict | None = None
+    with path.open() as fh:
+        for line in fh:
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            last = entry
+    if last is None:
+        return "  last: (no events)"
+    ts = last.get("ts", "?")
+    age = format_age(ts)
+    evt = last.get("event", "?")
+    lane = last.get("lane_id", "?")
+    agent = last.get("agent", "")
+    pieces = [f"last: {age}", evt, lane]
+    if agent:
+        pieces.append(agent)
+    return "  " + " · ".join(pieces)
 
 
 def collect_fleet(
