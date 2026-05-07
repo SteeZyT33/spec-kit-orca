@@ -12,6 +12,29 @@ from textual.widgets import Footer, Static
 from orca.tui.models import FleetRow
 
 
+class _StageLine(Static):
+    """One stage row, clickable when it has evidence."""
+
+    def __init__(self, stage: str, label: str, evidence: str, **kwargs) -> None:
+        super().__init__(
+            f"  {stage:14s}  {label:14s}  {evidence}",
+            id=f"stage-{stage}", **kwargs,
+        )
+        self.stage_name = stage
+        self.evidence = evidence
+
+    def on_click(self) -> None:
+        if not self.evidence:
+            return
+        import orca.tui.actions as _actions
+        from textual.app import SuspendNotSupported
+        try:
+            with self.app.suspend():
+                _actions.open_editor(Path(self.evidence))
+        except SuspendNotSupported:
+            _actions.open_editor(Path(self.evidence))
+
+
 def load_recent_events(repo_root: Path, lane_id: str, n: int = 20) -> list[dict]:
     """Return last n events for the given lane, newest first."""
     path = repo_root / ".orca" / "worktrees" / "events.jsonl"
@@ -76,7 +99,12 @@ class LaneScreen(Screen):
         yield Static("\n".join(meta_lines), id="lane-meta")
 
         # 2. Stage progress block
-        yield Static(self._stage_block(), id="lane-stages")
+        yield Vertical(
+            Static("STAGE PROGRESS", classes="label"),
+            *[_StageLine(stage, label, evidence)
+              for stage, label, evidence in self._stage_lines()],
+            id="lane-stages",
+        )
 
         # 3. Git log block
         yield Static(self._git_block(), id="lane-git")
@@ -112,32 +140,34 @@ class LaneScreen(Screen):
             lines.append(f"  {sha}  {when:18s}  {subject}")
         return "\n".join(lines)
 
-    def _stage_block(self) -> str:
-        """Render the 8-stage progress lines for the row's feature."""
+    def _stage_lines(self) -> list[tuple[str, str, str]]:
+        """Return list of (stage_name, label, evidence_path) per stage."""
+        order = ["brainstorm", "specify", "plan", "tasks", "implement",
+                 "review-spec", "review-code", "review-pr"]
         if not self.row.feature_id:
-            return "STAGE PROGRESS\n(no feature linked)"
+            return [(s, "—", "") for s in order]
         try:
             from orca.core.host_layout import from_manifest
             from orca.flow_state import compute_flow_state
+            from orca.tui.flow_strip import status_label
             layout = from_manifest(self.repo_root)
-            result = compute_flow_state(
-                layout.resolve_feature_dir(self.row.feature_id),
-                repo_root=self.repo_root,
-            )
+            result = compute_flow_state(layout.resolve_feature_dir(self.row.feature_id),
+                                         repo_root=self.repo_root)
         except Exception:
-            return "STAGE PROGRESS\n(unavailable)"
-
+            return [(s, "—", "") for s in order]
         all_milestones = result.completed_milestones + result.incomplete_milestones
-        order = ["brainstorm", "specify", "plan", "tasks", "implement",
-                 "review-spec", "review-code", "review-pr"]
         by_stage = {m.stage: m for m in all_milestones}
-        lines = ["STAGE PROGRESS"]
+        out: list[tuple[str, str, str]] = []
         for stage in order:
             m = by_stage.get(stage)
             status = m.status if m else "not_started"
-            evidence = ""
-            if m and m.evidence_sources:
-                evidence = m.evidence_sources[0]
-            from orca.tui.flow_strip import status_label
-            lines.append(f"  {stage:14s}  {status_label(status):14s}  {evidence}")
+            evidence = m.evidence_sources[0] if (m and m.evidence_sources) else ""
+            out.append((stage, status_label(status), evidence))
+        return out
+
+    def _stage_block(self) -> str:
+        """Render the 8-stage progress lines for the row's feature (kept for legacy)."""
+        lines = ["STAGE PROGRESS"]
+        for stage, label, evidence in self._stage_lines():
+            lines.append(f"  {stage:14s}  {label:14s}  {evidence}")
         return "\n".join(lines)
