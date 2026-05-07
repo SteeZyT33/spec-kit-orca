@@ -48,11 +48,11 @@ class FleetApp(App):
 
     def set_rows(self, rows: list[FleetRow]) -> None:
         fleet = self.query_one(FleetTable)
-        prev_sig = fleet._last_signature
         self._rows = list(rows)
         fleet.set_rows(rows)
-        if fleet._last_signature != prev_sig:
-            self._update_status_line()
+        # Always refresh the status line — its content (lane counts,
+        # last-refresh timer) changes regardless of row signature.
+        self._update_status_line()
 
     def _update_status_line(self) -> None:
         n = len(self._rows)
@@ -79,11 +79,9 @@ class FleetApp(App):
             return "?"
 
     def _last_refresh_label(self) -> str:
-        ts = getattr(self, "_last_refresh_at", None)
-        if ts is None:
-            return "-"
         from datetime import datetime, timezone
-        delta = (datetime.now(timezone.utc) - ts).total_seconds()
+        ts = getattr(self, "_last_refresh_at", None) or datetime.now(timezone.utc)
+        delta = max(0.0, (datetime.now(timezone.utc) - ts).total_seconds())
         if delta < 60:
             return f"{int(delta)}s ago"
         return f"{int(delta / 60)}m ago"
