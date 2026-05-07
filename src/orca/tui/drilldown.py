@@ -54,11 +54,19 @@ class LaneScreen(Screen):
 
     def compose(self) -> ComposeResult:  # type: ignore[override]
         # 1. Metadata block
+        from orca.tui.git import ahead_behind
+        from orca.core.worktrees.registry import read_sidecar, sidecar_path
+        sc = read_sidecar(sidecar_path(
+            self.repo_root / ".orca" / "worktrees", self.row.lane_id))
+        base = sc.base_branch if sc else "main"
+        ab = ahead_behind(self.repo_root, self.row.branch, base)
+        ab_text = f" ({ab[0]} ahead, {ab[1]} behind {base})" if ab else ""
+
         meta_lines = [
             f"{self.row.lane_id} · {self.row.agent} · {self.row.state}",
             "",
             f"path     {self.row.worktree_path}",
-            f"branch   {self.row.branch}",
+            f"branch   {self.row.branch}{ab_text}",
             f"feature  {self.row.feature_id or '-'}",
             f"done     {self.row.done.strip()}",
             f"seen     {self.row.last_seen}",
