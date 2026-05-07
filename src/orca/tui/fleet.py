@@ -26,7 +26,7 @@ class FleetTable(DataTable):
             *args,
             **kwargs,
         )
-        self._last_signature: tuple = ()
+        self._last_signature: object = object()  # sentinel; never equals any real sig
 
     def on_mount(self) -> None:
         self.cursor_type = "row"
@@ -47,6 +47,24 @@ class FleetTable(DataTable):
         self._last_signature = sig
         prev_cursor = self.cursor_row if self.row_count else 0
         self.clear()
+
+        if not rows:
+            # Empty state: single placeholder row pointing the operator
+            # at what to do next. Empty cells in the data columns; hint
+            # text lives in the lane column where it's most visible.
+            self.add_row(
+                Text("·", style="dim"),
+                "-",
+                Text("(no lanes — press n to create one, d for doctor)",
+                     style="dim italic"),
+                Text(""),
+                "",
+                "",
+                Text(""),
+                key="__empty__",
+            )
+            return
+
         for r in rows:
             glyph, color = _STATE_GLYPH.get(r.state, ("·", "dim"))
             health_style = "red" if r.health else ""
