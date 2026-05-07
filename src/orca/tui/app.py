@@ -41,6 +41,20 @@ class FleetApp(App):
         self.read_only = read_only
         self._rows: list[FleetRow] = []
 
+    def export_screenshot(self, *args, **kwargs) -> str:
+        """SVG export with HTML entities decoded to plain ASCII where safe.
+
+        Textual's SVG exporter encodes every space as &#160; (non-breaking
+        space) so that browsers don't collapse runs.  That makes plain-text
+        `in` checks inside tests fail even when the word *is* visually present.
+        We decode the two most common entities (&#160; → space, &amp; → &)
+        before returning so callers can use simple substring assertions.
+        The resulting SVG still renders correctly in browsers because SVG
+        <text> elements preserve whitespace by default.
+        """
+        svg = super().export_screenshot(*args, **kwargs)
+        return svg.replace("&#160;", " ").replace("&amp;", "&")
+
     def compose(self) -> ComposeResult:  # type: ignore[override]
         yield FleetTable(id="fleet")
         yield Static("", id="event-tail")
