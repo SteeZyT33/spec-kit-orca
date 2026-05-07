@@ -32,12 +32,25 @@ def load_recent_events(repo_root: Path, lane_id: str, n: int = 20) -> list[dict]
 class LaneScreen(Screen):
     """Single-lane drill-down. Esc returns."""
 
-    BINDINGS = [("escape", "app.pop_screen", "back")]
+    BINDINGS = [
+        ("escape", "app.pop_screen", "back"),
+        ("c", "show_commit", "show commit"),
+    ]
 
     def __init__(self, repo_root: Path, row: FleetRow, **kwargs) -> None:
         super().__init__(**kwargs)
         self.repo_root = repo_root
         self.row = row
+
+    def action_show_commit(self) -> None:
+        """Open `git show <head>` in $PAGER for the row's branch."""
+        from orca.tui.git import recent_commits, show_commit
+        commits = recent_commits(self.repo_root, self.row.branch, n=1)
+        if not commits:
+            return
+        sha = commits[0][0]
+        with self.app.suspend():
+            show_commit(self.repo_root, sha)
 
     def compose(self) -> ComposeResult:  # type: ignore[override]
         # 1. Metadata block
