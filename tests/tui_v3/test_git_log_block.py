@@ -41,10 +41,12 @@ async def _run(tmp_path: Path, monkeypatch) -> None:
         await pilot.press("enter")
         await pilot.pause()
         assert isinstance(app.screen, LaneScreen)
-        from textual.widgets import Static
-        git = app.screen.query_one("#lane-git", Static)
-        text = str(git.content)
-        assert "GIT LOG" in text
-        assert "abc1234" in text
-        assert "fix the thing" in text
-        assert "def5678" in text
+        from textual.widgets import DataTable
+        git_table = app.screen.query_one("#lane-git-table", DataTable)
+        assert git_table.row_count == 2, (
+            f"expected 2 commit rows, got {git_table.row_count}"
+        )
+        # Verify commit shas are present as row keys.
+        row_keys = {k.value for k in git_table.rows.keys()}
+        assert "abc1234" in row_keys, f"abc1234 not in rows: {row_keys}"
+        assert "def5678" in row_keys, f"def5678 not in rows: {row_keys}"

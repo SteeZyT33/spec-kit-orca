@@ -7,7 +7,7 @@ from pathlib import Path
 from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.screen import Screen
-from textual.widgets import Footer, Static
+from textual.widgets import DataTable, Footer, Static
 
 from orca.tui.models import FleetRow
 
@@ -52,28 +52,65 @@ def load_recent_events(repo_root: Path, lane_id: str, n: int = 20) -> list[dict]
     return list(reversed(matches[-n:]))
 
 
+class _GitLogTable(DataTable):
+    """Selectable git-log table. c or Enter opens the cursor commit."""
+
+    BINDINGS = [
+        ("c", "show_commit", "show commit"),
+        ("enter", "show_commit", "show commit"),
+    ]
+
+    def __init__(self, repo_root: Path, branch: str, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.repo_root = repo_root
+        self.branch = branch
+        self.cursor_type = "row"
+        self.zebra_stripes = False
+
+    def on_mount(self) -> None:
+        self.add_column("sha", width=8)
+        self.add_column("when", width=18)
+        self.add_column("subject")
+        from orca.tui.git import recent_commits
+        rows = recent_commits(self.repo_root, self.branch, n=20)
+        if not rows:
+            self.add_row("—", "—", "(no commits on this branch yet)",
+                         key="__empty__")
+            return
+        for sha, when, subject in rows:
+            if len(subject) > 60:
+                subject = subject[:59] + "…"
+            self.add_row(sha, when, subject, key=sha)
+
+    def action_show_commit(self) -> None:
+        from orca.tui.git import show_commit
+        try:
+            row_key = self.coordinate_to_cell_key(
+                self.cursor_coordinate).row_key
+            sha = row_key.value if row_key else None
+        except Exception:
+            sha = None
+        if not sha or sha == "__empty__":
+            return
+        try:
+            with self.app.suspend():
+                show_commit(self.repo_root, sha)
+        except Exception:
+            # Suspend may fail in headless test mode — call directly.
+            show_commit(self.repo_root, sha)
+
+
 class LaneScreen(Screen):
     """Single-lane drill-down. Esc returns."""
 
     BINDINGS = [
         ("escape", "app.pop_screen", "back"),
-        ("c", "show_commit", "show commit"),
     ]
 
     def __init__(self, repo_root: Path, row: FleetRow, **kwargs) -> None:
         super().__init__(**kwargs)
         self.repo_root = repo_root
         self.row = row
-
-    def action_show_commit(self) -> None:
-        """Open `git show <head>` in $PAGER for the row's branch."""
-        from orca.tui.git import recent_commits, show_commit
-        commits = recent_commits(self.repo_root, self.row.branch, n=1)
-        if not commits:
-            return
-        sha = commits[0][0]
-        with self.app.suspend():
-            show_commit(self.repo_root, sha)
 
     def compose(self) -> ComposeResult:  # type: ignore[override]
         # 1. Metadata block
@@ -106,8 +143,13 @@ class LaneScreen(Screen):
             id="lane-stages",
         )
 
-        # 3. Git log block
-        yield Static(self._git_block(), id="lane-git")
+        # 3. Git log block (selectable DataTable)
+        yield Vertical(
+            Static("GIT LOG", classes="label"),
+            _GitLogTable(self.repo_root, self.row.branch,
+                         id="lane-git-table"),
+            id="lane-git",
+        )
 
         # 4. Recent events
         events = load_recent_events(self.repo_root, self.row.lane_id)
@@ -125,20 +167,6 @@ class LaneScreen(Screen):
             id="lane-events",
         )
         yield Footer()
-
-    def _git_block(self) -> str:
-        """Render the GIT LOG block: last 20 commits on the row's branch."""
-        from orca.tui.git import recent_commits
-        commits = recent_commits(self.repo_root, self.row.branch, n=20)
-        lines = ["GIT LOG"]
-        if not commits:
-            lines.append("(no commits on this branch yet)")
-            return "\n".join(lines)
-        for sha, when, subject in commits:
-            if len(subject) > 60:
-                subject = subject[:59] + "…"
-            lines.append(f"  {sha}  {when:18s}  {subject}")
-        return "\n".join(lines)
 
     def _stage_lines(self) -> list[tuple[str, str, str]]:
         """Return list of (stage_name, label, evidence_path) per stage."""
