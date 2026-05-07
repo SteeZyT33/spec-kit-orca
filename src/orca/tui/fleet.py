@@ -38,6 +38,7 @@ class FleetTable(DataTable):
         self.add_column("seen", width=5, key="seen")
         self.add_column("s·c·p", width=7, key="done")
         self.add_column("health", width=8, key="health")
+        self._apply_responsive_widths(self.app.size.width if self.app else 80)
 
     def set_rows(self, rows: list[FleetRow]) -> None:
         sig = tuple((r.lane_id, r.state, r.stage_segments, r.last_seen,
@@ -74,7 +75,10 @@ class FleetTable(DataTable):
             self.add_row(
                 Text(glyph, style=f"bold {color}" if color != "dim" else "dim"),
                 r.agent,
-                _truncate(f"{r.feature_id or '-'} · {r.branch}", 22),
+                _truncate(
+                    f"{r.feature_id or '-'} · {r.branch}",
+                    self._lane_width_now(),
+                ),
                 stage_text,
                 r.last_seen,
                 r.done,
@@ -86,6 +90,29 @@ class FleetTable(DataTable):
                 self.move_cursor(row=prev_cursor)
             except Exception:
                 pass
+
+    def _apply_responsive_widths(self, term_width: int) -> None:
+        """Adjust lane + health column widths based on terminal width."""
+        if term_width >= 120:
+            lane_w, health_w = 36, 20
+        elif term_width >= 100:
+            lane_w, health_w = 28, 14
+        else:
+            lane_w, health_w = 22, 8
+        cols = {c.key.value: c for c in self.columns.values()}
+        if "lane" in cols:
+            cols["lane"].width = lane_w
+        if "health" in cols:
+            cols["health"].width = health_w
+        self.refresh()
+
+    def on_resize(self, event) -> None:  # type: ignore[override]
+        self._apply_responsive_widths(event.size.width)
+
+    def _lane_width_now(self) -> int:
+        cols = {c.key.value: c for c in self.columns.values()}
+        col = cols.get("lane")
+        return col.width if col else 22
 
 
 def _truncate(value: str, width: int) -> str:
