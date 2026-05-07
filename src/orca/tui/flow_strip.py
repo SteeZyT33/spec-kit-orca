@@ -61,3 +61,21 @@ def strip_segments(milestones: list[FlowMilestone]) -> tuple[tuple[str, str], ..
             segs.append(("·", "dim"))
         segs.append((glyph, style))
     return tuple(segs)
+
+
+_STATUS_LABELS = {
+    "complete":          "done",
+    "in_progress":       "in progress",
+    "blocked":           "blocked",
+    "not_started":       "—",
+    "incomplete":        "incomplete",
+    "missing":           "not started",
+    "phases_partial":    "phases partial",
+    "overall_complete":  "done",
+    "skipped":           "skipped",
+}
+
+
+def status_label(status: str) -> str:
+    """Map a flow-state milestone status to an operator-friendly label."""
+    return _STATUS_LABELS.get(status, "—")

@@ -100,5 +100,6 @@ class LaneScreen(Screen):
             evidence = ""
             if m and m.evidence_sources:
                 evidence = m.evidence_sources[0]
-            lines.append(f"  {stage:14s}  {status:14s}  {evidence}")
+            from orca.tui.flow_strip import status_label
+            lines.append(f"  {stage:14s}  {status_label(status):14s}  {evidence}")
         return "\n".join(lines)
