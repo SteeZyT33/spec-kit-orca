@@ -68,7 +68,7 @@ _STATUS_LABELS = {
     "in_progress":       "in progress",
     "blocked":           "blocked",
     "not_started":       "—",
-    "incomplete":        "incomplete",
+    "incomplete":        "partial",
     "missing":           "not started",
     "phases_partial":    "phases partial",
     "overall_complete":  "done",
