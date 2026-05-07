@@ -26,7 +26,12 @@ def tmux_alive(session: str) -> bool:
 
 
 def branch_merged(repo_root: Path, branch: str, base: str) -> bool:
-    """True if `branch` is reachable from `base` via git --merged."""
+    """True if `branch` is reachable from `base` AND has >=1 commit beyond it.
+
+    A 0-commits-ahead branch is technically reachable from base (it IS base)
+    but isn't 'merged work needing cleanup' — it's just empty. Requiring
+    >=1 ahead commit avoids the brand-new-branch circle false positive.
+    """
     try:
         out = subprocess.run(
             ["git", "-C", str(repo_root), "branch", "--merged", base,
@@ -35,8 +40,22 @@ def branch_merged(repo_root: Path, branch: str, base: str) -> bool:
         )
         if out.returncode != 0:
             return False
-        return branch in {ln.strip() for ln in out.stdout.splitlines()}
+        merged_set = {ln.strip().lstrip("* ") for ln in out.stdout.splitlines()}
+        if branch not in merged_set:
+            return False
     except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+    try:
+        ahead = subprocess.run(
+            ["git", "-C", str(repo_root), "rev-list", "--count",
+             f"{base}..{branch}"],
+            capture_output=True, text=True, timeout=5.0,
+        )
+        if ahead.returncode != 0:
+            return False
+        return int(ahead.stdout.strip() or "0") >= 1
+    except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
         return False
 
 
