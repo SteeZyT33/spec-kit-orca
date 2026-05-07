@@ -52,9 +52,16 @@ LaneScreen #lane-stages {
     padding: 1 2;
 }
 
-LaneScreen #lane-events {
+LaneScreen #lane-git {
     border: round $primary-darken-1;
     height: 1fr;
+    padding: 0 1;
+}
+
+LaneScreen #lane-events {
+    border: round $primary-darken-1;
+    height: auto;
+    max-height: 14;
     padding: 0 1;
 }
 

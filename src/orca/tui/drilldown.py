@@ -57,7 +57,10 @@ class LaneScreen(Screen):
         # 2. Stage progress block
         yield Static(self._stage_block(), id="lane-stages")
 
-        # 3. Recent events
+        # 3. Git log block
+        yield Static(self._git_block(), id="lane-git")
+
+        # 4. Recent events
         events = load_recent_events(self.repo_root, self.row.lane_id)
         if not events:
             body = "(no events)"
@@ -73,6 +76,20 @@ class LaneScreen(Screen):
             id="lane-events",
         )
         yield Footer()
+
+    def _git_block(self) -> str:
+        """Render the GIT LOG block: last 20 commits on the row's branch."""
+        from orca.tui.git import recent_commits
+        commits = recent_commits(self.repo_root, self.row.branch, n=20)
+        lines = ["GIT LOG"]
+        if not commits:
+            lines.append("(no commits on this branch yet)")
+            return "\n".join(lines)
+        for sha, when, subject in commits:
+            if len(subject) > 60:
+                subject = subject[:59] + "…"
+            lines.append(f"  {sha}  {when:18s}  {subject}")
+        return "\n".join(lines)
 
     def _stage_block(self) -> str:
         """Render the 8-stage progress lines for the row's feature."""
