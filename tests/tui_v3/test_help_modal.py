@@ -27,7 +27,6 @@ def test_help_modal_lists_visible_keys_in_read_only(tmp_path: Path) -> None:
 
 async def _run_text(tmp_path: Path) -> None:
     from orca.tui.app import FleetApp
-    from orca.tui.modals import HelpModal
     app = FleetApp(repo_root=tmp_path, read_only=True)
     async with app.run_test() as pilot:
         app.set_rows([])
