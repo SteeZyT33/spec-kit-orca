@@ -26,11 +26,12 @@ class FleetApp(App):
         Binding("r", "close_lane", "rm"),
         Binding("n", "new_lane", "new"),
         Binding("d", "doctor", "doctor"),
+        Binding("R", "build_review", "review"),
     ]
 
-    # Hide r/n/d from Footer when read_only.
+    # Hide r/n/d/R from Footer when read_only.
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
-        if self.read_only and action in {"close_lane", "new_lane", "doctor"}:
+        if self.read_only and action in {"close_lane", "new_lane", "doctor", "build_review"}:
             return False
         return True
     CSS_PATH = "theme.tcss"
@@ -189,6 +190,39 @@ class FleetApp(App):
             ))
             self._collect_and_set()
         self.push_screen(NewLaneModal(), on_submit)
+
+    def action_build_review(self) -> None:
+        if self.read_only:
+            return
+        from orca.tui.modals import ReviewKindModal, ResultModal
+        from orca.tui.actions import build_review_prompt
+        import tempfile
+        import subprocess
+        import os
+
+        def on_kind(kind: str | None) -> None:
+            if not kind:
+                return
+            text = build_review_prompt(self.repo_root, kind)
+            # Write to tmp file and page with $PAGER (default less).
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=f".{kind}-review-prompt.md",
+                delete=False,
+            ) as fh:
+                fh.write(text)
+                tmp_path = fh.name
+            pager = os.environ.get("PAGER", "less")
+            try:
+                with self.suspend():
+                    subprocess.call([pager, tmp_path])
+            except Exception:
+                # Headless mode (tests) — fall back to a result modal.
+                self.push_screen(ResultModal(
+                    title=f"build-review-prompt --kind {kind}",
+                    body=text[:2000] + ("…" if len(text) > 2000 else ""),
+                ))
+
+        self.push_screen(ReviewKindModal(), on_kind)
 
     def action_doctor(self) -> None:
         if self.read_only:

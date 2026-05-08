@@ -144,3 +144,12 @@ def open_editor(worktree_path: Path) -> int:
     parts = shlex.split(editor)
     return subprocess.call([*parts, str(worktree_path)],
                             cwd=str(worktree_path))
+
+
+def build_review_prompt(repo_root: Path, kind: str) -> str:
+    """Run `orca-cli build-review-prompt --kind <kind>` and return stdout."""
+    out = subprocess.run(
+        ["orca-cli", "build-review-prompt", "--kind", kind],
+        cwd=str(repo_root), capture_output=True, text=True, timeout=30,
+    )
+    return out.stdout if out.returncode == 0 else f"<error>\n{out.stderr}"

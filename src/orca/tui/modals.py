@@ -89,5 +89,35 @@ class NewLaneModal(ModalScreen[dict | None]):
         self.dismiss(None)
 
 
+class ReviewKindModal(ModalScreen[str | None]):
+    """Choose review kind: spec / code / pr / cancel."""
+
+    BINDINGS = [
+        ("s", "pick_spec", ""),
+        ("c", "pick_code", ""),
+        ("p", "pick_pr", ""),
+        ("escape", "cancel", ""),
+    ]
+
+    def compose(self) -> ComposeResult:  # type: ignore[override]
+        yield Vertical(
+            Label("Build review prompt for which kind?"),
+            Static("\\[s]pec / \\[c]ode / \\[p]r / \\[esc] cancel", classes="label"),
+            id="dialog",
+        )
+
+    def action_pick_spec(self) -> None:
+        self.dismiss("spec")
+
+    def action_pick_code(self) -> None:
+        self.dismiss("code")
+
+    def action_pick_pr(self) -> None:
+        self.dismiss("pr")
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 # DoctorModal is just ResultModal aliased — no extra UI needed.
 DoctorModal = ResultModal
