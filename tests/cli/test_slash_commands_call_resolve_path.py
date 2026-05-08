@@ -11,7 +11,11 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-COMMANDS_DIR = REPO_ROOT / "plugins" / "claude-code" / "commands"
+# Deprecated as of v3.0.0 (2026-05-07) — see
+# docs/decisions/2026-05-07-lean-skill-bundle.md. The 5 commands tested
+# below are still expected to be functional if re-enabled, so the tests
+# keep gating their resolve-path discipline against the deprecated/ path.
+COMMANDS_DIR = REPO_ROOT / "plugins" / "claude-code" / "commands" / "deprecated"
 
 # Commands that resolve --feature-id to a feature-dir
 HOST_AWARE_COMMANDS = [
