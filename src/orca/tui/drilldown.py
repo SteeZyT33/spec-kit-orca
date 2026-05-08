@@ -1,0 +1,216 @@
+"""Drill-down: lane metadata + recent events."""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from textual.app import ComposeResult, SuspendNotSupported
+from textual.containers import Vertical, VerticalScroll
+from textual.screen import Screen
+from textual.widgets import DataTable, Footer, Static
+
+from orca.tui.models import FleetRow
+
+
+class _StageLine(Static):
+    """One stage row, clickable when it has evidence."""
+
+    def __init__(self, stage: str, label: str, evidence: str, **kwargs) -> None:
+        super().__init__(
+            f"  {stage:14s}  {label:14s}  {evidence}",
+            id=f"stage-{stage}", **kwargs,
+        )
+        self.stage_name = stage
+        self.evidence = evidence
+
+    def on_click(self) -> None:
+        if not self.evidence:
+            return
+        import orca.tui.actions as _actions
+        from textual.app import SuspendNotSupported
+        try:
+            with self.app.suspend():
+                _actions.open_editor(Path(self.evidence))
+        except SuspendNotSupported:
+            _actions.open_editor(Path(self.evidence))
+
+
+EVENTS_TAIL_BYTE_CAP = 65536  # 64KB tail — enough for last ~500 events
+
+
+def load_recent_events(repo_root: Path, lane_id: str, n: int = 20) -> list[dict]:
+    """Return last n events for the given lane, newest first.
+
+    Tail-reads the last 64KB to bound work on long-lived repos.
+    """
+    path = repo_root / ".orca" / "worktrees" / "events.jsonl"
+    matches: list[dict] = []
+    try:
+        file_size = path.stat().st_size
+        with path.open("rb") as fh:
+            if file_size > EVENTS_TAIL_BYTE_CAP:
+                fh.seek(file_size - EVENTS_TAIL_BYTE_CAP)
+                fh.readline()  # discard partial line
+            for raw in fh:
+                try:
+                    entry = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                if entry.get("lane_id") == lane_id:
+                    matches.append(entry)
+    except (FileNotFoundError, OSError):
+        return []
+    return list(reversed(matches[-n:]))
+
+
+class _GitLogTable(DataTable):
+    """Selectable git-log table. c or Enter opens the cursor commit."""
+
+    BINDINGS = [
+        ("c", "show_commit", "show commit"),
+        ("enter", "show_commit", "show commit"),
+    ]
+
+    def __init__(self, repo_root: Path, branch: str, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.repo_root = repo_root
+        self.branch = branch
+        self.cursor_type = "row"
+        self.zebra_stripes = False
+
+    def on_mount(self) -> None:
+        self.add_column("sha", width=8)
+        self.add_column("when", width=18)
+        self.add_column("subject")
+        from orca.tui.git import recent_commits
+        rows = recent_commits(self.repo_root, self.branch, n=20)
+        if not rows:
+            self.add_row("—", "—", "(no commits on this branch yet)",
+                         key="__empty__")
+            return
+        for sha, when, subject in rows:
+            if len(subject) > 60:
+                subject = subject[:59] + "…"
+            self.add_row(sha, when, subject, key=sha)
+
+    def action_show_commit(self) -> None:
+        from orca.tui.git import show_commit
+        try:
+            row_key = self.coordinate_to_cell_key(
+                self.cursor_coordinate).row_key
+            sha = row_key.value if row_key else None
+        except Exception:
+            sha = None
+        if not sha or sha == "__empty__":
+            return
+        try:
+            with self.app.suspend():
+                show_commit(self.repo_root, sha)
+        except SuspendNotSupported:
+            show_commit(self.repo_root, sha)
+
+
+class LaneScreen(Screen):
+    """Single-lane drill-down. Esc returns."""
+
+    BINDINGS = [
+        ("escape", "app.pop_screen", "back"),
+    ]
+
+    def __init__(self, repo_root: Path, row: FleetRow, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.repo_root = repo_root
+        self.row = row
+
+    def compose(self) -> ComposeResult:  # type: ignore[override]
+        from orca.tui.git import ahead_behind
+        from orca.core.worktrees.registry import read_sidecar, sidecar_path
+        sc = read_sidecar(sidecar_path(
+            self.repo_root / ".orca" / "worktrees", self.row.lane_id))
+        base = sc.base_branch if sc else "main"
+        ab = ahead_behind(self.repo_root, self.row.branch, base)
+        ab_text = f" ({ab[0]} ahead, {ab[1]} behind {base})" if ab else ""
+
+        meta_lines = [
+            f"{self.row.lane_id} · {self.row.agent} · {self.row.state}",
+            "",
+            f"path     {self.row.worktree_path}",
+            f"branch   {self.row.branch}{ab_text}",
+            f"feature  {self.row.feature_id or '-'}",
+            f"done     {self.row.done.strip()}",
+            f"seen     {self.row.last_seen}",
+        ]
+        if self.row.health:
+            meta_lines.append(f"health   {self.row.health}")
+        from rich.text import Text
+        strip = Text()
+        for seg_text, seg_style in self.row.stage_segments:
+            strip.append(seg_text, style=seg_style)
+
+        # pre-compute recent events before entering compose context managers
+        events = load_recent_events(self.repo_root, self.row.lane_id)
+        if not events:
+            events_body = "(no events)"
+        else:
+            events_body = "\n".join(
+                f"{e.get('ts', '?'):26s}  {e.get('event', '?'):24s}  "
+                f"{e.get('agent', '')}"
+                for e in events
+            )
+
+        with VerticalScroll(id="lane-body"):
+            # 1. Metadata block
+            yield Vertical(
+                Static(strip),
+                Static("\n".join(meta_lines), id="lane-meta-text"),
+                id="lane-meta",
+            )
+
+            # 2. Stage progress block
+            yield Vertical(
+                Static("STAGE PROGRESS", classes="label"),
+                *[_StageLine(stage, label, evidence)
+                  for stage, label, evidence in self._stage_lines()],
+                id="lane-stages",
+            )
+
+            # 3. Git log block (selectable DataTable)
+            yield Vertical(
+                Static("GIT LOG", classes="label"),
+                _GitLogTable(self.repo_root, self.row.branch,
+                             id="lane-git-table"),
+                id="lane-git",
+            )
+
+            # 4. Recent events
+            yield Vertical(
+                Static("RECENT EVENTS", classes="label"),
+                Static(events_body),
+                id="lane-events",
+            )
+
+        yield Footer()
+
+    def _stage_lines(self) -> list[tuple[str, str, str]]:
+        """Return list of (stage_name, label, evidence_path) per stage."""
+        from orca.flow_state import STAGE_ORDER
+        if not self.row.feature_id:
+            return [(s, "—", "") for s in STAGE_ORDER]
+        try:
+            from orca.core.host_layout import from_manifest
+            from orca.flow_state import compute_flow_state
+            from orca.tui.flow_strip import status_label
+            layout = from_manifest(self.repo_root)
+            result = compute_flow_state(layout.resolve_feature_dir(self.row.feature_id),
+                                         repo_root=self.repo_root)
+        except Exception:
+            return [(s, "—", "") for s in STAGE_ORDER]
+        all_milestones = result.completed_milestones + result.incomplete_milestones
+        by_stage = {m.stage: m for m in all_milestones}
+        out: list[tuple[str, str, str]] = []
+        for stage in STAGE_ORDER:
+            m = by_stage.get(stage)
+            status = m.status if m else "not_started"
+            evidence = m.evidence_sources[0] if (m and m.evidence_sources) else ""
+            out.append((stage, status_label(status), evidence))
+        return out

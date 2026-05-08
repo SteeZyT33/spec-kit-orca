@@ -1,99 +1,131 @@
 ---
-description: Launch the Orca TUI, a read-only 2-pane terminal surface (review queue + event feed) that watches flow-state artifacts and refreshes via watchdog or polling.
+description: Launch the orca TUI v3 — a single-screen fleet view of every worktree lane with state, stage progress, and at-a-glance health. Drill into any lane for git log + recent events. Mutating actions (close lane, new lane, doctor, build review prompt) shell out to orca-cli.
 ---
 
 # /orca:tui
 
-> **Status**: v1.1 (drawers + theming on top of the post-strip 2-pane TUI).
-> Strictly read-only. All mutations still go through the CLI.
+> **Status**: v3.0 — fleet-view redesign (replaces v1/v2).
 
-The Orca TUI is an always-on terminal surface that watches files
-flow-state already produces and renders them as two live panes (review
-queue + event feed). It is a companion to the CLI, not a replacement.
-See `specs/018-orca-tui/spec.md` for the original v1 spec and
-`specs/018-orca-tui/v1.1/spec.md` for v1.1 drawer + theming additions.
-Lane and yolo panes were removed in Phase 1 of the orca v1 rebuild.
+The orca TUI shows your worktree fleet at a glance: which agent is on
+which lane, where each lane is in flow, what's stale, what's ready to
+clean up. Drilling into a lane reveals its stage progress, recent
+commits, and lifecycle events. All mutations shell out to `orca-cli`.
 
 ## Launch
 
 ```bash
-python -m orca.tui
-# optional flags
-python -m orca.tui --repo-root /path/to/repo
-python -m orca.tui --poll-interval 2.0
-python -m orca.tui --force-polling   # skip watchdog even if available
+python -m orca.tui                              # current dir, full mode
+python -m orca.tui --repo-root /path/to/repo    # specific repo
+python -m orca.tui --read-only                  # suppress r/n/d/R bindings
 ```
 
 The TUI runs against the current working directory by default and
-refreshes via `watchdog` if importable, falling back to a polling loop
-(header shows `polling mode (watchdog unavailable)`).
+refreshes on filesystem changes via watchdog (with a polling fallback
+if watchdog isn't available).
 
-## Panes
+## Fleet view
 
-1. **Review queue** (left) — cross-feature scan of
-   `flow_state.compute_flow_state` for non-complete review milestones.
-2. **Event feed** (right) — empty in Phase 1 (matriarch mailbox and
-   yolo events were the prior sources). Phase 2 capabilities will
-   re-source this pane.
+One row per lane. Columns:
+
+| column   | meaning                                                       |
+|----------|---------------------------------------------------------------|
+| state    | `●` live / `◐` stale / `◯` merged / `✕` failed / `·` idle     |
+| agent    | claude / codex / none                                         |
+| lane     | feature_id · branch (truncates with `…` at narrow widths)     |
+| stage    | 8-letter flow strip (br·sp·pl·ta·im·rs·rc·rp); UPPER = active |
+| seen     | last_attached_at relative time (12s, 2m, 2h, 14d)             |
+| s·c·p    | review verdicts (✓ done, ⏵ in_progress, ✕ blocked, · none)    |
+| health   | stale / setup-failed / merged·cleanup / tmux-orphan / doctor  |
+
+Lane width and health width grow on wider terminals (22/8 at ≤80 cols,
+28/14 at 100+, 36/20 at 120+).
+
+Bottom strip: live event tail (`last: <age> · <event> · <lane>`) and
+status line (`host: <host_system> · N lanes · M stale · K ready-to-merge
+· last refresh: Xs ago`).
+
+## Drilldown
+
+Pressing `Enter` (or clicking a row) pushes the lane drilldown:
+
+1. **Metadata**: `lane · agent · state`, stage strip, path, branch
+   (with ahead/behind counts), feature, done shorthand, seen, health.
+2. **STAGE PROGRESS**: all 8 stages with human-readable status labels
+   and evidence-source paths. Click a stage to open its evidence file
+   in `$EDITOR`.
+3. **GIT LOG**: last 20 commits on the lane's branch as a selectable
+   DataTable. Press `c` (or Enter) on a row to open `git show <sha>`
+   in `$PAGER`.
+4. **RECENT EVENTS**: last 20 entries from `events.jsonl` for this lane.
+
+`Esc` returns to the fleet view.
 
 ## Keybindings
 
-| key | action |
-| --- | --- |
-| `q` | quit |
-| `r` | force refresh (bypass debounce) |
-| `1` | focus review pane |
-| `2` | focus event-feed pane |
-| `Enter` | open drawer for focused row (v1.1) |
-| `Escape` | close drawer (v1.1) |
-| `t` | cycle Textual theme (v1.1) |
+Press `?` at any time for the full list. Quick reference:
 
-## Drawers (v1.1)
+**Fleet view:**
 
-Pressing `Enter` while the review pane is focused and a row is under
-the cursor opens a read-only drawer showing the full detail for that
-row. Press `Escape` or `Enter` again to close.
+| key       | action                                                |
+|-----------|-------------------------------------------------------|
+| `↑↓`      | navigate                                              |
+| `↵`       | drill into focused lane                               |
+| `o`       | open shell in focused worktree                        |
+| `e`       | open `$EDITOR` in focused worktree                    |
+| `r`       | remove (close) focused lane (confirm modal)           |
+| `n`       | new lane (modal prompts for feature_id + agent)       |
+| `d`       | run `orca-cli wt doctor --reap`, show result          |
+| `R`       | build review prompt (spec/code/pr chooser → `$PAGER`) |
+| `g`       | manual refresh                                        |
+| `q`       | quit                                                  |
+| `?`       | help (this list)                                      |
 
-- **Review drawer**: feature_id, review_type, status, artifact path,
-  and a preview of the first 40 lines of the review artifact (when
-  present).
+**Drilldown:**
 
-Enter on the event-feed pane is a documented no-op (the feed is a
-scrolling log without selectable rows).
+| key       | action                                          |
+|-----------|-------------------------------------------------|
+| `↑↓`      | navigate git log rows                           |
+| `c` / `↵` | show selected commit (`git show <sha>` in pager)|
+| click     | stage line opens its evidence file              |
+| `esc`     | back to fleet                                   |
 
-### Graceful degradation
+`--read-only` suppresses `r`, `n`, `d`, `R` (and hides them from the
+help modal annotations).
 
-The drawer reads `review-*.md` review artifacts. The event feed is
-intentionally empty after the v1 strip (no JSONL sources remain). If a
-read fails (artifact not yet written, unreadable file), the drawer
-renders a placeholder message rather than crashing the TUI. This
-preserves the v1 invariant that one corrupt file never zeroes out the UI.
+## What it shows / what it doesn't
 
-## Theming (v1.1)
+- **Reads**: `.orca/worktrees/registry.json`, per-lane sidecars,
+  `events.jsonl`, host-resolved feature dirs (via `host_layout`),
+  `git log` / `git rev-list` / `git branch --merged`, `tmux has-session`.
+- **Writes**: nothing directly. All mutations shell out via `orca-cli`
+  (`wt rm`, `wt new`, `wt doctor`) or the user's `$SHELL` / `$EDITOR` /
+  `$PAGER`.
+- **Host-agnostic**: works on spec-kit, openspec, superpowers, or bare
+  repos. Adapter resolved via `.orca/adoption.toml`; falls back to
+  filesystem detection if no manifest is present.
 
-Pressing `t` cycles through Textual's built-in themes: `textual-dark`
-(default), `textual-light`, `monokai`, `dracula`. The cycle list is
-filtered against the running Textual version's
-`app.available_themes`, so a theme missing from an older Textual
-build is silently dropped from the cycle instead of crashing.
+## Performance characteristics
 
-Theme selection persists for the lifetime of the process — it survives
-auto-refresh and manual `r` refresh cycles.
+- **events.jsonl**: tail-read (last 256KB ≈ ~3-4k events). Long-lived
+  repos with 100k+ events refresh in <50ms.
+- **Watcher debounce**: 500ms quiet window with a 2s max-delay cap, so
+  sustained agent activity doesn't starve the refresh.
+- **Render**: signature short-circuit on identical input — idle TUI
+  costs zero re-render work.
 
 ## Invariants
 
-- **Read-only.** No keybinding, pane, or drawer mutates repo state.
-  Mutations still go through the CLI.
-- **Projection not source.** Every row traces to a file the CLI
-  already writes. The TUI never invents state.
-- **SDD-agnostic.** The TUI does not parse `spec.md` / `plan.md` /
-  `tasks.md` directly. Feature reads route through `flow_state`.
-  Review-artifact previews are a bounded exception — they read
-  `review-*.md`, which is the review artifact itself.
-- **Graceful degradation.** Unavailable watchdog or unreadable review
-  artifact — each has a documented empty-state / placeholder path.
+- **Read-only TUI process.** The TUI never mutates repo state directly.
+  Mutating keybindings spawn `orca-cli` subprocesses.
+- **Projection not source.** Every cell traces to a file or git command
+  the operator could run themselves.
+- **Host-agnostic.** No spec-system path is hardcoded; all routing goes
+  through `host_layout.from_manifest()` (or `detect()` as fallback).
 
 ## Related
 
-- `specs/018-orca-tui/` — v1 spec, plan, brainstorm, data model.
-- `specs/018-orca-tui/v1.1/` — drawer + theming additions.
+- `docs/superpowers/specs/2026-05-01-orca-tui-v3-design.md` — design spec
+- `docs/superpowers/specs/2026-05-01-orca-tui-v3-phase6-design.md` — Phase 6
+- `docs/superpowers/specs/2026-05-07-orca-tui-v3-phase7-design.md` — Phase 7
+- `docs/superpowers/specs/2026-05-07-orca-tui-v3-phase8-design.md` — Phase 8
+- `src/orca/tui/` — implementation
