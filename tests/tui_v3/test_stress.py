@@ -124,7 +124,6 @@ def test_collect_fleet_50_lanes_100k_events(tmp_path: Path) -> None:
     """50 lanes + 100k events. Bound: 1.5s. With tail-read cap, the
     full-file-scan-per-refresh bug doesn't bite at production scale."""
     from orca.tui.collect import collect_fleet
-    from orca.tui.actions import last_event, last_setup_failed
 
     _write_registry(tmp_path, 50)
     _write_events(tmp_path, 100_000)
@@ -183,4 +182,3 @@ def test_build_event_index_returns_recent_lanes_under_cap(tmp_path: Path) -> Non
     # Sanity: index should contain lane-new mid-range entries too (the cap
     # has enough headroom). But should NOT have ancient lane-old if cap
     # excluded the first ~50% of the file.
-
