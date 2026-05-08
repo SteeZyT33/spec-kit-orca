@@ -98,6 +98,7 @@ def collect_fleet(
             branch_merged=merged,
             tmux_alive=tmux,
             sidecar_active=(sc.status == "active"),
+            tmux_configured=bool(sc.tmux_session),
             doctor_warnings=[],
         ), now=cur)
 

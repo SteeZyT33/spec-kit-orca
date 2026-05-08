@@ -17,6 +17,7 @@ class HealthInputs:
     branch_merged: bool
     tmux_alive: bool
     sidecar_active: bool
+    tmux_configured: bool = True  # default True for back-compat with existing call sites
     doctor_warnings: list[str] = field(default_factory=list)
 
 
@@ -46,7 +47,9 @@ def derive_health(inp: HealthInputs, *, now: datetime | None = None) -> str:
     if last is not None and (cur - last) > STALE_AFTER:
         tags.append(f"stale {format_age(inp.last_attached_at, now=cur)}")
 
-    if (inp.sidecar_active and not inp.tmux_alive
+    # tmux-orphan: lane is sidecar-active, tmux WAS configured but isn't alive,
+    # and we're not already calling it stale (which subsumes orphan).
+    if (inp.sidecar_active and inp.tmux_configured and not inp.tmux_alive
             and not any(t.startswith("stale ") for t in tags)
             and not inp.branch_merged):
         tags.append("tmux-orphan")

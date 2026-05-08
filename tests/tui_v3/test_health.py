@@ -70,6 +70,35 @@ def test_health_tmux_orphan(now):
         branch_merged=False,
         tmux_alive=False,
         sidecar_active=True,
+        tmux_configured=True,
+        doctor_warnings=[],
+    )
+    assert "tmux-orphan" in derive_health(inp, now=now)
+
+
+def test_health_no_tmux_orphan_when_tmux_not_configured(now):
+    """A lane created --no-tmux (empty tmux_session) is NOT an orphan."""
+    inp = HealthInputs(
+        last_attached_at=_iso(now, hours=1),
+        last_setup_failed=False,
+        branch_merged=False,
+        tmux_alive=False,
+        sidecar_active=True,
+        tmux_configured=False,
+        doctor_warnings=[],
+    )
+    assert "tmux-orphan" not in derive_health(inp, now=now)
+
+
+def test_health_tmux_orphan_when_configured_but_dead(now):
+    """When tmux WAS configured but isn't alive, that IS an orphan."""
+    inp = HealthInputs(
+        last_attached_at=_iso(now, hours=1),
+        last_setup_failed=False,
+        branch_merged=False,
+        tmux_alive=False,
+        sidecar_active=True,
+        tmux_configured=True,
         doctor_warnings=[],
     )
     assert "tmux-orphan" in derive_health(inp, now=now)
