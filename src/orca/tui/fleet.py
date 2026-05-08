@@ -38,6 +38,8 @@ class FleetTable(DataTable):
         self.add_column("seen", width=5, key="seen")
         self.add_column("s·c·p", width=7, key="done")
         self.add_column("health", width=8, key="health")
+        self._lane_col = next(c for c in self.columns.values() if c.key.value == "lane")
+        self._health_col = next(c for c in self.columns.values() if c.key.value == "health")
         self._apply_responsive_widths(self.app.size.width if self.app else 80)
 
     def set_rows(self, rows: list[FleetRow]) -> None:
@@ -99,20 +101,20 @@ class FleetTable(DataTable):
             lane_w, health_w = 28, 14
         else:
             lane_w, health_w = 22, 8
-        cols = {c.key.value: c for c in self.columns.values()}
-        if "lane" in cols:
-            cols["lane"].width = lane_w
-        if "health" in cols:
-            cols["health"].width = health_w
+        lane_col = getattr(self, "_lane_col", None)
+        health_col = getattr(self, "_health_col", None)
+        if lane_col is not None:
+            lane_col.width = lane_w
+        if health_col is not None:
+            health_col.width = health_w
         self.refresh()
 
     def on_resize(self, event) -> None:  # type: ignore[override]
         self._apply_responsive_widths(event.size.width)
 
     def _lane_width_now(self) -> int:
-        cols = {c.key.value: c for c in self.columns.values()}
-        col = cols.get("lane")
-        return col.width if col else 22
+        lane_col = getattr(self, "_lane_col", None)
+        return lane_col.width if lane_col is not None else 22
 
 
 def _truncate(value: str, width: int) -> str:

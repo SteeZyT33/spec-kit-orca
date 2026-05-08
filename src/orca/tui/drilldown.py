@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from textual.app import ComposeResult
+from textual.app import ComposeResult, SuspendNotSupported
 from textual.containers import Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import DataTable, Footer, Static
@@ -35,20 +35,31 @@ class _StageLine(Static):
             _actions.open_editor(Path(self.evidence))
 
 
+EVENTS_TAIL_BYTE_CAP = 65536  # 64KB tail — enough for last ~500 events
+
+
 def load_recent_events(repo_root: Path, lane_id: str, n: int = 20) -> list[dict]:
-    """Return last n events for the given lane, newest first."""
+    """Return last n events for the given lane, newest first.
+
+    Tail-reads the last 64KB to bound work on long-lived repos.
+    """
     path = repo_root / ".orca" / "worktrees" / "events.jsonl"
-    if not path.exists():
-        return []
     matches: list[dict] = []
-    with path.open() as fh:
-        for line in fh:
-            try:
-                entry = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if entry.get("lane_id") == lane_id:
-                matches.append(entry)
+    try:
+        file_size = path.stat().st_size
+        with path.open("rb") as fh:
+            if file_size > EVENTS_TAIL_BYTE_CAP:
+                fh.seek(file_size - EVENTS_TAIL_BYTE_CAP)
+                fh.readline()  # discard partial line
+            for raw in fh:
+                try:
+                    entry = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                if entry.get("lane_id") == lane_id:
+                    matches.append(entry)
+    except (FileNotFoundError, OSError):
+        return []
     return list(reversed(matches[-n:]))
 
 
@@ -95,8 +106,7 @@ class _GitLogTable(DataTable):
         try:
             with self.app.suspend():
                 show_commit(self.repo_root, sha)
-        except Exception:
-            # Suspend may fail in headless test mode — call directly.
+        except SuspendNotSupported:
             show_commit(self.repo_root, sha)
 
 
@@ -113,7 +123,6 @@ class LaneScreen(Screen):
         self.row = row
 
     def compose(self) -> ComposeResult:  # type: ignore[override]
-        # 1. Metadata block
         from orca.tui.git import ahead_behind
         from orca.core.worktrees.registry import read_sidecar, sidecar_path
         sc = read_sidecar(sidecar_path(
@@ -138,7 +147,7 @@ class LaneScreen(Screen):
         for seg_text, seg_style in self.row.stage_segments:
             strip.append(seg_text, style=seg_style)
 
-        # 4. Recent events (computed before compose context managers)
+        # pre-compute recent events before entering compose context managers
         events = load_recent_events(self.repo_root, self.row.lane_id)
         if not events:
             events_body = "(no events)"
@@ -150,6 +159,7 @@ class LaneScreen(Screen):
             )
 
         with VerticalScroll(id="lane-body"):
+            # 1. Metadata block
             yield Vertical(
                 Static(strip),
                 Static("\n".join(meta_lines), id="lane-meta-text"),
@@ -183,10 +193,9 @@ class LaneScreen(Screen):
 
     def _stage_lines(self) -> list[tuple[str, str, str]]:
         """Return list of (stage_name, label, evidence_path) per stage."""
-        order = ["brainstorm", "specify", "plan", "tasks", "implement",
-                 "review-spec", "review-code", "review-pr"]
+        from orca.flow_state import STAGE_ORDER
         if not self.row.feature_id:
-            return [(s, "—", "") for s in order]
+            return [(s, "—", "") for s in STAGE_ORDER]
         try:
             from orca.core.host_layout import from_manifest
             from orca.flow_state import compute_flow_state
@@ -195,20 +204,14 @@ class LaneScreen(Screen):
             result = compute_flow_state(layout.resolve_feature_dir(self.row.feature_id),
                                          repo_root=self.repo_root)
         except Exception:
-            return [(s, "—", "") for s in order]
+            return [(s, "—", "") for s in STAGE_ORDER]
         all_milestones = result.completed_milestones + result.incomplete_milestones
         by_stage = {m.stage: m for m in all_milestones}
         out: list[tuple[str, str, str]] = []
-        for stage in order:
+        for stage in STAGE_ORDER:
             m = by_stage.get(stage)
             status = m.status if m else "not_started"
             evidence = m.evidence_sources[0] if (m and m.evidence_sources) else ""
             out.append((stage, status_label(status), evidence))
         return out
 
-    def _stage_block(self) -> str:
-        """Render the 8-stage progress lines for the row's feature (kept for legacy)."""
-        lines = ["STAGE PROGRESS"]
-        for stage, label, evidence in self._stage_lines():
-            lines.append(f"  {stage:14s}  {label:14s}  {evidence}")
-        return "\n".join(lines)

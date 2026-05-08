@@ -2,12 +2,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
-from orca.tui.timefmt import format_age
-
-
-STALE_AFTER = timedelta(hours=24)
+from orca.tui.timefmt import STALE_AFTER, format_age, parse_iso
 
 
 @dataclass(frozen=True)
@@ -21,18 +18,6 @@ class HealthInputs:
     doctor_warnings: list[str] = field(default_factory=list)
 
 
-def _parse_iso(iso_ts: str | None) -> datetime | None:
-    if not iso_ts:
-        return None
-    try:
-        ts = datetime.fromisoformat(iso_ts.replace("Z", "+00:00"))
-    except (ValueError, TypeError):
-        return None
-    if ts.tzinfo is None:
-        ts = ts.replace(tzinfo=timezone.utc)
-    return ts
-
-
 def derive_health(inp: HealthInputs, *, now: datetime | None = None) -> str:
     cur = now or datetime.now(timezone.utc)
     tags: list[str] = []
@@ -43,7 +28,7 @@ def derive_health(inp: HealthInputs, *, now: datetime | None = None) -> str:
     if inp.branch_merged and inp.sidecar_active:
         tags.append("merged·cleanup")
 
-    last = _parse_iso(inp.last_attached_at)
+    last = parse_iso(inp.last_attached_at)
     if last is not None and (cur - last) > STALE_AFTER:
         tags.append(f"stale {format_age(inp.last_attached_at, now=cur)}")
 

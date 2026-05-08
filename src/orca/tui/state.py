@@ -2,10 +2,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
-
-STALE_AFTER = timedelta(hours=24)
+from orca.tui.timefmt import STALE_AFTER, parse_iso
 
 
 @dataclass(frozen=True)
@@ -15,18 +14,6 @@ class StateInputs:
     tmux_alive: bool
     branch_merged: bool             # branch reachable from base via --merged
     last_setup_failed: bool         # last setup.* event was .failed
-
-
-def _parse_iso(iso_ts: str | None) -> datetime | None:
-    if not iso_ts:
-        return None
-    try:
-        ts = datetime.fromisoformat(iso_ts.replace("Z", "+00:00"))
-    except (ValueError, TypeError):
-        return None
-    if ts.tzinfo is None:
-        ts = ts.replace(tzinfo=timezone.utc)
-    return ts
 
 
 def derive_state(inp: StateInputs, *, now: datetime | None = None) -> str:
@@ -43,7 +30,7 @@ def derive_state(inp: StateInputs, *, now: datetime | None = None) -> str:
         return "merged"
     if inp.tmux_alive and inp.last_event == "agent.launched":
         return "live"
-    last = _parse_iso(inp.last_attached_at)
+    last = parse_iso(inp.last_attached_at)
     if last is not None and (cur - last) > STALE_AFTER:
         return "stale"
     return "idle"

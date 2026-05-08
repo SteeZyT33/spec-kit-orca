@@ -11,11 +11,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from orca.core.host_layout import from_manifest
 from orca.core.worktrees.registry import (
     RegistryView, read_registry, read_sidecar, sidecar_path,
 )
-from orca.flow_state import FlowMilestone, compute_flow_state
+from orca.flow_state import STAGE_ORDER, FlowMilestone, compute_flow_state
 from orca.tui.flow_strip import strip_segments
 from orca.tui.health import HealthInputs, derive_health
 from orca.tui.models import FleetRow
@@ -98,6 +97,12 @@ def collect_fleet(
         if last_setup_failed is None:
             last_setup_failed = _last_setup_failed_from_idx
 
+    try:
+        from orca.core.host_layout import from_manifest
+        layout = from_manifest(repo_root)
+    except Exception:
+        layout = None
+
     rows: list[FleetRow] = []
     for lane in view.lanes:
         sc = read_sidecar(sidecar_path(wt_root, lane.lane_id))
@@ -127,8 +132,7 @@ def collect_fleet(
             doctor_warnings=[],
         ), now=cur)
 
-        strip = _stage_strip_for(repo_root, sc.feature_id)
-        done = _done_shorthand(repo_root, sc.feature_id)
+        strip, done = _flow_state_for(layout, repo_root, sc.feature_id)
 
         rows.append(FleetRow(
             lane_id=sc.lane_id,
@@ -147,42 +151,21 @@ def collect_fleet(
     return rows
 
 
-def _stage_strip_for(repo_root: Path, feature_id: str | None) -> tuple[tuple[str, str], ...]:
-    """Compute stage segments; returns all-not_started if no feature_id
-    or if compute_flow_state can't read the feature dir for any reason."""
-    if not feature_id:
-        return _empty_segments()
+def _flow_state_for(layout, repo_root: Path, feature_id: str | None):
+    """Compute strip + done shorthand from a single compute_flow_state call.
+    Returns (strip_segments, done_string)."""
+    if not feature_id or layout is None:
+        return _empty_segments(), "·  ·  · "
     try:
-        layout = from_manifest(repo_root)
+        result = compute_flow_state(
+            layout.resolve_feature_dir(feature_id),
+            repo_root=repo_root,
+        )
     except Exception:
-        return _empty_segments()
-    feat_dir = layout.resolve_feature_dir(feature_id)
-    try:
-        result = compute_flow_state(feat_dir, repo_root=repo_root)
-    except Exception:
-        return _empty_segments()
+        return _empty_segments(), "·  ·  · "
+
     all_milestones = result.completed_milestones + result.incomplete_milestones
-    return strip_segments(all_milestones)
-
-
-def _empty_segments() -> tuple[tuple[str, str], ...]:
-    return strip_segments([
-        FlowMilestone(stage=s, status="not_started")
-        for s in ["brainstorm", "specify", "plan", "tasks", "implement",
-                  "review-spec", "review-code", "review-pr"]
-    ])
-
-
-def _done_shorthand(repo_root: Path, feature_id: str | None) -> str:
-    """Three-glyph 'spec X code Y pr Z' shorthand."""
-    if not feature_id:
-        return "·  ·  · "
-    try:
-        layout = from_manifest(repo_root)
-        result = compute_flow_state(layout.resolve_feature_dir(feature_id),
-                                     repo_root=repo_root)
-    except Exception:
-        return "·  ·  · "
+    strip = strip_segments(all_milestones)
 
     by_type = {r.review_type: r.status for r in result.review_milestones}
 
@@ -195,8 +178,16 @@ def _done_shorthand(repo_root: Path, feature_id: str | None) -> str:
             return "✕"
         return "·"
 
-    return (
+    done = (
         f"{glyph(by_type.get('review-spec'))}  "
         f"{glyph(by_type.get('review-code'))}  "
         f"{glyph(by_type.get('review-pr'))}"
     )
+    return strip, done
+
+
+def _empty_segments() -> tuple[tuple[str, str], ...]:
+    return strip_segments([
+        FlowMilestone(stage=s, status="not_started")
+        for s in STAGE_ORDER
+    ])

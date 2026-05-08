@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 from pathlib import Path
 
-from textual.app import App, ComposeResult
+from textual.app import App, ComposeResult, SuspendNotSupported
 from textual.binding import Binding
 from textual.widgets import DataTable, Footer, Static
 
@@ -42,6 +43,7 @@ class FleetApp(App):
         self.repo_root = repo_root
         self.read_only = read_only
         self._rows: list[FleetRow] = []
+        self._last_refresh_at: datetime | None = None
 
     def export_screenshot(self, *args, **kwargs) -> str:
         """SVG export with HTML entities decoded to plain ASCII where safe.
@@ -88,22 +90,24 @@ class FleetApp(App):
         self.query_one("#event-tail", Static).update(text)
 
     def _host_system_label(self) -> str:
-        try:
-            from orca.core.host_layout import from_manifest
-            layout = from_manifest(self.repo_root)
-            return layout.__class__.__name__.replace("Layout", "").lower()
-        except Exception:
-            pass
-        try:
-            from orca.core.host_layout.detect import detect
-            layout = detect(self.repo_root)
-            return layout.__class__.__name__.replace("Layout", "").lower()
-        except Exception:
+        layout = getattr(self, "_layout_cache", None)
+        if layout is None:
+            try:
+                from orca.core.host_layout import from_manifest
+                layout = from_manifest(self.repo_root)
+            except Exception:
+                try:
+                    from orca.core.host_layout.detect import detect
+                    layout = detect(self.repo_root)
+                except Exception:
+                    layout = False  # sentinel
+            self._layout_cache = layout
+        if not layout:
             return "?"
+        return layout.__class__.__name__.replace("Layout", "").lower()
 
     def _last_refresh_label(self) -> str:
-        from datetime import datetime, timezone
-        ts = getattr(self, "_last_refresh_at", None) or datetime.now(timezone.utc)
+        ts = self._last_refresh_at or datetime.now(timezone.utc)
         delta = max(0.0, (datetime.now(timezone.utc) - ts).total_seconds())
         if delta < 60:
             return f"{int(delta)}s ago"
@@ -216,7 +220,7 @@ class FleetApp(App):
             try:
                 with self.suspend():
                     subprocess.call([pager, tmp_path])
-            except Exception:
+            except SuspendNotSupported:
                 # Headless mode (tests) — fall back to a result modal.
                 self.push_screen(ResultModal(
                     title=f"build-review-prompt --kind {kind}",
@@ -255,7 +259,6 @@ class FleetApp(App):
             w.stop()
 
     def _collect_and_set(self) -> None:
-        from datetime import datetime, timezone
         from orca.tui.collect import collect_fleet
         from orca.tui.actions import tmux_alive, branch_merged
         try:

@@ -1,7 +1,8 @@
-"""Subprocess wrappers + filesystem probes used by collect_fleet.
+"""Subprocess wrappers + filesystem probes used by the TUI.
 
-Phase 2 ships only the read-only probes (tmux_alive, branch_merged,
-last_event, last_setup_failed). Mutating actions land in Phase 4.
+Read-only probes (tmux_alive, branch_merged) feed collect_fleet's
+state derivation. Mutating wrappers (close_lane, new_lane, doctor)
+shell out to orca-cli; open_shell/open_editor spawn user tools.
 """
 from __future__ import annotations
 
@@ -125,51 +126,6 @@ def build_event_index(repo_root: Path) -> dict[str, dict[str, str | None]]:
     return out
 
 
-def last_event(repo_root: Path, lane_id: str) -> str | None:
-    """Most recent event type for `lane_id` from .orca/worktrees/events.jsonl.
-    Returns None if no events for this lane.
-
-    NOTE: This re-reads the full events.jsonl on every call — O(E) per lane.
-    Use build_event_index() for batch lookups across many lanes.
-    """
-    path = repo_root / ".orca" / "worktrees" / "events.jsonl"
-    if not path.exists():
-        return None
-    found: str | None = None
-    with path.open() as fh:
-        for line in fh:
-            try:
-                entry = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if entry.get("lane_id") == lane_id:
-                found = entry.get("event")
-    return found
-
-
-def last_setup_failed(repo_root: Path, lane_id: str) -> bool:
-    """True if the most recent setup.* event for the lane was a .failed.
-
-    NOTE: This re-reads the full events.jsonl on every call — O(E) per lane.
-    Use build_event_index() for batch lookups across many lanes.
-    """
-    path = repo_root / ".orca" / "worktrees" / "events.jsonl"
-    if not path.exists():
-        return False
-    last_setup: str | None = None
-    with path.open() as fh:
-        for line in fh:
-            try:
-                entry = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if entry.get("lane_id") != lane_id:
-                continue
-            evt = entry.get("event", "")
-            if evt.startswith("setup."):
-                last_setup = evt
-    return bool(last_setup and last_setup.endswith(".failed"))
-
 
 @dataclass(frozen=True)
 class ActionResult:
@@ -222,9 +178,8 @@ def open_editor(target: Path) -> int:
     Caller should suspend Textual."""
     editor = os.environ.get("EDITOR", "vi")
     parts = shlex.split(editor)
-    target_path = Path(target)
-    cwd = target_path.parent if target_path.is_file() else target_path
-    return subprocess.call([*parts, str(target_path)], cwd=str(cwd))
+    cwd = target.parent if target.is_file() else target
+    return subprocess.call([*parts, str(target)], cwd=str(cwd))
 
 
 def build_review_prompt(repo_root: Path, kind: str) -> str:
