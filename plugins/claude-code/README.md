@@ -1,31 +1,57 @@
 # Orca - Claude Code Plugin
 
-This plugin registers the orca cross-agent review and SDD-gate slash commands
-inside a Claude Code host.
+This plugin registers orca's worktree-management and TUI slash commands inside
+a Claude Code host.
+
+> **v3.0.0 (2026-05-07):** the SDD review pipeline (`review-spec`,
+> `review-code`, `review-pr`) and the `cite` / `gate` / `brainstorm` commands
+> are deprecated. They live under `commands/deprecated/` and remain opt-in
+> for anyone who wants to wire them back up. Rationale:
+> `docs/decisions/2026-05-07-lean-skill-bundle.md`.
 
 ## What gets installed
 
 When the orca extension is added to a spec-kit repo (via `specify extension add`
-or the direct-copy installer at `/tmp/install-phase3-orca.sh`), three things
+or the direct-copy installer at `/tmp/install-phase3-orca.sh`), four things
 land in the host:
 
-- **7 SKILL.md wrappers** at `.claude/skills/orca-{brainstorm,cite,gate,review-code,review-pr,review-spec,tui}/SKILL.md`. These make the slash commands user-invocable.
-- **`extension.yml` registration** at `.specify/extensions/orca/extension.yml`, listing the 7 commands plus hooks.
-- **Source command files** at `.specify/extensions/orca/plugins/claude-code/commands/*.md`. These are the prompts the skills wrap.
+- **2 SKILL.md wrappers** at `.claude/skills/orca-{tui,doctor}/SKILL.md`. These
+  make the active slash commands user-invocable.
+- **`extension.yml` registration** at `.specify/extensions/orca/extension.yml`,
+  listing the 2 active commands plus 6 deprecated commands under
+  `deprecated_commands:`.
+- **Source command files** at
+  `.specify/extensions/orca/plugins/claude-code/commands/{tui,doctor}.md`. The
+  6 deprecated source files live under `commands/deprecated/`.
 - **Helper scripts** at `.specify/extensions/orca/scripts/bash/`.
 
-## Slash commands
+## Active slash commands
 
 | Command | Purpose |
 | --- | --- |
-| `/orca:gate <stage>` | SDD completion-gate lint for `plan-ready`, `implement-ready`, `pr-ready`, `merge-ready`. |
-| `/orca:cite <path>` | Validate citations and ref hygiene in synthesis text. |
-| `/orca:review-spec` | Cross-agent adversarial review of a clarified spec. |
-| `/orca:review-code` | Self+cross review per user-story phase. |
-| `/orca:review-pr` | PR comment disposition and merge retro. |
-| `/orca:brainstorm` | Pre-spec ideation that captures options and recommendation. |
-| `/orca:tui` | Live awareness pane: review queue + event feed. |
-| `/orca:doctor` | Health check: orca-cli, .specify wiring, SKILL.md, reviewer backends. |
+| `/orca:tui` | Live awareness pane: worktree lanes, event feed, review queue if present. |
+| `/orca:doctor` | Health check: orca-cli, worktree config, SKILL.md, reviewer backends. Exit 0 if healthy. |
+
+## Deprecated slash commands (opt-in)
+
+Source files under `commands/deprecated/`. To re-enable any single command:
+copy back to `commands/<name>.md` and re-add to the `commands:` block in
+`extension.yml`.
+
+| Command | Replacement |
+| --- | --- |
+| `/orca:brainstorm` | `superpowers:brainstorming` skill |
+| `/orca:review-spec` | spec-design dialogue + the spec self-review step in `superpowers:writing-plans` |
+| `/orca:review-code` | `superpowers:requesting-code-review` + CodeRabbit on the PR |
+| `/orca:review-pr` | GitHub PR comment review + ad-hoc retro |
+| `/orca:gate` | CI status checks (`gh pr view --json statusCheckRollup`) |
+| `/orca:cite` | niche; deprecated unless publishing synthesis content |
+
+The 5 underlying capability modules
+(`citation_validator`, `completion_gate`, `contradiction_detector`,
+`cross_agent_review`, `flow_state_projection`) remain in
+`src/orca/capabilities/` and are still callable from `orca-cli` directly.
+Only the user-facing slash command surface is pruned.
 
 ## Resolving orca-cli
 
@@ -38,28 +64,17 @@ Prerequisites block in each command file walks the resolution chain in order:
 
 If none of the three resolve, the command file prints a one-line error and exits.
 
-## Live reviewer backends
-
-`/orca:review-spec` and `/orca:review-code` invoke external reviewer adapters.
-These are best-effort and skipped gracefully if missing:
-
-- **`ANTHROPIC_API_KEY`** - required for the `claude` reviewer (Anthropic SDK). The reviewer makes an HTTP call to `api.anthropic.com`; not the same as the in-session host Claude.
-- **Authenticated `codex` CLI** - run `codex login` once. Used by the `codex` reviewer.
-- **`ORCA_REVIEWER_TIMEOUT_S=<seconds>`** - override the codex reviewer's default 120s timeout. Bump it for large patches.
-
 ## Re-syncing skills after edits
 
-If you edit a source command file at `.specify/extensions/orca/plugins/claude-code/commands/*.md`, the corresponding SKILL.md does not auto-regenerate. Re-sync with:
+If you edit a source command file at
+`.specify/extensions/orca/plugins/claude-code/commands/*.md`, the corresponding
+SKILL.md does not auto-regenerate. Re-sync with:
 
 ```bash
 bash .specify/extensions/orca/scripts/bash/sync-skills.sh
 ```
 
-This force-regenerates all 7 SKILL.md wrappers from the current command files.
-
 ## Health check
-
-To confirm the install is wired correctly, run:
 
 ```bash
 /orca:doctor
@@ -70,12 +85,3 @@ Or directly:
 ```bash
 bash .specify/extensions/orca/scripts/bash/orca-doctor.sh
 ```
-
-Exits 0 when orca-cli, `.specify/`, and the 7 SKILL.md files are all healthy.
-Reviewer-backend availability is reported as warnings, not failures.
-
-## Known issues
-
-Phase 3.2 backlog tracking documentation gaps, validator over-flagging, and
-adapter identity collapse: see `docs/superpowers/notes/2026-04-27-phase-3-2-backlog.md`
-in the orca source tree.
