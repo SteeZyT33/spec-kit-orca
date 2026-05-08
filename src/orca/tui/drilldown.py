@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 from textual.app import ComposeResult
-from textual.containers import Vertical
+from textual.containers import Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import DataTable, Footer, Static
 
@@ -137,43 +137,48 @@ class LaneScreen(Screen):
         strip = Text()
         for seg_text, seg_style in self.row.stage_segments:
             strip.append(seg_text, style=seg_style)
-        yield Vertical(
-            Static(strip),
-            Static("\n".join(meta_lines), id="lane-meta-text"),
-            id="lane-meta",
-        )
 
-        # 2. Stage progress block
-        yield Vertical(
-            Static("STAGE PROGRESS", classes="label"),
-            *[_StageLine(stage, label, evidence)
-              for stage, label, evidence in self._stage_lines()],
-            id="lane-stages",
-        )
-
-        # 3. Git log block (selectable DataTable)
-        yield Vertical(
-            Static("GIT LOG", classes="label"),
-            _GitLogTable(self.repo_root, self.row.branch,
-                         id="lane-git-table"),
-            id="lane-git",
-        )
-
-        # 4. Recent events
+        # 4. Recent events (computed before compose context managers)
         events = load_recent_events(self.repo_root, self.row.lane_id)
         if not events:
-            body = "(no events)"
+            events_body = "(no events)"
         else:
-            body = "\n".join(
+            events_body = "\n".join(
                 f"{e.get('ts', '?'):26s}  {e.get('event', '?'):24s}  "
                 f"{e.get('agent', '')}"
                 for e in events
             )
-        yield Vertical(
-            Static("RECENT EVENTS", classes="label"),
-            Static(body),
-            id="lane-events",
-        )
+
+        with VerticalScroll(id="lane-body"):
+            yield Vertical(
+                Static(strip),
+                Static("\n".join(meta_lines), id="lane-meta-text"),
+                id="lane-meta",
+            )
+
+            # 2. Stage progress block
+            yield Vertical(
+                Static("STAGE PROGRESS", classes="label"),
+                *[_StageLine(stage, label, evidence)
+                  for stage, label, evidence in self._stage_lines()],
+                id="lane-stages",
+            )
+
+            # 3. Git log block (selectable DataTable)
+            yield Vertical(
+                Static("GIT LOG", classes="label"),
+                _GitLogTable(self.repo_root, self.row.branch,
+                             id="lane-git-table"),
+                id="lane-git",
+            )
+
+            # 4. Recent events
+            yield Vertical(
+                Static("RECENT EVENTS", classes="label"),
+                Static(events_body),
+                id="lane-events",
+            )
+
         yield Footer()
 
     def _stage_lines(self) -> list[tuple[str, str, str]]:

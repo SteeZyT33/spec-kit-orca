@@ -107,6 +107,10 @@ def test_render_snapshot_at(tmp_path: Path, size: tuple[int, int]):
     asyncio.run(_run())
 
 
+def test_drilldown_snapshot_80x24(tmp_path: Path) -> None:
+    asyncio.run(_drilldown_snapshot(tmp_path, 80, 24))
+
+
 def test_drilldown_snapshot_100x30(tmp_path: Path) -> None:
     asyncio.run(_drilldown_snapshot(tmp_path, 100, 30))
 

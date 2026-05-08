@@ -40,6 +40,10 @@ LaneScreen {
     layers: base modal;
 }
 
+LaneScreen #lane-body {
+    height: 1fr;
+}
+
 LaneScreen #lane-meta {
     border: round $primary-darken-1;
     height: auto;
