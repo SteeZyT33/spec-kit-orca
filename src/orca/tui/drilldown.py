@@ -214,4 +214,3 @@ class LaneScreen(Screen):
             evidence = m.evidence_sources[0] if (m and m.evidence_sources) else ""
             out.append((stage, status_label(status), evidence))
         return out
-
