@@ -79,12 +79,17 @@ def collect_fleet(
     if last_event is None or last_setup_failed is None:
         from orca.tui.actions import build_event_index
         idx = build_event_index(repo_root)
+
+        def _last_event_from_idx(lid: str) -> str | None:
+            return (idx.get(lid) or {}).get("last_event")
+
+        def _last_setup_failed_from_idx(lid: str) -> bool:
+            return ((idx.get(lid) or {}).get("last_setup") or "").endswith(".failed")
+
         if last_event is None:
-            last_event = lambda lid: (idx.get(lid) or {}).get("last_event")
+            last_event = _last_event_from_idx
         if last_setup_failed is None:
-            last_setup_failed = lambda lid: (
-                (idx.get(lid) or {}).get("last_setup") or ""
-            ).endswith(".failed")
+            last_setup_failed = _last_setup_failed_from_idx
 
     rows: list[FleetRow] = []
     for lane in view.lanes:

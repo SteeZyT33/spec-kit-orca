@@ -7,9 +7,6 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-import pytest
-
-
 def _write_registry(repo_root: Path, n_lanes: int) -> None:
     wt_root = repo_root / ".orca" / "worktrees"
     wt_root.mkdir(parents=True, exist_ok=True)
