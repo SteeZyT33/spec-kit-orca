@@ -2,11 +2,19 @@
 
 Watches .orca/worktrees/. On change, calls on_change(path) on a background
 thread, debounced by coalesce_window seconds.
+
+Debounce behaviour: each new filesystem event restarts the coalesce timer.
+Under sustained burst (events arriving faster than coalesce_window), this
+would normally starve the callback indefinitely. The max_delay cap prevents
+that: once the first event of a burst arrives, the timer is capped so the
+callback fires at least every max_delay seconds even while events keep
+arriving.
 """
 from __future__ import annotations
 
 import logging
 import threading
+import time as _time
 from pathlib import Path
 from typing import Callable
 
@@ -23,14 +31,17 @@ class Watcher:
         poll_interval: float = 5.0,
         coalesce_window: float = 0.5,
         force_polling: bool = False,
+        max_delay: float = 2.0,
     ) -> None:
         self.repo_root = repo_root
         self.on_change = on_change
         self.poll_interval = poll_interval
         self.coalesce_window = coalesce_window
+        self.max_delay = max_delay
         self._stop_event = threading.Event()
         self._debounce_lock = threading.Lock()
         self._pending_timer: threading.Timer | None = None
+        self._first_pending_at: float | None = None
         self._observer = None
         self._poll_thread: threading.Thread | None = None
 
@@ -79,15 +90,26 @@ class Watcher:
 
     def _schedule(self, p: Path) -> None:
         with self._debounce_lock:
+            now = _time.monotonic()
+            if self._first_pending_at is None:
+                self._first_pending_at = now
+            # Compute time until the max-delay cap fires.
+            elapsed = now - self._first_pending_at
+            remaining_cap = max(0.0, self.max_delay - elapsed)
+            # Use the smaller of coalesce_window vs remaining cap.
+            # When remaining_cap reaches 0, fire immediately on the next event.
+            delay = min(self.coalesce_window, remaining_cap) if remaining_cap > 0 else 0.0
             if self._pending_timer is not None:
                 self._pending_timer.cancel()
             self._pending_timer = threading.Timer(
-                self.coalesce_window, self._fire, args=(p,),
+                delay, self._fire, args=(p,),
             )
             self._pending_timer.daemon = True
             self._pending_timer.start()
 
     def _fire(self, p: Path) -> None:
+        with self._debounce_lock:
+            self._first_pending_at = None
         try:
             self.on_change(p)
         except Exception:
