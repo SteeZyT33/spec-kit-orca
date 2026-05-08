@@ -63,7 +63,7 @@ def latest_event_summary(repo_root: Path) -> str:
 def collect_fleet(
     repo_root: Path,
     *,
-    tmux_alive: Callable[[str], bool],
+    tmux_alive: Callable[[str, str | None], bool],
     branch_merged: Callable[[str, str], bool],
     last_event: Callable[[str], str | None] | None = None,
     last_setup_failed: Callable[[str], bool] | None = None,
@@ -106,7 +106,7 @@ def collect_fleet(
 
         evt = last_event(lane.lane_id)
         setup_fail = last_setup_failed(lane.lane_id)
-        tmux = tmux_alive(sc.tmux_session)
+        tmux = tmux_alive(sc.tmux_session, sc.tmux_window)
         merged = branch_merged(sc.branch, sc.base_branch)
 
         state = derive_state(StateInputs(

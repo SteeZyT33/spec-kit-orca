@@ -60,7 +60,8 @@ def ahead_behind(
     # --left-right --count prints <left_count>\t<right_count>
     # with base...branch: left=behind, right=ahead
     # Return as (ahead, behind) per caller contract
-    return (left, right)
+    behind, ahead = left, right
+    return (ahead, behind)
 
 
 def show_commit(repo_root: Path, sha: str) -> int:

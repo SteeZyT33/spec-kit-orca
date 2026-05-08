@@ -67,7 +67,7 @@ def test_collect_fleet_50_lanes_no_events(tmp_path: Path) -> None:
     start = time.perf_counter()
     rows = collect_fleet(
         tmp_path,
-        tmux_alive=lambda s: False,
+        tmux_alive=lambda s, w: False,
         branch_merged=lambda b, base: False,
     )
     elapsed = time.perf_counter() - start
@@ -91,7 +91,7 @@ def test_collect_fleet_50_lanes_10k_events(tmp_path: Path) -> None:
     start = time.perf_counter()
     rows = collect_fleet(
         tmp_path,
-        tmux_alive=lambda s: False,
+        tmux_alive=lambda s, w: False,
         branch_merged=lambda b, base: False,
         # No last_event / last_setup_failed → collect_fleet builds the index once
     )
@@ -112,7 +112,7 @@ def test_collect_fleet_100_lanes_baseline(tmp_path: Path) -> None:
     start = time.perf_counter()
     rows = collect_fleet(
         tmp_path,
-        tmux_alive=lambda s: False,
+        tmux_alive=lambda s, w: False,
         branch_merged=lambda b, base: False,
     )
     elapsed = time.perf_counter() - start
@@ -131,7 +131,7 @@ def test_collect_fleet_50_lanes_100k_events(tmp_path: Path) -> None:
     start = time.perf_counter()
     rows = collect_fleet(
         tmp_path,
-        tmux_alive=lambda s: False,
+        tmux_alive=lambda s, w: False,
         branch_merged=lambda b, base: False,
     )
     elapsed = time.perf_counter() - start

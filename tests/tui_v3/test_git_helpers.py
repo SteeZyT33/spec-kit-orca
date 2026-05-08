@@ -41,9 +41,11 @@ def test_recent_commits_empty_when_branch_missing(tmp_path: Path, monkeypatch):
 
 
 def test_ahead_behind_parses_output(tmp_path: Path, monkeypatch):
+    """git rev-list --left-right --count emits `<behind>\\t<ahead>`.
+    Function contract: return (ahead, behind)."""
     class _CP:
         returncode = 0
-        stdout = "3\t7\n"
+        stdout = "3\t7\n"  # 3 commits behind, 7 ahead
         stderr = ""
 
     def fake_run(cmd, **kw):
@@ -51,7 +53,7 @@ def test_ahead_behind_parses_output(tmp_path: Path, monkeypatch):
 
     monkeypatch.setattr("subprocess.run", fake_run)
     ab = ahead_behind(tmp_path, "feat-x", "main")
-    assert ab == (3, 7)
+    assert ab == (7, 3), f"expected (ahead=7, behind=3), got {ab}"
 
 
 def test_ahead_behind_none_when_git_fails(tmp_path: Path, monkeypatch):

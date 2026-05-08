@@ -56,7 +56,7 @@ def _seed_repo(tmp_path: Path) -> Path:
 def test_collect_fleet_empty_when_no_lanes(tmp_path):
     _seed_repo(tmp_path)
     rows = collect_fleet(tmp_path,
-                          tmux_alive=lambda s: False,
+                          tmux_alive=lambda s, w: False,
                           branch_merged=lambda b, base: False)
     assert rows == []
 
@@ -74,7 +74,7 @@ def test_collect_fleet_one_live_lane(tmp_path):
 
     rows = collect_fleet(
         tmp_path,
-        tmux_alive=lambda s: True,
+        tmux_alive=lambda s, w: True,
         branch_merged=lambda b, base: False,
         now=datetime(2026, 5, 1, 12, 0, 30, tzinfo=timezone.utc),
         last_event=lambda lane_id: "agent.launched",
@@ -111,7 +111,7 @@ def test_collect_fleet_sorts_live_first_then_stale_then_merged(tmp_path):
 
     rows = collect_fleet(
         tmp_path,
-        tmux_alive=lambda s: s.endswith("m-live"),
+        tmux_alive=lambda s, w: s.endswith("m-live"),
         branch_merged=lambda b, base: b == "z-merged",
         now=now,
         last_event=lambda lane_id: "agent.launched" if lane_id == "m-live" else None,

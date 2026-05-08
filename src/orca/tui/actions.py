@@ -23,14 +23,32 @@ EVENT_INDEX_BYTE_CAP: int = int(
 )
 
 
-def tmux_alive(session: str) -> bool:
-    """True if `tmux has-session -t <session>` succeeds."""
+def tmux_alive(session: str, window: str | None = None) -> bool:
+    """True if the tmux session AND (when given) the lane's window both exist.
+
+    Orca's tmux model is one session per repo with many windows; the lane's
+    window dying must report stale even if the session is still alive.
+    """
+    if not session:
+        return False
     try:
-        result = subprocess.run(
+        # session exists?
+        s = subprocess.run(
             ["tmux", "has-session", "-t", session],
             capture_output=True, timeout=2.0,
         )
-        return result.returncode == 0
+        if s.returncode != 0:
+            return False
+        if not window:
+            return True
+        # window exists in that session?
+        w = subprocess.run(
+            ["tmux", "list-windows", "-t", session, "-F", "#{window_name}"],
+            capture_output=True, text=True, timeout=2.0,
+        )
+        if w.returncode != 0:
+            return False
+        return window in {ln.strip() for ln in w.stdout.splitlines()}
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return False
 
@@ -161,7 +179,7 @@ class ActionResult:
 
 
 def close_lane(repo_root: Path, *, branch: str, force: bool = True) -> ActionResult:
-    cmd = ["orca-cli", "wt", "rm", "--branch", branch]
+    cmd = ["orca-cli", "wt", "rm", branch]
     if force:
         cmd.append("--force")
     out = subprocess.run(cmd, cwd=str(repo_root), capture_output=True,
@@ -171,11 +189,15 @@ def close_lane(repo_root: Path, *, branch: str, force: bool = True) -> ActionRes
 
 def new_lane(
     repo_root: Path, *, feature: str, agent: str = "claude",
-    from_branch: str | None = None,
+    from_branch: str | None = None, branch: str | None = None,
 ) -> ActionResult:
+    """Create a worktree lane via `orca-cli wt new`. The branch name
+    defaults to the feature id; pass `branch` explicitly to override."""
+    branch_name = branch or feature
     cmd = ["orca-cli", "wt", "new", "--feature", feature, "--agent", agent]
     if from_branch:
         cmd += ["--from", from_branch]
+    cmd.append(branch_name)  # positional branch must be last
     out = subprocess.run(cmd, cwd=str(repo_root), capture_output=True,
                          text=True, timeout=120)
     return ActionResult(out.returncode, out.stdout, out.stderr)
@@ -194,12 +216,15 @@ def open_shell(worktree_path: Path) -> int:
     return subprocess.call([shell, "-i"], cwd=str(worktree_path))
 
 
-def open_editor(worktree_path: Path) -> int:
-    """Spawn $EDITOR (split via shlex) on the worktree. Caller suspends."""
+def open_editor(target: Path) -> int:
+    """Spawn $EDITOR (split via shlex) on `target`. If `target` is a
+    file, cwd is its parent; if a directory, cwd is the directory itself.
+    Caller should suspend Textual."""
     editor = os.environ.get("EDITOR", "vi")
     parts = shlex.split(editor)
-    return subprocess.call([*parts, str(worktree_path)],
-                            cwd=str(worktree_path))
+    target_path = Path(target)
+    cwd = target_path.parent if target_path.is_file() else target_path
+    return subprocess.call([*parts, str(target_path)], cwd=str(cwd))
 
 
 def build_review_prompt(repo_root: Path, kind: str) -> str:
