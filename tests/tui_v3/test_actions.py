@@ -56,6 +56,7 @@ def test_open_editor_uses_parent_dir_when_target_is_file(tmp_path: Path, monkeyp
     target.write_text("# spec")
 
     captured: dict = {}
+
     def fake_call(cmd, cwd):
         captured["cmd"] = cmd
         captured["cwd"] = cwd
@@ -73,6 +74,7 @@ def test_open_editor_uses_parent_dir_when_target_is_file(tmp_path: Path, monkeyp
 def test_open_editor_uses_target_when_directory(tmp_path: Path, monkeypatch):
     from orca.tui.actions import open_editor
     captured: dict = {}
+
     def fake_call(cmd, cwd):
         captured["cwd"] = cwd
         return 0
