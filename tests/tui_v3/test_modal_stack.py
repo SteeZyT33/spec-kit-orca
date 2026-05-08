@@ -65,7 +65,6 @@ async def _run_R_in_new(tmp_path: Path, monkeypatch) -> None:
     from orca.tui.flow_strip import strip_segments
     from orca.flow_state import FlowMilestone
     from orca.tui.models import FleetRow
-    from orca.tui.modals import NewLaneModal, ReviewKindModal
 
     pushes = []
     real_push = FleetApp.push_screen
