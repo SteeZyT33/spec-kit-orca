@@ -28,15 +28,22 @@ _STATE_RANK = {"live": 0, "stale": 1, "merged": 2, "failed": 3, "idle": 4}
 
 def latest_event_summary(repo_root: Path) -> str:
     """One-line summary of the most recent event in events.jsonl.
-    Dim placeholder when no events file exists."""
+    Tail-reads the last 4KB only — the last entry is in the last few
+    hundred bytes; no need to scan the full file."""
     path = repo_root / ".orca" / "worktrees" / "events.jsonl"
     if not path.exists():
         return "  last: (no events)"
+
+    _LATEST_BYTE_CAP = 4096
+    file_size = path.stat().st_size
     last: dict | None = None
-    with path.open() as fh:
-        for line in fh:
+    with path.open("rb") as fh:
+        if file_size > _LATEST_BYTE_CAP:
+            fh.seek(file_size - _LATEST_BYTE_CAP)
+            fh.readline()  # discard partial line at the seek boundary
+        for raw in fh:
             try:
-                entry = json.loads(line)
+                entry = json.loads(raw)
             except json.JSONDecodeError:
                 continue
             last = entry

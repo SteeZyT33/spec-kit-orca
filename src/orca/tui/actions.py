@@ -12,6 +12,16 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+# Tail-read cap for events.jsonl. Reading the whole file on every TUI refresh
+# is O(file_size) and stalls on long-lived repos with months of history.
+# 256KB ≈ 3-4k recent events — enough to cover active lanes. Ancient events
+# from zombie lanes are dominated by newer ones anyway; derive_state falls
+# back to idle/stale from sidecar data when event signals are absent.
+# Override via ORCA_EVENT_INDEX_BYTE_CAP env var (int, bytes) if needed.
+EVENT_INDEX_BYTE_CAP: int = int(
+    os.environ.get("ORCA_EVENT_INDEX_BYTE_CAP", 262144)
+)
+
 
 def tmux_alive(session: str) -> bool:
     """True if `tmux has-session -t <session>` succeeds."""
@@ -60,7 +70,8 @@ def branch_merged(repo_root: Path, branch: str, base: str) -> bool:
 
 
 def build_event_index(repo_root: Path) -> dict[str, dict[str, str | None]]:
-    """Return per-lane state derived from events.jsonl in a single pass.
+    """Return per-lane state derived from events.jsonl. Tail-reads the
+    last EVENT_INDEX_BYTE_CAP bytes to bound work on long-lived repos.
 
     Result: {lane_id: {"last_event": str|None, "last_setup": str|None}}
 
@@ -70,11 +81,19 @@ def build_event_index(repo_root: Path) -> dict[str, dict[str, str | None]]:
     path = repo_root / ".orca" / "worktrees" / "events.jsonl"
     if not path.exists():
         return {}
+
     out: dict[str, dict[str, str | None]] = {}
-    with path.open() as fh:
-        for line in fh:
+    file_size = path.stat().st_size
+
+    with path.open("rb") as fh:
+        if file_size > EVENT_INDEX_BYTE_CAP:
+            # Seek to last CAP bytes; advance past the partial line at the
+            # boundary so we don't try to parse a truncated JSON object.
+            fh.seek(file_size - EVENT_INDEX_BYTE_CAP)
+            fh.readline()  # discard partial line at the seek boundary
+        for raw in fh:
             try:
-                entry = json.loads(line)
+                entry = json.loads(raw)
             except json.JSONDecodeError:
                 continue
             lane = entry.get("lane_id")
