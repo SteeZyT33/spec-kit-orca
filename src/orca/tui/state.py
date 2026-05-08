@@ -44,6 +44,6 @@ def derive_state(inp: StateInputs, *, now: datetime | None = None) -> str:
     if inp.tmux_alive and inp.last_event == "agent.launched":
         return "live"
     last = _parse_iso(inp.last_attached_at)
-    if last is None or (cur - last) > STALE_AFTER:
+    if last is not None and (cur - last) > STALE_AFTER:
         return "stale"
     return "idle"

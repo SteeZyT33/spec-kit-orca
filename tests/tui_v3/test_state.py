@@ -68,3 +68,15 @@ def test_state_idle_otherwise(now):
         last_setup_failed=False,
     )
     assert derive_state(inp, now=now) == "idle"
+
+
+def test_state_idle_for_brand_new_lane_with_no_attach(now):
+    """A lane just created (last_attached_at=None) should be idle, not stale."""
+    inp = StateInputs(
+        last_attached_at=None,
+        last_event="lane.created",
+        tmux_alive=False,
+        branch_merged=False,
+        last_setup_failed=False,
+    )
+    assert derive_state(inp, now=now) == "idle"
