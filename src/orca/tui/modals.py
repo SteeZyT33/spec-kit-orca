@@ -119,5 +119,45 @@ class ReviewKindModal(ModalScreen[str | None]):
         self.dismiss(None)
 
 
+class HelpModal(ModalScreen[None]):
+    """Show all keybindings. Esc/? closes."""
+
+    BINDINGS = [
+        ("escape", "close", ""),
+        ("question_mark", "close", ""),
+    ]
+
+    def compose(self) -> ComposeResult:  # type: ignore[override]
+        body = (
+            "Fleet view\n"
+            "  ↑↓        navigate\n"
+            "  ⏎         drill into focused lane\n"
+            "  o         open shell in worktree\n"
+            "  e         open editor in worktree\n"
+            "  r         remove (close) lane         [hidden in --read-only]\n"
+            "  n         new lane                    [hidden in --read-only]\n"
+            "  d         doctor (wt doctor --reap)   [hidden in --read-only]\n"
+            "  R         build review prompt         [hidden in --read-only]\n"
+            "  g         refresh\n"
+            "  q         quit\n"
+            "  ?         this help\n"
+            "\n"
+            "Drilldown\n"
+            "  ↑↓        navigate git log rows\n"
+            "  c / ⏎     show selected commit (git show)\n"
+            "  click     stage line opens evidence file\n"
+            "  esc       back to fleet"
+        )
+        yield Vertical(
+            Label("orca tui — keybindings"),
+            Static(body),
+            Static("\\[esc] close", classes="label"),
+            id="dialog",
+        )
+
+    def action_close(self) -> None:
+        self.dismiss(None)
+
+
 # DoctorModal is just ResultModal aliased — no extra UI needed.
 DoctorModal = ResultModal

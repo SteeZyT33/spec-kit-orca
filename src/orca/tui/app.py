@@ -27,6 +27,7 @@ class FleetApp(App):
         Binding("n", "new_lane", "new"),
         Binding("d", "doctor", "doctor"),
         Binding("R", "build_review", "review"),
+        Binding("question_mark", "help", "help"),
     ]
 
     # Hide r/n/d/R from Footer when read_only.
@@ -223,6 +224,10 @@ class FleetApp(App):
                 ))
 
         self.push_screen(ReviewKindModal(), on_kind)
+
+    def action_help(self) -> None:
+        from orca.tui.modals import HelpModal
+        self.push_screen(HelpModal())
 
     def action_doctor(self) -> None:
         if self.read_only:
