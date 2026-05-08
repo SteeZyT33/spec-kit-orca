@@ -73,14 +73,27 @@ def collect_fleet(
     if not view.lanes:
         return []
 
+    # Build the events index ONCE per refresh; lookups are O(1) per lane.
+    # Only kicks in when the caller didn't inject explicit callbacks
+    # (injected callbacks are used by tests for determinism).
+    if last_event is None or last_setup_failed is None:
+        from orca.tui.actions import build_event_index
+        idx = build_event_index(repo_root)
+        if last_event is None:
+            last_event = lambda lid: (idx.get(lid) or {}).get("last_event")
+        if last_setup_failed is None:
+            last_setup_failed = lambda lid: (
+                (idx.get(lid) or {}).get("last_setup") or ""
+            ).endswith(".failed")
+
     rows: list[FleetRow] = []
     for lane in view.lanes:
         sc = read_sidecar(sidecar_path(wt_root, lane.lane_id))
         if sc is None:
             continue
 
-        evt = (last_event or (lambda _l: None))(lane.lane_id)
-        setup_fail = (last_setup_failed or (lambda _l: False))(lane.lane_id)
+        evt = last_event(lane.lane_id)
+        setup_fail = last_setup_failed(lane.lane_id)
         tmux = tmux_alive(sc.tmux_session)
         merged = branch_merged(sc.branch, sc.base_branch)
 

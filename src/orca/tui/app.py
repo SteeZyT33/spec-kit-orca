@@ -257,16 +257,15 @@ class FleetApp(App):
     def _collect_and_set(self) -> None:
         from datetime import datetime, timezone
         from orca.tui.collect import collect_fleet
-        from orca.tui.actions import (
-            tmux_alive, branch_merged, last_event, last_setup_failed,
-        )
+        from orca.tui.actions import tmux_alive, branch_merged
         try:
             rows = collect_fleet(
                 self.repo_root,
                 tmux_alive=tmux_alive,
                 branch_merged=lambda b, base: branch_merged(self.repo_root, b, base),
-                last_event=lambda lid: last_event(self.repo_root, lid),
-                last_setup_failed=lambda lid: last_setup_failed(self.repo_root, lid),
+                # last_event / last_setup_failed default to None →
+                # collect_fleet builds a single events.jsonl index per refresh
+                # (O(events), not O(lanes × events)).
             )
             self.set_rows(rows)
         except Exception:

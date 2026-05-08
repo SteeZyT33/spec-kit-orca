@@ -59,9 +59,42 @@ def branch_merged(repo_root: Path, branch: str, base: str) -> bool:
         return False
 
 
+def build_event_index(repo_root: Path) -> dict[str, dict[str, str | None]]:
+    """Return per-lane state derived from events.jsonl in a single pass.
+
+    Result: {lane_id: {"last_event": str|None, "last_setup": str|None}}
+
+    Callers that need O(1) per-lane lookups should call this once per
+    refresh instead of calling last_event/last_setup_failed per lane.
+    """
+    path = repo_root / ".orca" / "worktrees" / "events.jsonl"
+    if not path.exists():
+        return {}
+    out: dict[str, dict[str, str | None]] = {}
+    with path.open() as fh:
+        for line in fh:
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            lane = entry.get("lane_id")
+            if not lane:
+                continue
+            evt = entry.get("event", "")
+            slot = out.setdefault(lane, {"last_event": None, "last_setup": None})
+            slot["last_event"] = evt
+            if evt.startswith("setup."):
+                slot["last_setup"] = evt
+    return out
+
+
 def last_event(repo_root: Path, lane_id: str) -> str | None:
     """Most recent event type for `lane_id` from .orca/worktrees/events.jsonl.
-    Returns None if no events for this lane."""
+    Returns None if no events for this lane.
+
+    NOTE: This re-reads the full events.jsonl on every call — O(E) per lane.
+    Use build_event_index() for batch lookups across many lanes.
+    """
     path = repo_root / ".orca" / "worktrees" / "events.jsonl"
     if not path.exists():
         return None
@@ -78,7 +111,11 @@ def last_event(repo_root: Path, lane_id: str) -> str | None:
 
 
 def last_setup_failed(repo_root: Path, lane_id: str) -> bool:
-    """True if the most recent setup.* event for the lane was a .failed."""
+    """True if the most recent setup.* event for the lane was a .failed.
+
+    NOTE: This re-reads the full events.jsonl on every call — O(E) per lane.
+    Use build_event_index() for batch lookups across many lanes.
+    """
     path = repo_root / ".orca" / "worktrees" / "events.jsonl"
     if not path.exists():
         return False
