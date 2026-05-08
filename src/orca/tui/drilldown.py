@@ -133,7 +133,15 @@ class LaneScreen(Screen):
         ]
         if self.row.health:
             meta_lines.append(f"health   {self.row.health}")
-        yield Static("\n".join(meta_lines), id="lane-meta")
+        from rich.text import Text
+        strip = Text()
+        for seg_text, seg_style in self.row.stage_segments:
+            strip.append(seg_text, style=seg_style)
+        yield Vertical(
+            Static(strip),
+            Static("\n".join(meta_lines), id="lane-meta-text"),
+            id="lane-meta",
+        )
 
         # 2. Stage progress block
         yield Vertical(
